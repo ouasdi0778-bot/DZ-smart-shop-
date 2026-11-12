@@ -1,0 +1,11 @@
+{
+  "name": "dz-smart-shop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Gestion des commandes COD sur Google Sheets (Google Apps Script)",
+  "scripts": {
+    "test": "node tests/run-tests.js",
+    "preview": "node tests/build-preview.js"
+  },
+  "license": "UNLICENSED"
+}

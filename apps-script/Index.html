@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+  <?!= include('Styles'); ?>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" aria-label="Navigation principale">
+      <div class="brand">
+        <span class="brand-name" data-shop>DZ Smart Shop</span>
+        <span class="brand-sub">Gestion des commandes COD</span>
+      </div>
+      <nav class="nav">
+        <a href="#/tableau" data-route="tableau">Tableau de bord</a>
+        <a href="#/commandes" data-route="commandes">Commandes</a>
+        <a href="#/confirmation" data-route="confirmation">Confirmation <span class="badge" data-queue-count hidden></span></a>
+      </nav>
+      <div class="side-user">
+        <span class="side-user-name" data-user-name></span>
+        <span class="side-user-mail" data-user-mail></span>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="mobile-top">
+        <span class="brand-name" data-shop>DZ Smart Shop</span>
+        <span class="mobile-user" data-user-name></span>
+      </header>
+      <main id="view" class="content" tabindex="-1">
+        <p class="loading">Chargement…</p>
+      </main>
+    </div>
+  </div>
+
+  <nav class="bottom-nav" aria-label="Navigation">
+    <a href="#/tableau" data-route="tableau">Tableau</a>
+    <a href="#/commandes" data-route="commandes">Commandes</a>
+    <a href="#/confirmation" data-route="confirmation">Confirmer <span class="badge" data-queue-count hidden></span></a>
+  </nav>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="modal-root"></div>
+
+  <?!= include('App'); ?>
+</body>
+</html>

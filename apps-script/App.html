@@ -1,0 +1,782 @@
+<script>
+(function () {
+  'use strict';
+
+  /* ================================================================ */
+  /* État et outils                                                   */
+  /* ================================================================ */
+
+  var S = {
+    boot: null,
+    route: '',
+    period: '7',
+    filter: { status: 'all', q: '', wilaya: '', period: '30', limit: 100 },
+    queue: null,
+    currentId: null,
+    current: null,
+    busy: false,
+    token: 0,
+    detailToken: 0
+  };
+  var TZ = 'Africa/Algiers';
+  var ALERT = {
+    bad: { bg: '#FBE7E7', fg: '#A12626' },
+    warn: { bg: '#FCEBDD', fg: '#9A4200' },
+    ok: { bg: '#DDF0E4', fg: '#146C2E' },
+    'new': { bg: '#E6EEFB', fg: '#1E4FA8' }
+  };
+  var view = document.getElementById('view');
+
+  /** Appelle une fonction du serveur (Api.gs) et renvoie une promesse. */
+  function call(fn) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return new Promise(function (resolve, reject) {
+      var runner = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject);
+      runner[fn].apply(runner, args);
+    });
+  }
+
+  function $(sel, root) { return (root || document).querySelector(sel); }
+  function $all(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
+
+  function h(value) {
+    return String(value === null || value === undefined ? '' : value).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function errText(e) { return (e && e.message) ? e.message : String(e || 'Erreur inconnue'); }
+  function errorBox(e) { return '<div class="error-box" role="alert">' + h(errText(e)) + '</div>'; }
+
+  function money(n) {
+    var v = Math.round(Number(n) || 0);
+    return String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' DA';
+  }
+  function pct(a, b) { return b ? Math.round(a / b * 100) + ' %' : '—'; }
+  function plural(n, one, many) { return n + ' ' + (n > 1 ? many : one); }
+
+  function fmtDate(iso, withDay) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    var o = { timeZone: TZ, hour: '2-digit', minute: '2-digit' };
+    if (withDay !== false) { o.day = '2-digit'; o.month = '2-digit'; }
+    try { return d.toLocaleString('fr-FR', o); } catch (e) { return d.toLocaleString('fr-FR'); }
+  }
+  function ago(iso) {
+    if (!iso) return '';
+    var diff = Date.now() - new Date(iso).getTime();
+    var future = diff < 0;
+    var m = Math.round(Math.abs(diff) / 60000);
+    var txt = m < 1 ? 'à l’instant' : m < 60 ? m + ' min' : m < 1440 ? Math.round(m / 60) + ' h' : Math.round(m / 1440) + ' j';
+    if (m < 1) return txt;
+    return future ? 'dans ' + txt : 'il y a ' + txt;
+  }
+  function fmtPhone(p) {
+    var s = String(p || '');
+    if (/^0\d{9}$/.test(s)) return s.replace(/^(\d{4})(\d{2})(\d{2})(\d{2})$/, '$1 $2 $3 $4');
+    return s;
+  }
+  function wilayaName(w) { return String(w || '').replace(/^\d+\s*-\s*/, ''); }
+
+  function pill(status) {
+    var st = (S.boot && S.boot.styles[status]) || { bg: '#EEF0F3', fg: '#3D4350' };
+    return '<span class="pill" style="background:' + st.bg + ';color:' + st.fg + '">' + h(status || '—') + '</span>';
+  }
+  function alertPill(text, level) {
+    if (!text) return '';
+    var st = ALERT[level] || ALERT['new'];
+    return '<span class="pill" style="background:' + st.bg + ';color:' + st.fg + '">' + h(text) + '</span>';
+  }
+
+  /** Liste d'options ; garde une valeur inconnue pour ne pas la perdre. */
+  function options(list, selected, emptyLabel) {
+    var out = emptyLabel !== undefined ? '<option value="">' + h(emptyLabel) + '</option>' : '';
+    if (selected && list.indexOf(selected) < 0) out += '<option selected>' + h(selected) + '</option>';
+    return out + list.map(function (v) {
+      return '<option' + (v === selected ? ' selected' : '') + '>' + h(v) + '</option>';
+    }).join('');
+  }
+  function field(label, control, cls) {
+    return '<label class="field' + (cls ? ' ' + cls : '') + '">' + h(label) + control + '</label>';
+  }
+  function input(name, value, attrs) {
+    return '<input name="' + name + '" value="' + h(value) + '"' + (attrs || '') + '>';
+  }
+  function readForm(root) {
+    var out = {};
+    $all('[name]', root).forEach(function (el) {
+      out[el.name] = el.type === 'checkbox' ? el.checked : el.value;
+    });
+    return out;
+  }
+
+  var toastTimer = null;
+  function toast(msg, isError) {
+    var t = $('#toast');
+    t.textContent = msg;
+    t.className = 'show' + (isError ? ' error' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.className = ''; }, isError ? 6000 : 3200);
+  }
+
+  /** Frais de livraison d'après l'onglet Tarifs, ou null. */
+  function feeFor(wilaya, carrier, mode) {
+    var code = parseInt(String(wilaya || ''), 10);
+    var r = S.boot.rates[code];
+    var c = carrier || S.boot.defaultCarrier;
+    if (r && r[c] && r[c][mode] !== undefined) return r[c][mode];
+    return null;
+  }
+
+  /* ================================================================ */
+  /* Navigation                                                       */
+  /* ================================================================ */
+
+  var ROUTES = ['tableau', 'commandes', 'confirmation'];
+
+  function go() {
+    var r = (location.hash || '').replace(/^#\/?/, '');
+    if (ROUTES.indexOf(r) < 0) r = 'tableau';
+    S.route = r;
+    $all('[data-route]').forEach(function (a) {
+      var on = a.getAttribute('data-route') === r;
+      a.classList.toggle('active', on);
+      if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    });
+    closeModal();
+    if (r === 'tableau') pageDashboard();
+    else if (r === 'commandes') pageOrders();
+    else pageConfirm();
+    view.focus({ preventScroll: true });
+    window.scrollTo(0, 0);
+  }
+
+  function navigate(route, status) {
+    if (status) { S.filter.status = status; S.filter.limit = 100; }
+    if (location.hash === '#/' + route) go(); else location.hash = '#/' + route;
+  }
+
+  function setQueueCount(n) {
+    $all('[data-queue-count]').forEach(function (el) { el.textContent = n; el.hidden = !n; });
+  }
+  function refreshCount() {
+    call('api_queue').then(function (q) { setQueueCount(q.stats.due); }).catch(function () {});
+  }
+
+  /* ================================================================ */
+  /* Tableau de bord                                                  */
+  /* ================================================================ */
+
+  function pageDashboard() {
+    var t = ++S.token;
+    var periods = [['today', 'Aujourd’hui'], ['7', '7 jours'], ['30', '30 jours'], ['all', 'Tout']];
+    view.innerHTML =
+      '<div class="page-head"><div><h1>Tableau de bord</h1><p class="sub">Vue d’ensemble de vos commandes COD</p></div>' +
+      '<div class="seg" role="group" aria-label="Période">' + periods.map(function (p) {
+        return '<button type="button" data-act="period" data-period="' + p[0] + '" aria-pressed="' + (S.period === p[0]) + '">' + p[1] + '</button>';
+      }).join('') + '</div></div>' +
+      '<div id="dash"><p class="loading">Chargement…</p></div>';
+    call('api_dashboard', S.period).then(function (d) {
+      if (t === S.token) renderDashboard(d);
+    }).catch(function (e) {
+      if (t === S.token) $('#dash').innerHTML = errorBox(e);
+    });
+  }
+
+  function renderDashboard(d) {
+    var st = S.boot.styles;
+    var kpis = [
+      ['Commandes reçues', d.received, plural(d.waiting, 'commande en attente', 'commandes en attente')],
+      ['Taux de confirmation', pct(d.confirmed, d.decided), d.confirmed + ' confirmées sur ' + d.decided + ' traitées'],
+      ['Taux de livraison', pct(d.delivered, d.delivered + d.returned), d.delivered + ' livrées · ' + d.returned + ' retours'],
+      ['Montant livré', money(d.revenueDelivered), 'Commandes livrées sur la période'],
+      ['Argent en route', money(d.inTransitAmount), plural(d.inTransitCount, 'colis pas encore livré', 'colis pas encore livrés')]
+    ];
+    var funnel = [
+      ['Reçues', d.received, '#EEF0F3', '#3D4350'],
+      ['Confirmées', d.confirmed, st['Confirmée'].bg, st['Confirmée'].fg],
+      ['Expédiées', d.shipped, st['Expédiée'].bg, st['Expédiée'].fg],
+      ['Livrées', d.delivered, st['Livrée'].bg, st['Livrée'].fg],
+      ['Retours', d.returned, st['Retour'].bg, st['Retour'].fg],
+      ['Annulées', d.cancelled, st['Annulée'].bg, st['Annulée'].fg]
+    ];
+    var todo = [
+      [d.todo.toConfirm, 'à appeler maintenant', 'confirmation', '', 'Confirmer', st['À confirmer']],
+      [d.todo.callbacksToday, 'rappels prévus plus tard aujourd’hui', 'confirmation', '', 'Voir', st['Rappeler']],
+      [d.todo.toShip, 'commandes confirmées à expédier', 'commandes', 'Confirmée', 'Voir', st['Confirmée']],
+      [d.todo.unreachable, 'clients injoignables', 'commandes', 'Injoignable', 'Voir', st['Injoignable']]
+    ];
+
+    var html = '<div class="stack">';
+    html += '<section class="grid-kpi" aria-label="Chiffres clés">' + kpis.map(function (k) {
+      return '<div class="card kpi"><span class="label">' + h(k[0]) + '</span><span class="value">' + h(k[1]) + '</span><span class="note">' + h(k[2]) + '</span></div>';
+    }).join('') + '</section>';
+
+    html += '<section class="card"><h2>Parcours des commandes</h2><div class="funnel">' + funnel.map(function (f) {
+      return '<div style="background:' + f[2] + ';color:' + f[3] + '"><span class="strong">' + f[0] + '</span><span class="n">' + f[1] + '</span><span class="small" style="color:' + f[3] + '">' + pct(f[1], d.received) + ' des reçues</span></div>';
+    }).join('') + '</div></section>';
+
+    html += '<div class="row">';
+    html += '<section class="card"><h2>À faire</h2>' + todo.map(function (t) {
+      return '<div class="todo"><span class="n" style="background:' + t[5].bg + ';color:' + t[5].fg + '">' + t[0] + '</span>' +
+        '<span class="t">' + h(t[1]) + '</span>' +
+        '<button type="button" class="btn" data-act="goto" data-route="' + t[2] + '" data-status="' + h(t[3]) + '">' + t[4] + '</button></div>';
+    }).join('') + '</section>';
+
+    html += '<section class="card"><h2>Taux de livraison par wilaya</h2>';
+    if (!d.byWilaya.length) {
+      html += '<p class="empty">Pas encore de colis expédiés sur la période.</p>';
+    } else {
+      html += '<div class="bars">' + d.byWilaya.map(function (w) {
+        var done = w.delivered + w.returned;
+        var rate = done ? Math.round(w.delivered / done * 100) : null;
+        return '<div class="bar-row"><span>' + h(w.name) + '<br><span class="small">' + plural(w.orders, 'colis', 'colis') + '</span></span>' +
+          '<span class="bar" aria-hidden="true"><span class="' + (rate !== null && rate < 70 ? 'low' : '') + '" style="width:' + (rate || 0) + '%"></span></span>' +
+          '<span class="strong" style="text-align:right">' + (rate === null ? '—' : rate + ' %') + '</span></div>';
+      }).join('') + '</div><p class="small" style="margin-top:12px">Orange : moins de 70 % livrés. « — » : aucun colis terminé.</p>';
+    }
+    html += '</section></div>';
+
+    html += '<div class="row">';
+    html += '<section class="card"><h2>Par confirmatrice</h2>' + (d.byAgent.length ? table(
+      ['Confirmatrice', 'Traitées', 'Confirmées', 'Taux'],
+      d.byAgent.map(function (a) { return [h(a.name), a.orders, a.confirmed, pct(a.confirmed, a.orders)]; }), [1, 2, 3]
+    ) : '<p class="empty">Aucune commande traitée sur la période.</p>') + '</section>';
+    html += '<section class="card"><h2>Par produit</h2>' + (d.byProduct.length ? table(
+      ['Produit', 'Commandes', 'Confirmées', 'Livrées', 'Retours'],
+      d.byProduct.map(function (p) { return [h(p.name), p.orders, p.confirmed, p.delivered, p.returned]; }), [1, 2, 3, 4]
+    ) : '<p class="empty">Aucune commande sur la période.</p>') + '</section>';
+    html += '</div></div>';
+    $('#dash').innerHTML = html;
+  }
+
+  function table(head, rows, numCols) {
+    numCols = numCols || [];
+    return '<div class="table-wrap" style="border:0"><table class="data cards"><thead><tr>' + head.map(function (t) {
+      return '<th scope="col">' + h(t) + '</th>';
+    }).join('') + '</tr></thead><tbody>' + rows.map(function (r) {
+      return '<tr>' + r.map(function (c, i) {
+        return '<td data-label="' + h(head[i]) + '"' + (numCols.indexOf(i) >= 0 ? ' class="num"' : '') + '>' + c + '</td>';
+      }).join('') + '</tr>';
+    }).join('') + '</tbody></table></div>';
+  }
+
+  /* ================================================================ */
+  /* Commandes                                                        */
+  /* ================================================================ */
+
+  function pageOrders() {
+    var f = S.filter;
+    var periods = [['today', 'Aujourd’hui'], ['7', '7 derniers jours'], ['30', '30 derniers jours'], ['all', 'Tout']];
+    view.innerHTML =
+      '<div class="page-head"><div><h1>Commandes</h1><p class="sub">Toutes les commandes du classeur. Cliquez sur une commande pour la modifier.</p></div>' +
+      '<button type="button" class="btn primary" data-act="new-order">+ Nouvelle commande</button></div>' +
+      '<div class="chips" id="chips" role="group" aria-label="Filtrer par statut"></div>' +
+      '<div class="filters">' +
+        field('Rechercher', '<input type="search" id="f-q" value="' + h(f.q) + '" placeholder="Nom, téléphone, n° de commande ou de suivi">', 'wide') +
+        field('Wilaya', '<select id="f-wilaya">' + options(S.boot.wilayas, f.wilaya, 'Toutes les wilayas') + '</select>') +
+        field('Période', '<select id="f-period">' + periods.map(function (p) {
+          return '<option value="' + p[0] + '"' + (f.period === p[0] ? ' selected' : '') + '>' + p[1] + '</option>';
+        }).join('') + '</select>') +
+      '</div>' +
+      '<div id="orders-list"><p class="loading">Chargement…</p></div>';
+    loadOrders();
+  }
+
+  function loadOrders() {
+    var t = ++S.token;
+    call('api_listOrders', S.filter).then(function (res) {
+      if (t !== S.token || S.route !== 'commandes') return;
+      renderChips(res.counts);
+      renderOrderList(res);
+    }).catch(function (e) {
+      if (t === S.token) $('#orders-list').innerHTML = errorBox(e);
+    });
+  }
+
+  function renderChips(counts) {
+    var list = [['all', 'Toutes'], ['queue', 'À traiter']].concat(S.boot.statuses.map(function (s) { return [s, s]; }));
+    $('#chips').innerHTML = list.filter(function (c) {
+      return c[0] === 'all' || c[0] === S.filter.status || counts[c[0]];
+    }).map(function (c) {
+      return '<button type="button" class="chip" data-act="chip" data-status="' + h(c[0]) + '" aria-pressed="' + (S.filter.status === c[0]) + '">' +
+        h(c[1]) + ' · ' + (counts[c[0]] || 0) + '</button>';
+    }).join('');
+  }
+
+  function renderOrderList(res) {
+    var box = $('#orders-list');
+    if (!res.rows.length) {
+      box.innerHTML = '<div class="card"><p class="empty">Aucune commande ne correspond à ces filtres.</p></div>';
+      return;
+    }
+    var head = ['N°', 'Client', 'Wilaya', 'Produit', 'Total', 'Statut', 'Alerte', 'Livraison'];
+    var html = '<div class="table-wrap"><table class="data cards"><thead><tr>' + head.map(function (t) {
+      return '<th scope="col">' + t + '</th>';
+    }).join('') + '</tr></thead><tbody>';
+    res.rows.forEach(function (o) {
+      html += '<tr class="clickable" data-act="open-order" data-id="' + h(o.id) + '">' +
+        '<td data-label="N°"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button><div class="small">' + fmtDate(o.date) + '</div></td>' +
+        '<td data-label="Client">' + h(o.client) + '<div class="small">' + h(fmtPhone(o.phone)) + '</div></td>' +
+        '<td data-label="Wilaya">' + h(o.wilaya) + '<div class="small">' + h(o.commune) + '</div></td>' +
+        '<td data-label="Produit">' + h(o.product) + (o.qty > 1 ? ' ×' + o.qty : '') + '</td>' +
+        '<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
+        '<td data-label="Statut">' + pill(o.status) + '</td>' +
+        '<td data-label="Alerte">' + alertPill(o.alert, o.alertLevel) + '</td>' +
+        '<td data-label="Livraison">' + h(o.mode) + '<div class="small">' + h([o.carrier, o.tracking].filter(Boolean).join(' · ')) + '</div></td>' +
+      '</tr>';
+    });
+    html += '</tbody></table></div>';
+    html += '<p class="small" style="margin-top:10px">' + res.rows.length + ' sur ' + res.total + ' commande(s)</p>';
+    if (res.total > res.rows.length) html += '<p style="margin-top:10px"><button type="button" class="btn" data-act="more">Afficher plus</button></p>';
+    box.innerHTML = html;
+  }
+
+  /* ---------------- Fenêtre de commande ---------------- */
+
+  function showModal(html) {
+    $('#modal-root').innerHTML = '<div class="modal-backdrop"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">' + html + '</div></div>';
+    var first = $('#modal-root input, #modal-root select, #modal-root button');
+    if (first) first.focus();
+  }
+  function closeModal() { $('#modal-root').innerHTML = ''; }
+  function modalOpen() { return !!$('#modal-root .modal'); }
+  function modalHead(title, extra) {
+    return '<div class="modal-head"><div><h2 id="modal-title" style="font:700 20px var(--font-title)">' + title + '</h2>' + (extra || '') + '</div>' +
+      '<button type="button" class="icon-btn" data-act="close-modal" aria-label="Fermer">×</button></div>';
+  }
+
+  function orderFields(o) {
+    var b = S.boot;
+    return '<div class="form-grid">' +
+      field('Client', input('client', o.client)) +
+      field('Téléphone', input('phone', o.phone, ' inputmode="tel"')) +
+      field('Wilaya', '<select name="wilaya">' + options(b.wilayas, o.wilaya, 'Choisir…') + '</select>') +
+      field('Commune', input('commune', o.commune)) +
+      field('Adresse', input('address', o.address), 'full') +
+      field('Produit', input('product', o.product, ' list="product-list"')) +
+      field('Quantité', input('qty', o.qty || 1, ' type="number" min="1" step="1"')) +
+      field('Prix des produits (DA)', input('price', o.price || '', ' type="number" min="0" step="10"')) +
+      field('Livraison', '<select name="mode">' + options(b.modes, o.mode || b.modes[0]) + '</select>') +
+      field('Société', '<select name="carrier">' + options(b.carriers, o.carrier, 'Par défaut (' + b.defaultCarrier + ')') + '</select>') +
+      field('Frais de livraison (DA)', input('shipping', o.shipping === null || o.shipping === undefined ? '' : o.shipping, ' type="number" min="0" step="10" placeholder="Calcul automatique"')) +
+      (o.id ? field('N° de suivi', input('tracking', o.tracking)) : '') +
+      field('Notes', '<textarea name="notes">' + h(o.notes) + '</textarea>', 'full') +
+      '</div>' +
+      '<datalist id="product-list">' + b.products.map(function (p) { return '<option value="' + h(p.name) + '">'; }).join('') + '</datalist>';
+  }
+
+  function openOrder(id) {
+    showModal(modalHead('Commande ' + h(id)) + '<p class="loading">Chargement…</p>');
+    call('api_getOrder', id).then(renderOrderModal).catch(function (e) {
+      showModal(modalHead('Commande ' + h(id)) + errorBox(e));
+    });
+  }
+
+  function renderOrderModal(data) {
+    var o = data.order;
+    var hist = data.history;
+    var b = S.boot;
+    var meta = '<p class="small" style="margin-top:4px">Reçue le ' + fmtDate(o.date) + ' · source : ' + h(o.source || '—') +
+      (o.agent ? ' · traitée par ' + h(o.agent) : '') + (o.attempts ? ' · ' + plural(o.attempts, 'appel', 'appels') : '') + '</p>' +
+      '<p style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' + pill(o.status) + alertPill(o.alert, o.alertLevel) + '</p>';
+    var histText = hist.orders
+      ? 'Autres commandes de ce numéro : ' + hist.orders + ' (' + hist.delivered + ' livrées, ' + hist.returned + ' retours, ' + hist.cancelled + ' annulées)'
+      : 'Première commande avec ce numéro.';
+    showModal(
+      modalHead('Commande ' + h(o.id), meta) +
+      '<p class="small">' + h(histText) + '</p>' +
+      '<div id="order-form" data-id="' + h(o.id) + '">' +
+        '<div class="form-grid">' +
+          field('Statut', '<select name="status" data-role="status">' + options(b.statuses, o.status) + '</select>') +
+          field('Motif d’annulation', '<select name="cancelReason">' + options(b.cancelReasons, o.cancelReason, 'Choisir…') + '</select>') +
+        '</div>' +
+        '<div style="height:12px"></div>' +
+        orderFields(o) +
+      '</div>' +
+      '<div class="modal-actions">' +
+        (data.phoneValid ? '<button type="button" class="btn ' + (data.blacklisted ? '' : 'danger') + '" data-act="toggle-blacklist" data-phone="' + h(o.phone) + '" data-on="' + (!data.blacklisted) + '">' +
+          (data.blacklisted ? 'Retirer de la liste noire' : 'Mettre en liste noire') + '</button>' : '') +
+        '<button type="button" class="btn" data-act="close-modal">Fermer</button>' +
+        '<button type="button" class="btn primary" data-act="save-order" data-id="' + h(o.id) + '">Enregistrer</button>' +
+      '</div>'
+    );
+    toggleCancelField();
+  }
+
+  function toggleCancelField() {
+    var st = $('#order-form [data-role="status"]');
+    var reason = $('#order-form [name="cancelReason"]');
+    if (!st || !reason) return;
+    reason.closest('.field').hidden = st.value !== 'Annulée';
+  }
+
+  function openNewOrder() {
+    showModal(
+      modalHead('Nouvelle commande', '<p class="small" style="margin-top:4px">Elle sera ajoutée au classeur et à la file de confirmation.</p>') +
+      '<div id="order-form">' + orderFields({ qty: 1, mode: S.boot.modes[0] }) + '</div>' +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Annuler</button>' +
+      '<button type="button" class="btn primary" data-act="create-order">Ajouter la commande</button></div>'
+    );
+  }
+
+  function afterOrderChange() {
+    if (S.route === 'commandes') loadOrders();
+    else if (S.route === 'tableau') pageDashboard();
+    refreshCount();
+  }
+
+  function saveOrder(btn) {
+    var id = btn.getAttribute('data-id');
+    var data = readForm($('#order-form'));
+    btn.disabled = true;
+    call('api_updateOrder', id, data).then(function (o) {
+      closeModal();
+      toast('Commande ' + o.id + ' enregistrée');
+      afterOrderChange();
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  }
+
+  function createOrder(btn) {
+    var data = readForm($('#order-form'));
+    btn.disabled = true;
+    call('api_createOrder', data).then(function (o) {
+      closeModal();
+      toast('Commande ' + o.id + ' ajoutée');
+      afterOrderChange();
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  }
+
+  function toggleBlacklist(btn) {
+    var on = btn.getAttribute('data-on') === 'true';
+    btn.disabled = true;
+    call('api_setBlacklist', btn.getAttribute('data-phone'), on).then(function (r) {
+      toast(r.blacklisted ? 'Numéro ajouté à la liste noire' : 'Numéro retiré de la liste noire');
+      btn.setAttribute('data-on', String(!r.blacklisted));
+      btn.textContent = r.blacklisted ? 'Retirer de la liste noire' : 'Mettre en liste noire';
+      btn.classList.toggle('danger', !r.blacklisted);
+      btn.disabled = false;
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  }
+
+  /* ================================================================ */
+  /* Centre de confirmation                                           */
+  /* ================================================================ */
+
+  function pageConfirm() {
+    view.innerHTML =
+      '<div class="page-head"><div><h1>Centre de confirmation</h1><p class="sub">Connecté(e) : ' + h(S.boot.user.name) + '</p></div>' +
+      '<div class="stats" id="cstats"></div></div>' +
+      '<div class="confirm">' +
+        '<section class="queue" id="queue" aria-label="File d’appels"><p class="loading">Chargement…</p></section>' +
+        '<section class="detail" id="detail"></section>' +
+      '</div>';
+    S.currentId = null;
+    loadQueue(true);
+  }
+
+  function loadQueue(selectFirst) {
+    return call('api_queue').then(function (q) {
+      if (S.route !== 'confirmation') return;
+      S.queue = q;
+      setQueueCount(q.stats.due);
+      renderQueue();
+      var ids = q.due.concat(q.later).map(function (x) { return x.id; });
+      if (selectFirst || !S.currentId || ids.indexOf(S.currentId) < 0) {
+        if (!selectFirst && S.currentId && !S.busy) toast('La commande ' + S.currentId + ' a été traitée par une autre personne.');
+        if (q.due.length) openInDetail(q.due[0].id);
+        else renderEmptyDetail();
+      }
+    }).catch(function (e) {
+      if (S.route === 'confirmation') $('#queue').innerHTML = errorBox(e);
+    });
+  }
+
+  function renderQueue() {
+    var q = S.queue;
+    $('#cstats').innerHTML =
+      '<span>À appeler : <strong>' + q.stats.due + '</strong></span>' +
+      '<span>Rappels plus tard : <strong>' + q.stats.later + '</strong></span>' +
+      '<span style="background:#E3F2EC;color:#0B6B4C;border-color:#BFE0D2">Mes confirmations aujourd’hui : <strong>' + q.stats.confirmedToday + '</strong></span>';
+    var item = function (x) {
+      var when = x.status === 'À confirmer' ? 'reçue ' + ago(x.date) : (x.callback ? 'rappel ' + fmtDate(x.callback) : ago(x.date));
+      return '<button type="button" class="q-item" data-act="q-open" data-id="' + h(x.id) + '" aria-current="' + (x.id === S.currentId) + '">' +
+        '<span class="q-top"><strong>' + h(x.client || 'Sans nom') + '</strong><span class="small">' + h(when) + '</span></span>' +
+        '<span class="small" style="color:var(--ink-2)">' + h(x.id) + ' · ' + h(wilayaName(x.wilaya)) + ' · ' + money(x.total) + '</span>' +
+        '<span class="q-tags">' + alertPill(x.alert, x.alertLevel) + (x.status !== 'À confirmer' ? pill(x.status) : '') +
+          (x.attempts ? '<span class="pill" style="background:#EEF0F3;color:#3D4350">' + plural(x.attempts, 'appel', 'appels') + '</span>' : '') +
+        '</span></button>';
+    };
+    var html = '<div class="q-top"><span class="queue-title">À appeler · ' + q.due.length + '</span>' +
+      '<button type="button" class="btn" style="min-height:36px;padding:0 10px" data-act="refresh-queue">Actualiser</button></div>';
+    html += q.due.length ? q.due.map(item).join('') : '<p class="small">Personne à appeler pour le moment.</p>';
+    if (q.later.length) html += '<span class="queue-title">Rappels programmés · ' + q.later.length + '</span>' + q.later.map(item).join('');
+    $('#queue').innerHTML = html;
+  }
+
+  function markCurrent() {
+    $all('#queue .q-item').forEach(function (b) {
+      b.setAttribute('aria-current', String(b.getAttribute('data-id') === S.currentId));
+    });
+  }
+
+  function renderEmptyDetail() {
+    S.currentId = null;
+    S.current = null;
+    var next = S.queue && S.queue.later[0];
+    $('#detail').innerHTML = '<div class="card"><h2>La file est vide</h2><p class="sub">Les nouvelles commandes arrivent automatiquement (toutes les 5 minutes).' +
+      (next ? ' Prochain rappel : ' + h(next.client) + ', ' + fmtDate(next.callback) + '.' : '') + '</p></div>';
+  }
+
+  function openInDetail(id) {
+    S.currentId = id;
+    markCurrent();
+    $('#queue').classList.remove('open');
+    $('#detail').innerHTML = '<div class="card"><p class="loading">Chargement…</p></div>';
+    var t = ++S.detailToken;
+    call('api_getOrder', id).then(function (data) {
+      if (t !== S.detailToken || S.route !== 'confirmation') return;
+      S.current = data;
+      renderDetail();
+    }).catch(function (e) {
+      if (t === S.detailToken) $('#detail').innerHTML = '<div class="card">' + errorBox(e) + '</div>';
+    });
+  }
+
+  function renderDetail() {
+    var d = S.current;
+    var o = d.order;
+    var b = S.boot;
+    var hist = d.history;
+    var a = ALERT[o.alertLevel] || ALERT['new'];
+    var histText = hist.orders
+      ? plural(hist.orders, 'autre commande', 'autres commandes') + ' : ' + hist.delivered + ' livrée(s), ' + hist.returned + ' retour(s), ' + hist.cancelled + ' annulée(s)'
+      : 'Première commande avec ce numéro';
+    var dueCount = S.queue ? S.queue.due.length : 0;
+    var callBtn = d.phoneValid
+      ? '<a class="btn primary" href="tel:' + h(o.phone) + '" target="_top">Appeler</a>'
+      : '<span class="btn" aria-disabled="true">Numéro invalide</span>';
+    var waBtn = d.intlPhone
+      ? '<a class="btn" id="d-wa" href="#" target="_blank" rel="noopener">WhatsApp</a>'
+      : '';
+
+    $('#detail').innerHTML =
+      '<div class="card">' +
+        '<div class="detail-head"><div><h2>' + h(o.client || 'Client sans nom') + ' · ' + h(o.id) + '</h2>' +
+          '<p class="muted">' + h(fmtPhone(o.phone)) + ' · reçue ' + h(ago(o.date)) + (o.attempts ? ' · ' + plural(o.attempts, 'appel', 'appels') : '') + '</p></div>' +
+          '<div class="quick"><button type="button" class="btn queue-toggle" data-act="toggle-queue">File (' + dueCount + ')</button>' + callBtn + waBtn + '</div>' +
+        '</div>' +
+        '<div class="history" style="background:' + a.bg + '"><span class="strong" style="color:' + a.fg + '">' + h(o.alert || 'Nouveau client') + '</span><span>' + h(histText) + '</span></div>' +
+        '<div class="form-grid" id="d-form">' +
+          field('Client', input('client', o.client)) +
+          field('Téléphone', input('phone', o.phone, ' inputmode="tel"')) +
+          field('Wilaya', '<select name="wilaya">' + options(b.wilayas, o.wilaya, 'Choisir…') + '</select>') +
+          field('Commune', input('commune', o.commune)) +
+          field('Livraison', '<select name="mode">' + options(b.modes, o.mode || b.modes[0]) + '</select>') +
+          field('Quantité', input('qty', o.qty, ' type="number" min="1" step="1"')) +
+          field('Adresse', input('address', o.address), 'full') +
+          field('Notes', '<textarea name="notes">' + h(o.notes) + '</textarea>', 'full') +
+        '</div>' +
+        '<div class="sum" id="d-sum"></div>' +
+      '</div>' +
+      '<div class="card"><h3>Résultat de l’appel</h3>' +
+        '<div class="outcomes">' +
+          '<button type="button" class="btn primary big" data-act="confirm">Confirmer</button>' +
+          '<button type="button" class="btn big" data-act="no_answer">Pas de réponse</button>' +
+          '<button type="button" class="btn warn big" data-act="show-callback">Rappeler plus tard</button>' +
+          '<button type="button" class="btn danger big" data-act="show-cancel">Annuler</button>' +
+        '</div><div id="d-panel"></div>' +
+      '</div>' +
+      '<div class="card"><h3>Message WhatsApp</h3><p class="message" id="d-msg"></p>' +
+        '<p class="small" style="margin-top:8px">Modèle modifiable dans l’onglet Paramètres (MESSAGE_WHATSAPP).</p></div>';
+    updateSummary();
+  }
+
+  /** Recalcule prix, frais, total et message quand la confirmatrice modifie la commande. */
+  function updateSummary() {
+    if (!S.current || !$('#d-form')) return;
+    var o = S.current.order;
+    var f = readForm($('#d-form'));
+    var qty = Math.max(1, parseInt(f.qty, 10) || 1);
+    var unit = o.qty ? o.price / o.qty : o.price;
+    var price = qty === o.qty ? o.price : Math.round(unit * qty);
+    var changed = f.wilaya !== o.wilaya || f.mode !== o.mode;
+    var fee = feeFor(f.wilaya, o.carrier, f.mode);
+    var shipping = (changed || o.shipping === null) && fee !== null ? fee : (o.shipping || 0);
+    var total = (price !== o.price || shipping !== (o.shipping || 0)) ? price + shipping : o.total;
+    var carrier = o.carrier || S.boot.defaultCarrier;
+    $('#d-sum').innerHTML =
+      '<div><span>' + h(f.product || o.product || 'Produits') + ' ×' + qty + '</span><span>' + money(price) + '</span></div>' +
+      '<div class="muted"><span>Livraison ' + h(f.mode) + ' · ' + h(carrier) + (fee === null ? ' (tarif non renseigné)' : '') + '</span><span>' + money(shipping) + '</span></div>' +
+      '<div class="total"><span>Total à encaisser</span><span>' + money(total) + '</span></div>';
+    var msg = fillTemplate(S.boot.waTemplate, {
+      client: f.client, id: o.id, product: o.product, qty: qty, total: total, commune: f.commune, wilaya: f.wilaya
+    });
+    $('#d-msg').textContent = msg;
+    var wa = $('#d-wa');
+    if (wa) wa.href = 'https://wa.me/' + S.current.intlPhone + '?text=' + encodeURIComponent(msg);
+  }
+
+  function fillTemplate(tpl, x) {
+    var first = String(x.client || '').trim().split(/\s+/)[0] || '';
+    var map = {
+      prenom: first,
+      client: x.client || '',
+      numero: x.id,
+      produit: (x.product || '') + (x.qty > 1 ? ' ×' + x.qty : ''),
+      total: money(x.total),
+      commune: x.commune || '',
+      wilaya: wilayaName(x.wilaya),
+      boutique: S.boot.shop
+    };
+    return String(tpl || '').replace(/\{(\w+)\}/g, function (m, k) { return map[k] !== undefined ? map[k] : m; });
+  }
+
+  function showPanel(kind) {
+    var p = $('#d-panel');
+    if (kind === 'callback') {
+      p.innerHTML = '<div class="panel"><span class="strong">Quand rappeler ?</span><div class="quick">' +
+        '<button type="button" class="btn" data-act="cb-quick" data-min="60">Dans 1 h</button>' +
+        '<button type="button" class="btn" data-act="cb-quick" data-min="180">Dans 3 h</button>' +
+        '<button type="button" class="btn" data-act="cb-quick" data-tomorrow="10">Demain 10 h</button>' +
+        '<button type="button" class="btn" data-act="cb-quick" data-tomorrow="17">Demain 17 h</button></div>' +
+        '<div class="form-grid">' + field('Autre date et heure', '<input type="datetime-local" id="cb-when">') + '</div>' +
+        '<div><button type="button" class="btn warn" data-act="callback">Programmer le rappel</button></div></div>';
+    } else {
+      p.innerHTML = '<div class="panel"><div class="form-grid">' +
+        field('Motif d’annulation', '<select id="cancel-reason">' + options(S.boot.cancelReasons, '') + '</select>') + '</div>' +
+        '<label style="display:flex;gap:10px;align-items:center;min-height:44px"><input type="checkbox" id="cancel-black" style="width:20px;height:20px"> Ajouter ce numéro à la liste noire</label>' +
+        '<div><button type="button" class="btn danger" data-act="cancel">Confirmer l’annulation</button></div></div>';
+    }
+    var first = p.querySelector('button, select, input');
+    if (first) first.focus();
+  }
+
+  function submit(outcome, extra) {
+    if (S.busy || !S.currentId) return;
+    S.busy = true;
+    $all('#detail button').forEach(function (b) { b.disabled = true; });
+    var id = S.currentId;
+    var payload = { fields: readForm($('#d-form')) };
+    Object.keys(extra || {}).forEach(function (k) { payload[k] = extra[k]; });
+    var blacklist = outcome === 'cancel' && $('#cancel-black') && $('#cancel-black').checked;
+    var phone = S.current.order.phone;
+
+    call('api_recordCall', id, outcome, payload).then(function (o) {
+      var msgs = {
+        confirm: 'Commande ' + o.id + ' confirmée',
+        no_answer: o.status === 'Injoignable' ? 'Commande ' + o.id + ' : client injoignable' : 'Pas de réponse noté, rappel ' + fmtDate(o.callback),
+        callback: 'Rappel programmé ' + fmtDate(o.callback),
+        cancel: 'Commande ' + o.id + ' annulée'
+      };
+      toast(msgs[outcome]);
+      if (blacklist) call('api_setBlacklist', phone, true).catch(function (e) { toast(errText(e), true); });
+      var due = S.queue.due;
+      var idx = -1;
+      for (var i = 0; i < due.length; i++) if (due[i].id === id) idx = i;
+      if (idx >= 0) due.splice(idx, 1);
+      S.queue.stats.due = due.length;
+      if (outcome === 'confirm') S.queue.stats.confirmedToday++;
+      setQueueCount(due.length);
+      S.busy = false;
+      var next = due[Math.max(idx, 0)] || due[0];
+      renderQueue();
+      if (next) openInDetail(next.id); else renderEmptyDetail();
+      loadQueue(false);
+    }).catch(function (e) {
+      S.busy = false;
+      $all('#detail button').forEach(function (b) { b.disabled = false; });
+      toast(errText(e), true);
+      if (/déjà été traitée/.test(errText(e))) loadQueue(true);
+    });
+  }
+
+  /* ================================================================ */
+  /* Événements                                                       */
+  /* ================================================================ */
+
+  var ACTIONS = {
+    'goto': function (el) { navigate(el.getAttribute('data-route'), el.getAttribute('data-status')); },
+    'period': function (el) { S.period = el.getAttribute('data-period'); pageDashboard(); },
+    'chip': function (el) { S.filter.status = el.getAttribute('data-status'); S.filter.limit = 100; loadOrders(); },
+    'more': function () { S.filter.limit += 100; loadOrders(); },
+    'open-order': function (el) { openOrder(el.getAttribute('data-id')); },
+    'new-order': openNewOrder,
+    'close-modal': closeModal,
+    'save-order': saveOrder,
+    'create-order': createOrder,
+    'toggle-blacklist': toggleBlacklist,
+    'refresh-queue': function () { loadQueue(false); },
+    'q-open': function (el) { if (!S.busy) openInDetail(el.getAttribute('data-id')); },
+    'toggle-queue': function () { $('#queue').classList.toggle('open'); },
+    'confirm': function () { submit('confirm'); },
+    'no_answer': function () { submit('no_answer'); },
+    'show-callback': function () { showPanel('callback'); },
+    'show-cancel': function () { showPanel('cancel'); },
+    'cb-quick': function (el) {
+      var d = new Date();
+      if (el.hasAttribute('data-min')) d = new Date(Date.now() + Number(el.getAttribute('data-min')) * 60000);
+      else { d.setDate(d.getDate() + 1); d.setHours(Number(el.getAttribute('data-tomorrow')), 0, 0, 0); }
+      submit('callback', { callback: d.toISOString() });
+    },
+    'callback': function () {
+      var v = $('#cb-when').value;
+      if (!v) { toast('Choisissez une date et une heure.', true); return; }
+      submit('callback', { callback: new Date(v).toISOString() });
+    },
+    'cancel': function () { submit('cancel', { reason: $('#cancel-reason').value }); }
+  };
+
+  document.addEventListener('click', function (e) {
+    if (e.target.classList && e.target.classList.contains('modal-backdrop')) { closeModal(); return; }
+    var el = e.target.closest('[data-act]');
+    if (!el || el.disabled) return;
+    var fn = ACTIONS[el.getAttribute('data-act')];
+    if (!fn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    fn(el, e);
+  });
+
+  var searchTimer = null;
+  document.addEventListener('input', function (e) {
+    if (e.target.id === 'f-q') {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function () { S.filter.q = e.target.value; S.filter.limit = 100; loadOrders(); }, 350);
+    } else if (e.target.closest('#d-form')) {
+      updateSummary();
+    }
+  });
+  document.addEventListener('change', function (e) {
+    if (e.target.id === 'f-wilaya') { S.filter.wilaya = e.target.value; S.filter.limit = 100; loadOrders(); }
+    else if (e.target.id === 'f-period') { S.filter.period = e.target.value; S.filter.limit = 100; loadOrders(); }
+    else if (e.target.getAttribute('data-role') === 'status') toggleCancelField();
+    else if (e.target.closest('#d-form')) updateSummary();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && modalOpen()) closeModal();
+  });
+
+  function tick() {
+    if (document.visibilityState !== 'visible' || S.busy || modalOpen()) return;
+    if (S.route === 'confirmation') loadQueue(false); else refreshCount();
+  }
+
+  /* ================================================================ */
+  /* Démarrage                                                        */
+  /* ================================================================ */
+
+  call('api_bootstrap').then(function (b) {
+    S.boot = b;
+    $all('[data-shop]').forEach(function (el) { el.textContent = b.shop; });
+    $all('[data-user-name]').forEach(function (el) { el.textContent = b.user.name; });
+    $all('[data-user-mail]').forEach(function (el) { el.textContent = b.user.email; });
+    window.addEventListener('hashchange', go);
+    go();
+    if (S.route !== 'confirmation') refreshCount();
+    setInterval(tick, 60000);
+  }).catch(function (e) {
+    view.innerHTML = errorBox(e) +
+      '<p class="sub" style="margin-top:12px">Vérifiez que le classeur est partagé avec votre adresse Google (en Éditeur), puis rechargez la page.</p>';
+  });
+})();
+</script>
