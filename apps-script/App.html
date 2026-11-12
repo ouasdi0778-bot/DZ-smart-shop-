@@ -212,7 +212,7 @@
     }).join('') + '</section>';
 
     html += '<section class="card"><h2>Parcours des commandes</h2><div class="funnel">' + funnel.map(function (f) {
-      return '<div style="background:' + f[2] + ';color:' + f[3] + '"><span class="strong">' + f[0] + '</span><span class="n">' + f[1] + '</span><span class="small" style="color:' + f[3] + '">' + pct(f[1], d.received) + ' des reçues</span></div>';
+      return '<div style="background:' + f[2] + ';color:' + f[3] + '"><span class="strong">' + f[0] + '</span><span class="n">' + f[1] + '</span><span class="small" style="color:' + f[3] + '">' + (d.received ? pct(f[1], d.received) + ' des reçues' : 'aucune commande') + '</span></div>';
     }).join('') + '</div></section>';
 
     html += '<div class="row">';

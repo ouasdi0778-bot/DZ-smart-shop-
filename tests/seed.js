@@ -1,4 +1,30 @@
 /**
+ * Premier jour : classeur installé, quelques tarifs, et 2 commandes
+ * qui viennent d'arriver de Shopify (pour montrer le démarrage).
+ */
+function seedFirstOrders_() {
+  setup();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var rates = ss.getSheetByName('Tarifs');
+  rates.getRange(17, 2, 1, 4).setValues([[600, 400, 650, 380]]); // 16 - Alger
+  rates.getRange(32, 2, 1, 4).setValues([[750, 450, 700, 420]]); // 31 - Oran
+  var sh = ss.getSheetByName('Commandes');
+  var header = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  var add = function (fields) {
+    var row = header.map(function (t) { return fields[t] === undefined ? '' : fields[t]; });
+    sh.appendRow(row);
+  };
+  var now = Date.now();
+  add({ 'N°': '#1001', 'Date': new Date(now - 25 * 60000), 'Client': 'Yacine Boudiaf', 'Téléphone': '+213 550 12 34 56',
+    'Wilaya': 'Alger', 'Commune': 'Bab Ezzouar', 'Adresse': 'Cité 2068 logements, bât. 14', 'Produit': 'Montre connectée',
+    'Quantité': 1, 'Prix': 4300, 'Source': 'Shopify' });
+  add({ 'N°': '#1002', 'Date': new Date(now - 8 * 60000), 'Client': 'Amina Kaci', 'Téléphone': '661457890',
+    'Wilaya': 'oran', 'Commune': 'Bir El Djir', 'Adresse': 'Cité USTO, bloc C', 'Produit': 'Sac à main',
+    'Quantité': 2, 'Prix': 7400, 'Livraison': 'Stop desk', 'Source': 'Shopify' });
+  processNewRows();
+}
+
+/**
  * Données d'exemple : remplit un classeur imité avec ~40 commandes,
  * comme si elles venaient de Shopify, puis en fait avancer une partie
  * (confirmées, expédiées, livrées, retours, annulées).

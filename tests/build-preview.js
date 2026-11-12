@@ -4,6 +4,11 @@
  * contre l'imitation du classeur (gas-mock.js).
  *
  *   npm run preview   puis ouvrir preview/index.html dans le navigateur
+ *
+ * Options : un dossier de sortie, et --scenario=demo|first|empty
+ *   demo  : ~40 commandes d'exemple (par défaut)
+ *   first : classeur tout juste installé + 2 premières commandes
+ *   empty : classeur tout juste installé, aucune commande
  */
 'use strict';
 var fs = require('fs');
@@ -11,7 +16,13 @@ var path = require('path');
 
 var ROOT = path.join(__dirname, '..');
 var SRC = path.join(ROOT, 'apps-script');
-var OUT = process.argv[2] ? path.resolve(process.argv[2]) : path.join(ROOT, 'preview');
+var args = process.argv.slice(2);
+var scenarioArg = args.filter(function (a) { return a.indexOf('--scenario=') === 0; })[0];
+var SCENARIO = scenarioArg ? scenarioArg.split('=')[1] : 'demo';
+var outArg = args.filter(function (a) { return a.indexOf('--') !== 0; })[0];
+var OUT = outArg ? path.resolve(outArg) : path.join(ROOT, 'preview');
+var SEEDS = { demo: 'seedDemo_();', first: 'seedFirstOrders_();', empty: 'setup();' };
+if (!SEEDS[SCENARIO]) throw new Error('Scénario inconnu : ' + SCENARIO + ' (demo, first ou empty)');
 
 function read(p) { return fs.readFileSync(p, 'utf8'); }
 function safe(js) { return js.replace(/<\/script/gi, '<\\/script'); }
@@ -27,8 +38,8 @@ var server = [read(path.join(__dirname, 'gas-mock.js'))]
   .join('\n;\n');
 
 var fakeRun = [
-  'seedDemo_();',
-  "__mock.setUser('imane@example.com');",
+  SEEDS[SCENARIO],
+  SCENARIO === 'demo' ? "__mock.setUser('imane@example.com');" : '',
   'function hasDate_(v) { if (v instanceof Date) return true; if (v && typeof v === "object") return Object.keys(v).some(function (k) { return hasDate_(v[k]); }); return false; }',
   'function runner_(handlers) {',
   '  return new Proxy({}, { get: function (t, name) {',
