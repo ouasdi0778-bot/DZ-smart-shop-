@@ -34,11 +34,18 @@ function include(name) {
 }
 
 function onOpen() {
-  SpreadsheetApp.getUi().createMenu(APP_NAME)
+  var ui = SpreadsheetApp.getUi();
+  ui.createMenu(APP_NAME)
     .addItem('Ouvrir l’application', 'menuOpenApp')
     .addSeparator()
     .addItem('Traiter les nouvelles commandes', 'menuProcess')
     .addItem('Recalculer les alertes clients', 'menuRecalc')
+    .addSeparator()
+    .addSubMenu(ui.createMenu('Ecotrack')
+      .addItem('Enregistrer l’adresse et le jeton', 'menuEcotrackSetup')
+      .addItem('Tester la connexion', 'menuEcotrackTest')
+      .addItem('Récupérer les tarifs', 'menuEcotrackFees')
+      .addItem('Mettre à jour les statuts des colis', 'menuEcotrackStatuses'))
     .addSeparator()
     .addItem('Installer / réparer le classeur', 'setup')
     .addToUi();

@@ -31,7 +31,7 @@ var html = read(path.join(SRC, 'Index.html')).replace(/<\?!=\s*include\('(\w+)'\
   return read(path.join(SRC, name + '.html'));
 });
 
-var server = [read(path.join(__dirname, 'gas-mock.js'))]
+var server = [read(path.join(__dirname, 'gas-mock.js')), read(path.join(__dirname, 'fake-ecotrack.js'))]
   .concat(fs.readdirSync(SRC).filter(function (f) { return f.endsWith('.gs'); }).sort()
     .map(function (f) { return '// ---- ' + f + '\n' + read(path.join(SRC, f)); }))
   .concat([read(path.join(__dirname, 'seed.js'))])

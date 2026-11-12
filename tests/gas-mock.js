@@ -148,9 +148,14 @@
   function reset() {
     state.ss = new Spreadsheet();
     state.props = {};
+    state.cache = {};
     state.triggers = [];
     state.user = 'admin@example.com';
     state.alerts = [];
+    state.sleeps = [];
+    state.prompts = [];
+    state.alertAnswer = 'OK';
+    if (g.__fakeEcotrack) g.__fakeEcotrack.reset();
   }
   reset();
 
@@ -168,12 +173,24 @@
     newConditionalFormatRule: function () { return builder('conditional'); },
     flush: function () {},
     getUi: function () {
-      var menu = { addItem: function () { return menu; }, addSeparator: function () { return menu; }, addToUi: function () {} };
+      var Button = { OK: 'OK', CANCEL: 'CANCEL', YES: 'YES', NO: 'NO' };
+      var menu = {
+        addItem: function () { return menu; }, addSeparator: function () { return menu; },
+        addSubMenu: function () { return menu; }, addToUi: function () {}
+      };
       return {
         createMenu: function () { return menu; },
-        alert: function () { state.alerts.push(Array.prototype.slice.call(arguments)); },
+        alert: function () { state.alerts.push(Array.prototype.slice.call(arguments)); return state.alertAnswer; },
+        prompt: function () {
+          var answer = state.prompts.shift();
+          return {
+            getSelectedButton: function () { return answer === undefined || answer === null ? Button.CANCEL : Button.OK; },
+            getResponseText: function () { return answer === undefined || answer === null ? '' : String(answer); }
+          };
+        },
         showModalDialog: function () {},
-        ButtonSet: { OK: 'OK' }
+        Button: Button,
+        ButtonSet: { OK: 'OK', OK_CANCEL: 'OK_CANCEL', YES_NO: 'YES_NO' }
       };
     }
   };
@@ -194,7 +211,18 @@
     getScriptProperties: function () {
       return {
         getProperty: function (k) { return Object.prototype.hasOwnProperty.call(state.props, k) ? state.props[k] : null; },
-        setProperty: function (k, v) { state.props[k] = String(v); }
+        setProperty: function (k, v) { state.props[k] = String(v); },
+        deleteProperty: function (k) { delete state.props[k]; }
+      };
+    }
+  };
+
+  g.CacheService = {
+    getScriptCache: function () {
+      return {
+        get: function (k) { return Object.prototype.hasOwnProperty.call(state.cache, k) ? state.cache[k] : null; },
+        put: function (k, v) { state.cache[k] = String(v); },
+        remove: function (k) { delete state.cache[k]; }
       };
     }
   };
@@ -220,7 +248,7 @@
       return fmt.replace('yyyy', d.getFullYear()).replace('MM', pad(d.getMonth() + 1)).replace('dd', pad(d.getDate()))
         .replace('HH', pad(d.getHours())).replace('mm', pad(d.getMinutes())).replace('ss', pad(d.getSeconds()));
     },
-    sleep: function () {}
+    sleep: function (ms) { state.sleeps.push(ms); }
   };
 
   function output(html) {

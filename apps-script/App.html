@@ -16,7 +16,8 @@
     current: null,
     busy: false,
     token: 0,
-    detailToken: 0
+    detailToken: 0,
+    ship: { data: null, tab: 'toship', selected: {}, busy: false, results: null }
   };
   var TZ = 'Africa/Algiers';
   var ALERT = {
@@ -131,7 +132,7 @@
   /* Navigation                                                       */
   /* ================================================================ */
 
-  var ROUTES = ['tableau', 'commandes', 'confirmation'];
+  var ROUTES = ['tableau', 'commandes', 'confirmation', 'expeditions'];
 
   function go() {
     var r = (location.hash || '').replace(/^#\/?/, '');
@@ -145,6 +146,7 @@
     closeModal();
     if (r === 'tableau') pageDashboard();
     else if (r === 'commandes') pageOrders();
+    else if (r === 'expeditions') pageShipping();
     else pageConfirm();
     view.focus({ preventScroll: true });
     window.scrollTo(0, 0);
@@ -202,7 +204,7 @@
     var todo = [
       [d.todo.toConfirm, 'à appeler maintenant', 'confirmation', '', 'Confirmer', st['À confirmer']],
       [d.todo.callbacksToday, 'rappels prévus plus tard aujourd’hui', 'confirmation', '', 'Voir', st['Rappeler']],
-      [d.todo.toShip, 'commandes confirmées à expédier', 'commandes', 'Confirmée', 'Voir', st['Confirmée']],
+      [d.todo.toShip, 'commandes confirmées à expédier', 'expeditions', '', 'Expédier', st['Confirmée']],
       [d.todo.unreachable, 'clients injoignables', 'commandes', 'Injoignable', 'Voir', st['Injoignable']]
     ];
 
@@ -315,14 +317,14 @@
     }).join('') + '</tr></thead><tbody>';
     res.rows.forEach(function (o) {
       html += '<tr class="clickable" data-act="open-order" data-id="' + h(o.id) + '">' +
-        '<td data-label="N°"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button><div class="small">' + fmtDate(o.date) + '</div></td>' +
-        '<td data-label="Client">' + h(o.client) + '<div class="small">' + h(fmtPhone(o.phone)) + '</div></td>' +
-        '<td data-label="Wilaya">' + h(o.wilaya) + '<div class="small">' + h(o.commune) + '</div></td>' +
+        '<td data-label="N°" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button><div class="small">' + fmtDate(o.date) + '</div></td>' +
+        '<td data-label="Client" class="multi">' + h(o.client) + '<div class="small">' + h(fmtPhone(o.phone)) + '</div></td>' +
+        '<td data-label="Wilaya" class="multi">' + h(o.wilaya) + '<div class="small">' + h(o.commune) + '</div></td>' +
         '<td data-label="Produit">' + h(o.product) + (o.qty > 1 ? ' ×' + o.qty : '') + '</td>' +
         '<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
         '<td data-label="Statut">' + pill(o.status) + '</td>' +
         '<td data-label="Alerte">' + alertPill(o.alert, o.alertLevel) + '</td>' +
-        '<td data-label="Livraison">' + h(o.mode) + '<div class="small">' + h([o.carrier, o.tracking].filter(Boolean).join(' · ')) + '</div></td>' +
+        '<td data-label="Livraison" class="multi">' + h(o.mode) + '<div class="small">' + h([o.carrier, o.tracking].filter(Boolean).join(' · ')) + '</div></td>' +
       '</tr>';
     });
     html += '</tbody></table></div>';
@@ -422,6 +424,7 @@
   function afterOrderChange() {
     if (S.route === 'commandes') loadOrders();
     else if (S.route === 'tableau') pageDashboard();
+    else if (S.route === 'expeditions') loadShipping();
     refreshCount();
   }
 
@@ -691,6 +694,172 @@
   }
 
   /* ================================================================ */
+  /* Expéditions (Ecotrack)                                           */
+  /* ================================================================ */
+
+  function pageShipping() {
+    view.innerHTML =
+      '<div class="page-head"><div><h1>Expéditions</h1><p class="sub">Envoi des commandes confirmées à Ecotrack et suivi des colis</p></div>' +
+      '<button type="button" class="btn" data-act="ship-reload">Actualiser</button></div>' +
+      '<div id="ship"><p class="loading">Chargement…</p></div>';
+    loadShipping();
+  }
+
+  function loadShipping() {
+    var t = ++S.token;
+    return call('api_shippingList').then(function (d) {
+      if (t !== S.token || S.route !== 'expeditions') return;
+      S.ship.data = d;
+      var ready = {};
+      d.toShip.forEach(function (o) { if (!o.problems.length) ready[o.id] = true; });
+      Object.keys(S.ship.selected).forEach(function (id) { if (!ready[id]) delete S.ship.selected[id]; });
+      renderShipping();
+    }).catch(function (e) {
+      if (t === S.token && S.route === 'expeditions') $('#ship').innerHTML = errorBox(e);
+    });
+  }
+
+  function renderShipping() {
+    var box = $('#ship');
+    var sh = S.ship;
+    var d = sh.data;
+    if (!box || !d) return;
+    var ready = d.toShip.filter(function (o) { return !o.problems.length; });
+    var picked = Object.keys(sh.selected).length;
+    var html = '<div class="stack">';
+
+    // Connexion
+    html += '<section class="card"><div class="detail-head"><div><h2>Ecotrack</h2><p class="muted">' +
+      (d.configured ? 'Connecté à ' + h(d.host) : 'Pas encore configuré') + '</p></div>';
+    if (d.configured) {
+      html += '<div class="quick">' +
+        '<button type="button" class="btn" data-act="eco-test">Tester la connexion</button>' +
+        '<button type="button" class="btn" data-act="eco-fees-ask">Récupérer les tarifs</button>' +
+        '<button type="button" class="btn" data-act="eco-status">Mettre à jour les statuts</button></div>';
+    }
+    html += '</div>';
+    if (!d.configured) {
+      html += '<p>Pour envoyer vos colis, enregistrez l’adresse de votre plateforme Ecotrack et votre jeton API. ' +
+        'Dans le classeur, sur ordinateur : menu <strong>DZ Smart Shop › Ecotrack › Enregistrer l’adresse et le jeton</strong>. ' +
+        'Le jeton reste dans les propriétés protégées du script, jamais dans le classeur.</p>';
+    }
+    if (d.catalogError) html += '<div style="margin-top:12px">' + errorBox(d.catalogError) + '</div>';
+    html += '</section>';
+
+    // Résultat du dernier envoi
+    if (sh.results) {
+      var okCount = sh.results.filter(function (r) { return r.ok; }).length;
+      html += '<section class="card"><div class="detail-head"><div><h2>Résultat de l’envoi</h2><p class="muted">' +
+        plural(okCount, 'colis créé', 'colis créés') + (sh.results.length - okCount ? ' · ' + plural(sh.results.length - okCount, 'refusé', 'refusés') : '') +
+        '</p></div><button type="button" class="btn" data-act="ship-dismiss">Fermer</button></div>';
+      html += sh.results.map(function (r) {
+        return '<div class="result-row"><span class="pill" style="background:' + (r.ok ? '#DDF0E4;color:#146C2E' : '#FBE7E7;color:#A12626') + '">' + (r.ok ? 'Créé' : 'Refusé') + '</span>' +
+          '<span class="grow"><strong>' + h(r.id) + '</strong>' + (r.client ? ' · ' + h(r.client) : '') +
+          (r.message ? '<br><span class="small" style="color:' + (r.ok ? 'var(--muted)' : '#A12626') + '">' + h(r.message) + '</span>' : '') + '</span>' +
+          (r.ok ? '<span class="mono strong">' + h(r.tracking) + '</span>' : '') + '</div>';
+      }).join('');
+      html += '</section>';
+    }
+
+    // Onglets
+    html += '<div class="chips" role="group" aria-label="Vue">' +
+      '<button type="button" class="chip" data-act="ship-tab" data-tab="toship" aria-pressed="' + (sh.tab === 'toship') + '">À expédier · ' + d.toShip.length + '</button>' +
+      '<button type="button" class="chip" data-act="ship-tab" data-tab="transit" aria-pressed="' + (sh.tab === 'transit') + '">En cours · ' + d.inTransit.length + '</button></div>';
+
+    if (sh.tab === 'toship') html += renderToShip(d, ready, picked);
+    else html += renderInTransit(d);
+    html += '</div>';
+    box.innerHTML = html;
+  }
+
+  function renderToShip(d, ready, picked) {
+    var sh = S.ship;
+    if (!d.toShip.length) return '<div class="card"><p class="empty">Aucune commande confirmée à expédier.</p></div>';
+    var allPicked = ready.length > 0 && picked === ready.length;
+    var html = '<div class="quick" style="align-items:center;justify-content:space-between">' +
+      '<label style="display:flex;align-items:center;gap:10px;min-height:44px"><input type="checkbox" class="check" data-ship-all' + (allPicked ? ' checked' : '') + (ready.length ? '' : ' disabled') + '> ' +
+      'Tout sélectionner (' + ready.length + ' prêtes)</label>' +
+      '<button type="button" class="btn primary" data-act="ship-ask"' + ((!picked || !d.configured || sh.busy) ? ' disabled' : '') + '>' +
+      (sh.busy ? 'Envoi en cours…' : 'Envoyer ' + plural(picked, 'colis', 'colis') + ' à Ecotrack') + '</button></div>';
+    html += '<div class="table-wrap"><table class="data cards"><thead><tr>' +
+      ['', 'Commande', 'Destination', 'Livraison', 'Total', 'État', ''].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>';
+    d.toShip.forEach(function (o) {
+      var ok = !o.problems.length;
+      html += '<tr>' +
+        '<td data-label="Choisir">' + (ok ? '<input type="checkbox" class="check" data-ship-check="' + h(o.id) + '"' + (sh.selected[o.id] ? ' checked' : '') + ' aria-label="Sélectionner la commande ' + h(o.id) + '">' : '') + '</td>' +
+        '<td data-label="Commande" class="multi"><strong>' + h(o.id) + '</strong> · ' + h(o.client) + '<div class="small">' + h(o.product) + '</div></td>' +
+        '<td data-label="Destination" class="multi">' + h(o.wilaya) + '<div class="small">' + h(o.commune) + '</div></td>' +
+        '<td data-label="Livraison">' + h(o.mode) + '</td>' +
+        '<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
+        '<td data-label="État">' + (ok ? '<span class="pill" style="background:#DDF0E4;color:#146C2E">Prête</span>' :
+          '<span class="problems">' + o.problems.map(function (p) { return '<span>' + h(p) + '</span>'; }).join('') + '</span>') + '</td>' +
+        '<td data-label=""><button type="button" class="btn" style="min-height:36px" data-act="open-order" data-id="' + h(o.id) + '">Modifier</button></td></tr>';
+    });
+    return html + '</tbody></table></div>' +
+      '<p class="small">Les colis partent chez Ecotrack avec le total affiché (livraison comprise). La commune doit être écrite comme chez Ecotrack : sinon le colis est refusé et vous en êtes prévenu ici.</p>';
+  }
+
+  function renderInTransit(d) {
+    if (!d.inTransit.length) return '<div class="card"><p class="empty">Aucun colis en cours chez Ecotrack.</p></div>';
+    var html = '<div class="table-wrap"><table class="data cards"><thead><tr>' +
+      ['Commande', 'Wilaya', 'N° de suivi', 'Statut Ecotrack', 'Statut', 'Mise à jour'].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>';
+    d.inTransit.forEach(function (o) {
+      html += '<tr>' +
+        '<td data-label="Commande" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button><div class="small">' + h(o.client) + '</div></td>' +
+        '<td data-label="Wilaya">' + h(o.wilaya) + '</td>' +
+        '<td data-label="N° de suivi" class="mono">' + h(o.tracking) + '</td>' +
+        '<td data-label="Statut Ecotrack">' + (o.carrierStatus ? h(o.carrierStatus) : '<span class="muted">pas encore lu</span>') + '</td>' +
+        '<td data-label="Statut">' + pill(o.status) + '</td>' +
+        '<td data-label="Mise à jour" class="small">' + (o.updated ? fmtDate(o.updated) : '—') + '</td></tr>';
+    });
+    return html + '</tbody></table></div><p class="small">Les statuts sont relus automatiquement toutes les 30 minutes. Un statut qu’Ecotrack envoie et que l’outil ne connaît pas reste affiché ici et dans l’onglet Journal.</p>';
+  }
+
+  function confirmModal(title, text, okAct, okLabel) {
+    showModal(modalHead(h(title)) + '<p>' + h(text) + '</p>' +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Annuler</button>' +
+      '<button type="button" class="btn primary" data-act="' + okAct + '">' + h(okLabel) + '</button></div>');
+  }
+
+  function askShip() {
+    var n = Object.keys(S.ship.selected).length;
+    if (!n || S.ship.busy) return;
+    confirmModal('Envoyer à Ecotrack ?', plural(n, 'colis va être créé', 'colis vont être créés') +
+      ' chez Ecotrack, avec le total affiché comme montant à encaisser. Vous ne pourrez les modifier ou les annuler que chez Ecotrack, tant qu’ils ne sont pas validés.',
+      'ship-confirm', 'Envoyer');
+  }
+
+  function doShip() {
+    var ids = Object.keys(S.ship.selected);
+    closeModal();
+    if (!ids.length || S.ship.busy) return;
+    S.ship.busy = true;
+    renderShipping();
+    toast('Envoi à Ecotrack en cours…');
+    call('api_shipEcotrack', ids).then(function (res) {
+      S.ship.busy = false;
+      S.ship.selected = {};
+      S.ship.results = res;
+      var ok = res.filter(function (r) { return r.ok; }).length;
+      toast(plural(ok, 'colis créé', 'colis créés') + (res.length - ok ? ', ' + (res.length - ok) + ' refusé(s)' : ''), ok === 0);
+      loadShipping();
+      refreshCount();
+    }).catch(function (e) {
+      S.ship.busy = false;
+      toast(errText(e), true);
+      renderShipping();
+    });
+  }
+
+  function ecoAction(fn, busyText) {
+    toast(busyText);
+    call(fn).then(function (r) {
+      toast(r.message);
+      if (fn === 'api_ecotrackSyncStatuses') loadShipping();
+    }).catch(function (e) { toast(errText(e), true); });
+  }
+
+  /* ================================================================ */
   /* Événements                                                       */
   /* ================================================================ */
 
@@ -723,7 +892,20 @@
       if (!v) { toast('Choisissez une date et une heure.', true); return; }
       submit('callback', { callback: new Date(v).toISOString() });
     },
-    'cancel': function () { submit('cancel', { reason: $('#cancel-reason').value }); }
+    'cancel': function () { submit('cancel', { reason: $('#cancel-reason').value }); },
+    'ship-reload': function () { loadShipping(); },
+    'ship-tab': function (el) { S.ship.tab = el.getAttribute('data-tab'); renderShipping(); },
+    'ship-dismiss': function () { S.ship.results = null; renderShipping(); },
+    'ship-ask': askShip,
+    'ship-confirm': doShip,
+    'eco-test': function () { ecoAction('api_ecotrackTest', 'Test de la connexion…'); },
+    'eco-status': function () { ecoAction('api_ecotrackSyncStatuses', 'Lecture des statuts chez Ecotrack…'); },
+    'eco-fees-ask': function () {
+      confirmModal('Récupérer les tarifs Ecotrack ?',
+        'Les colonnes « Ecotrack domicile » et « Ecotrack stop desk » de l’onglet Tarifs seront remplacées par les prix d’Ecotrack. Les prix Yalidine ne changent pas.',
+        'eco-fees', 'Récupérer');
+    },
+    'eco-fees': function () { closeModal(); ecoAction('api_ecotrackSyncFees', 'Récupération des tarifs…'); }
   };
 
   document.addEventListener('click', function (e) {
@@ -747,6 +929,20 @@
     }
   });
   document.addEventListener('change', function (e) {
+    if (e.target.hasAttribute('data-ship-check')) {
+      var sid = e.target.getAttribute('data-ship-check');
+      if (e.target.checked) S.ship.selected[sid] = true; else delete S.ship.selected[sid];
+      renderShipping();
+      return;
+    }
+    if (e.target.hasAttribute('data-ship-all')) {
+      S.ship.selected = {};
+      if (e.target.checked && S.ship.data) {
+        S.ship.data.toShip.forEach(function (o) { if (!o.problems.length) S.ship.selected[o.id] = true; });
+      }
+      renderShipping();
+      return;
+    }
     if (e.target.id === 'f-wilaya') { S.filter.wilaya = e.target.value; S.filter.limit = 100; loadOrders(); }
     else if (e.target.id === 'f-period') { S.filter.period = e.target.value; S.filter.limit = 100; loadOrders(); }
     else if (e.target.getAttribute('data-role') === 'status') toggleCancelField();

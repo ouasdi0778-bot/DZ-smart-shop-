@@ -13,6 +13,7 @@ var SRC = path.join(ROOT, 'apps-script');
 
 function load(file) { vm.runInThisContext(fs.readFileSync(file, 'utf8'), { filename: file }); }
 load(path.join(__dirname, 'gas-mock.js'));
+load(path.join(__dirname, 'fake-ecotrack.js'));
 fs.readdirSync(SRC).filter(function (f) { return f.endsWith('.gs'); }).sort()
   .forEach(function (f) { load(path.join(SRC, f)); });
 load(path.join(__dirname, 'seed.js'));
@@ -107,8 +108,8 @@ test('setup : crée les onglets, en-têtes, réglages et le déclencheur', funct
   assert.deepStrictEqual(header, ORDER_COLUMNS.map(function (c) { return c.title; }));
   assert.strictEqual(sheet('Tarifs').getLastRow(), 59);
   assert.strictEqual(sheet('Paramètres').getLastRow(), DEFAULT_SETTINGS.length + 1);
-  assert.strictEqual(__mock.state.triggers.length, 1);
-  assert.strictEqual(__mock.state.triggers[0].minutes, 5);
+  assert.deepStrictEqual(__mock.state.triggers.map(function (t) { return t.fn + '/' + t.minutes; }),
+    ['processNewRows/5', 'syncEcotrackStatuses/30']);
   var statusCol = header.indexOf('Statut') + 1;
   assert.ok(sheet('Commandes')._validations.some(function (v) { return v.col === statusCol; }));
   assert.strictEqual(sheet('Commandes')._cf.length, STATUS_LIST.length + 7);
@@ -123,7 +124,7 @@ test('setup : relancé deux fois, ne duplique rien', function () {
   assert.strictEqual(sheet('Paramètres').getRange(3, 2).getValue(), 5);
   assert.strictEqual(sheet('Tarifs').getLastRow(), 59);
   assert.strictEqual(sheet('Équipe').getLastRow(), 2);
-  assert.strictEqual(__mock.state.triggers.length, 1);
+  assert.strictEqual(__mock.state.triggers.length, 2);
   assert.strictEqual(sheet('Commandes')._cf.length, STATUS_LIST.length + 7);
 });
 
@@ -406,6 +407,392 @@ test('menu et application web : pas d’erreur', function () {
   menuRecalc();
   assert.ok(doGet());
   assert.strictEqual(typeof include('Styles'), 'string');
+});
+
+/* ---------------- Ecotrack ---------------- */
+
+var FAKE = globalThis.__fakeEcotrack;
+var phoneSeq = 0;
+
+function ecoSetup() {
+  setup();
+  saveEcotrackConfig_(FAKE.host, FAKE.token);
+}
+/** Ajoute une commande déjà confirmée, prête à partir (comme après un appel). */
+function addConfirmed(id, extra) {
+  phoneSeq++;
+  var fields = {
+    'N°': id, 'Date': new Date(), 'Client': 'Client ' + id, 'Téléphone': '0550' + ('000000' + phoneSeq).slice(-6),
+    'Wilaya': '16 - Alger', 'Commune': 'Kouba', 'Adresse': 'Rue des Oliviers 12', 'Produit': 'Sac à main', 'Quantité': 1,
+    'Prix': 3000, 'Livraison': 'Domicile', 'Frais livraison': 450, 'Total': 3450, 'Statut': 'Confirmée', 'Source': 'Test'
+  };
+  Object.keys(extra || {}).forEach(function (k) { fields[k] = extra[k]; });
+  addRaw(fields);
+}
+function ship(ids) { return shipToEcotrack_(ids, { name: 'Imane' }); }
+function results(res) { var m = {}; res.forEach(function (r) { m[r.id] = r; }); return m; }
+
+test('Ecotrack : enregistrement de l’adresse et du jeton', function () {
+  assert.strictEqual(normalizeEcotrackUrl_('http://Demo.ecotrack.dz/api/v1/'), 'https://Demo.ecotrack.dz');
+  assert.strictEqual(normalizeEcotrackUrl_('demo.ecotrack.dz'), 'https://demo.ecotrack.dz');
+  assert.strictEqual(normalizeEcotrackUrl_('pas une adresse !'), '');
+  assert.strictEqual(ecotrackConfig_().configured, false);
+  assert.throws(function () { saveEcotrackConfig_('???', 'x'.repeat(20)); }, /Adresse invalide/);
+  assert.throws(function () { saveEcotrackConfig_('demo.ecotrack.dz', 'court'); }, /Jeton trop court/);
+  saveEcotrackConfig_(' http://demo.ecotrack.dz/ ', 'Bearer  ' + FAKE.token + ' \n');
+  var cfg = ecotrackConfig_();
+  assert.strictEqual(cfg.url, 'https://demo.ecotrack.dz');
+  assert.strictEqual(cfg.token, FAKE.token);
+  // Le jeton ne doit jamais apparaître dans le classeur.
+  setup();
+  api_ecotrackSyncFees();
+  __mock.ss().getSheets().forEach(function (s) {
+    s.data.forEach(function (row) { row.forEach(function (v) { assert.ok(String(v).indexOf(FAKE.token) < 0, 'jeton dans ' + s.name); }); });
+  });
+});
+
+test('Ecotrack : test de connexion et messages d’erreur clairs', function () {
+  setup();
+  assert.throws(function () { api_ecotrackTest(); }, /pas configuré/);
+  saveEcotrackConfig_(FAKE.host, FAKE.token);
+  var ok = api_ecotrackTest();
+  assert.ok(/45 wilayas/.test(ok.message), ok.message);
+  assert.strictEqual(FAKE.lastCall('/api/v1/get/wilayas').headers.Authorization, 'Bearer ' + FAKE.token);
+  assert.strictEqual(FAKE.lastCall('/api/v1/get/wilayas').options.followRedirects, false);
+
+  saveEcotrackConfig_(FAKE.host, 'AUTRE-JETON-1234567890');
+  assert.throws(function () { api_ecotrackTest(); }, /refusé le jeton \(erreur 401\)/);
+  saveEcotrackConfig_('autre.ecotrack.dz', FAKE.token);
+  assert.throws(function () { api_ecotrackTest(); }, /Impossible de joindre Ecotrack/);
+  saveEcotrackConfig_(FAKE.host, FAKE.token);
+  FAKE.queue.push({ code: 503, body: '<html>maintenance</html>' });
+  assert.throws(function () { api_ecotrackTest(); }, /indisponible \(erreur 503\)/);
+  FAKE.queue.push({ code: 200, body: '<html>page de connexion</html>' });
+  assert.throws(function () { api_ecotrackTest(); }, /Réponse inattendue/);
+});
+
+test('Ecotrack : tarifs récupérés dans l’onglet Tarifs', function () {
+  ecoSetup();
+  setRate('16 - Alger', [111, 222, 0, 0]); // prix Yalidine saisis à la main
+  var res = api_ecotrackSyncFees();
+  assert.ok(/stop desk disponible/i.test(res.message));
+  var rows = sheet('Tarifs').getRange(1, 1, 59, 5).getValues();
+  var byName = {};
+  rows.forEach(function (r) { byName[r[0]] = r; });
+  assert.deepStrictEqual(byName['16 - Alger'].slice(1), [111, 222, 450, 300], 'Yalidine intact, Ecotrack rempli');
+  assert.deepStrictEqual(byName['31 - Oran'].slice(3), [800, 450]);
+  assert.strictEqual(byName['14 - Tiaret'][3], 850);
+  assert.strictEqual(byName['14 - Tiaret'][4], '', 'stop desk à 0 chez Ecotrack = case vide');
+  assert.strictEqual(byName['12 - Tébessa'][3], '', 'wilaya non desservie = vide');
+  assert.strictEqual(res.stats.inactive, 13);
+  assert.ok(res.stats.withoutStopDesk >= 2);
+  // Les frais sont ensuite calculés avec ces prix.
+  addRaw({ 'N°': '#F1', 'Client': 'F', 'Téléphone': '0550000099', 'Wilaya': 'Alger', 'Prix': 1000, 'Société': 'Ecotrack', 'Livraison': 'Stop desk' });
+  processNewRows();
+  assert.strictEqual(order('#F1').shipping, 300);
+  assert.strictEqual(order('#F1').total, 1300);
+});
+
+test('Ecotrack : vérifications avant envoi', function () {
+  ecoSetup();
+  var cat = ecotrackCatalog_(true);
+  var base = { id: '#P', status: 'Confirmée', tracking: '', carrier: '', client: 'A B', phone: '0550123456', address: 'Rue 1', commune: 'Kouba', wilaya: '16 - Alger', mode: 'Domicile', total: 3000 };
+  var with_ = function (x) { var o = {}; Object.keys(base).forEach(function (k) { o[k] = base[k]; }); Object.keys(x).forEach(function (k) { o[k] = x[k]; }); return ecotrackProblems_(o, cat); };
+  assert.deepStrictEqual(with_({}), []);
+  assert.ok(/Téléphone invalide/.test(with_({ phone: '123' })));
+  assert.ok(/Adresse manquante/.test(with_({ address: ' ' })));
+  assert.ok(/Commune manquante/.test(with_({ commune: '' })));
+  assert.ok(/non desservie/.test(with_({ wilaya: '12 - Tébessa' })));
+  assert.ok(/Stop desk indisponible/.test(with_({ wilaya: '14 - Tiaret', mode: 'Stop desk' })));
+  assert.deepStrictEqual(with_({ wilaya: '16 - Alger', mode: 'Stop desk' }), []);
+  assert.ok(/Wilaya manquante/.test(with_({ wilaya: '' })));
+  assert.ok(/Montant/.test(with_({ total: 0 })));
+  assert.ok(/seules les commandes confirmées/.test(with_({ status: 'À confirmer' })));
+  assert.ok(/Déjà envoyée/.test(with_({ tracking: 'ECT1' })));
+  assert.ok(/Société choisie : Yalidine/.test(with_({ carrier: 'Yalidine' })));
+  assert.deepStrictEqual(with_({ carrier: 'Ecotrack' }), []);
+});
+
+test('Ecotrack : envoi réussi, n° de suivi et statut écrits dans le classeur', function () {
+  ecoSetup();
+  addConfirmed('#E1', { 'Quantité': 2, 'Total': 6450, 'Notes': 'Sonner 2 fois' });
+  addConfirmed('#E2', { 'Livraison': 'Stop desk', 'Wilaya': '31 - Oran', 'Commune': 'Bir El Djir', 'Total': 3400 });
+  var out = results(ship(['#E1', '#E2']));
+  assert.ok(out['#E1'].ok && /^ECT\d{8}$/.test(out['#E1'].tracking));
+  assert.ok(out['#E2'].ok);
+
+  var call = FAKE.lastCall('/api/v1/create/orders');
+  assert.strictEqual(FAKE.count('/api/v1/create/orders'), 1, 'un seul appel pour les 2 commandes');
+  assert.strictEqual(call.headers.Authorization, 'Bearer ' + FAKE.token);
+  var p1 = call.body.orders['0'];
+  assert.deepStrictEqual(p1, {
+    reference: '#E1', nom_client: 'Client #E1', telephone: p1.telephone, adresse: 'Rue des Oliviers 12', commune: 'Kouba',
+    code_wilaya: 16, montant: 6450, remarque: 'Sonner 2 fois', produit: 'Sac à main x2', stock: 0, type: 1, stop_desk: 0
+  });
+  assert.ok(/^05\d{8}$/.test(p1.telephone));
+  var p2 = call.body.orders['1'];
+  assert.strictEqual(p2.stop_desk, 1);
+  assert.strictEqual(p2.code_wilaya, 31);
+  assert.strictEqual(p2.montant, 3400);
+
+  var o1 = order('#E1');
+  assert.strictEqual(o1.status, 'Expédiée');
+  assert.strictEqual(o1.carrier, 'Ecotrack');
+  assert.strictEqual(o1.tracking, out['#E1'].tracking);
+  assert.strictEqual(o1.total, 6450, 'le total annoncé au client ne change pas');
+  var journal = sheet('Journal').getRange(2, 3, sheet('Journal').getLastRow() - 1, 3).getValues();
+  assert.ok(journal.some(function (r) { return r[0] === '#E1' && r[1] === 'Envoyée à Ecotrack' && r[2].indexOf(o1.tracking) >= 0; }));
+  assert.ok(!__mock.state.cache['ship:#E1'], 'réservation libérée');
+
+  // Une 2e tentative ne doit rien renvoyer.
+  var again = results(ship(['#E1']));
+  assert.ok(!again['#E1'].ok && /seules les commandes confirmées|Déjà envoyée/.test(again['#E1'].message));
+  assert.strictEqual(FAKE.count('/api/v1/create/orders'), 1);
+  assert.strictEqual(FAKE.orders.length, 2);
+});
+
+test('Ecotrack : refus par commande (commune mal écrite) sans bloquer les autres', function () {
+  ecoSetup();
+  addConfirmed('#R1');
+  addConfirmed('#R2', { 'Commune': 'xx Mauvaise commune' });
+  addConfirmed('#R3', { 'Téléphone': '123' });
+  addConfirmed('#R4', { 'Statut': 'À confirmer' });
+  var out = results(ship(['#R1', '#R2', '#R3', '#R4', '#nope']));
+  assert.ok(out['#R1'].ok);
+  assert.ok(!out['#R2'].ok && /Commune : Commune mal écrite/.test(out['#R2'].message), out['#R2'].message);
+  assert.ok(/Téléphone invalide/.test(out['#R3'].message));
+  assert.ok(/seules les commandes confirmées/.test(out['#R4'].message));
+  assert.ok(/introuvable/.test(out['#nope'].message));
+  assert.strictEqual(order('#R1').status, 'Expédiée');
+  assert.strictEqual(order('#R2').status, 'Confirmée');
+  assert.strictEqual(order('#R2').tracking, '');
+  assert.strictEqual(FAKE.orders.length, 1);
+  assert.strictEqual(FAKE.lastCall('/api/v1/create/orders').body.orders['0'].reference, '#R1', 'les commandes déjà refusées localement ne partent pas');
+  assert.throws(function () { ship([]); }, /Aucune commande/);
+});
+
+test('Ecotrack : plus de 100 commandes = plusieurs requêtes', function () {
+  ecoSetup();
+  var ids = [];
+  for (var i = 1; i <= 120; i++) { ids.push('#B' + i); addConfirmed('#B' + i); }
+  var out = ship(ids);
+  assert.strictEqual(out.filter(function (r) { return r.ok; }).length, 120);
+  assert.strictEqual(FAKE.count('/api/v1/create/orders'), 2);
+  assert.strictEqual(Object.keys(FAKE.calls.filter(function (c) { return c.path === '/api/v1/create/orders'; })[0].body.orders).length, 100);
+  assert.strictEqual(FAKE.orders.length, 120);
+  assert.strictEqual(order('#B120').status, 'Expédiée');
+  var tooMany = [];
+  for (var k = 0; k < 201; k++) tooMany.push('#X' + k);
+  assert.throws(function () { ship(tooMany); }, /200 commandes/);
+});
+
+test('Ecotrack : connexion coupée après la création : le colis est retrouvé, pas de doublon', function () {
+  ecoSetup();
+  addConfirmed('#T1');
+  FAKE.createThenFail = true;
+  var out = results(ship(['#T1']));
+  assert.ok(out['#T1'].ok, out['#T1'].message);
+  assert.strictEqual(order('#T1').tracking, FAKE.orders[0].tracking);
+  assert.strictEqual(order('#T1').status, 'Expédiée');
+  assert.strictEqual(FAKE.orders.length, 1);
+});
+
+test('Ecotrack : Ecotrack injoignable : rien n’est modifié et on peut réessayer', function () {
+  ecoSetup();
+  addConfirmed('#D1');
+  ecotrackCatalog_(true); // le catalogue est déjà en mémoire
+  FAKE.down = true;
+  var out = results(ship(['#D1']));
+  assert.ok(!out['#D1'].ok);
+  assert.ok(/Impossible de joindre Ecotrack/.test(out['#D1'].message) && /Résultat incertain/.test(out['#D1'].message), out['#D1'].message);
+  assert.strictEqual(order('#D1').status, 'Confirmée');
+  assert.ok(!__mock.state.cache['ship:#D1']);
+  FAKE.down = false;
+  assert.ok(results(ship(['#D1']))['#D1'].ok);
+  assert.strictEqual(FAKE.orders.length, 1);
+});
+
+test('Ecotrack : colis non créé après une erreur serveur : message clair, réessai possible', function () {
+  ecoSetup();
+  addConfirmed('#S1');
+  ecotrackCatalog_(true);
+  FAKE.queue.push({ code: 502, body: '<html>Bad gateway</html>' });
+  var out = results(ship(['#S1']));
+  assert.ok(!out['#S1'].ok && /indisponible \(erreur 502\)/.test(out['#S1'].message) && /vous pouvez réessayer/.test(out['#S1'].message), out['#S1'].message);
+  assert.strictEqual(order('#S1').status, 'Confirmée');
+  assert.ok(results(ship(['#S1']))['#S1'].ok);
+});
+
+test('Ecotrack : limite de requêtes (429) attendue puis réessayée', function () {
+  ecoSetup();
+  addConfirmed('#L1');
+  ecotrackCatalog_(true);
+  FAKE.queue.push({ code: 429, headers: { 'Retry-After': '3' } });
+  assert.ok(results(ship(['#L1']))['#L1'].ok);
+  assert.deepStrictEqual(__mock.state.sleeps, [3000]);
+  assert.strictEqual(FAKE.count('/api/v1/create/orders'), 2);
+  assert.strictEqual(FAKE.orders.length, 1);
+});
+
+test('Ecotrack : jeton refusé à l’envoi', function () {
+  ecoSetup();
+  addConfirmed('#K1');
+  // Jeton changé : l'erreur est signalée tout de suite, avant toute création de colis.
+  saveEcotrackConfig_(FAKE.host, 'JETON-PERIME-1234567890');
+  assert.throws(function () { ship(['#K1']); }, /refusé le jeton/);
+  assert.strictEqual(FAKE.count('/api/v1/create/orders'), 0);
+
+  // Jeton périmé entre la lecture des tarifs (gardée en mémoire) et l'envoi.
+  saveEcotrackConfig_(FAKE.host, FAKE.token);
+  ecotrackCatalog_(true);
+  PropertiesService.getScriptProperties().setProperty(ECO.PROP_TOKEN, 'JETON-PERIME-1234567890');
+  var out = results(ship(['#K1']));
+  assert.ok(!out['#K1'].ok && /refusé le jeton/.test(out['#K1'].message));
+  assert.strictEqual(order('#K1').status, 'Confirmée');
+  assert.strictEqual(order('#K1').tracking, '');
+  assert.strictEqual(FAKE.orders.length, 0);
+});
+
+test('Ecotrack : une commande déjà en cours d’envoi n’est pas envoyée deux fois', function () {
+  ecoSetup();
+  addConfirmed('#C1');
+  __mock.state.cache['ship:#C1'] = '1';
+  var out = results(ship(['#C1']));
+  assert.ok(/déjà en cours/.test(out['#C1'].message));
+  assert.strictEqual(FAKE.count('/api/v1/create/orders'), 0);
+});
+
+test('Ecotrack : correspondance des statuts', function () {
+  var m = mapEcotrackStatus_;
+  assert.strictEqual(m('prete_a_expedier'), 'Expédiée');
+  assert.strictEqual(m('en_attente'), 'Expédiée');
+  assert.strictEqual(m('en_transit'), 'En livraison');
+  assert.strictEqual(m('sorti_en_livraison'), 'En livraison');
+  assert.strictEqual(m('tentative_echouee'), 'En livraison');
+  assert.strictEqual(m('livre_non_encaisse'), 'Livrée');
+  assert.strictEqual(m('livré'), 'Livrée');
+  assert.strictEqual(m('payé_et_archivé'), 'Livrée');
+  assert.strictEqual(m('encaissé'), 'Livrée');
+  assert.strictEqual(m('retour_en_cours'), 'Retour');
+  assert.strictEqual(m('retourné'), 'Retour');
+  assert.strictEqual(m('refusé_par_le_client'), 'Retour');
+  assert.strictEqual(m('non_livre'), 'En livraison');
+  assert.strictEqual(m('statut_bizarre'), null);
+  assert.strictEqual(m(''), null);
+  assert.strictEqual(m(null), null);
+});
+
+test('Ecotrack : suivi des statuts, statut inconnu signalé une seule fois', function () {
+  ecoSetup();
+  ['#M1', '#M2', '#M3', '#M4'].forEach(function (id) { addConfirmed(id); });
+  var shipped = results(ship(['#M1', '#M2', '#M3', '#M4']));
+  FAKE.setStatus(shipped['#M1'].tracking, 'payé_et_archivé');
+  FAKE.setStatus(shipped['#M2'].tracking, 'en_livraison');
+  FAKE.setStatus(shipped['#M3'].tracking, 'retour_en_cours');
+  FAKE.setStatus(shipped['#M4'].tracking, 'statut_bizarre');
+
+  var calls = FAKE.count('/api/v1/get/orders');
+  var s = syncEcotrackStatuses_();
+  assert.deepStrictEqual([s.checked, s.updated, s.unknown, s.missing], [4, 3, 1, 0]);
+  assert.strictEqual(FAKE.count('/api/v1/get/orders') - calls, 4, 'un appel par colis (peu de colis)');
+  assert.strictEqual(order('#M1').status, 'Livrée');
+  assert.strictEqual(order('#M2').status, 'En livraison');
+  assert.strictEqual(order('#M3').status, 'Retour');
+  assert.strictEqual(order('#M4').status, 'Expédiée');
+  assert.strictEqual(order('#M1').carrierStatus, 'payé_et_archivé');
+  assert.strictEqual(order('#M4').carrierStatus, 'statut_bizarre');
+
+  var unknownLogs = function () {
+    var s = sheet('Journal');
+    return s.getRange(2, 4, s.getLastRow() - 1, 2).getValues().filter(function (r) { return r[0] === 'Statut Ecotrack inconnu'; }).length;
+  };
+  assert.strictEqual(unknownLogs(), 1);
+  syncEcotrackStatuses_();
+  assert.strictEqual(unknownLogs(), 1, 'pas de répétition');
+
+  // Un statut ne revient jamais en arrière : « En livraison » ne redevient pas « Expédiée ».
+  FAKE.setStatus(shipped['#M2'].tracking, 'prete_a_expedier');
+  syncEcotrackStatuses_();
+  assert.strictEqual(order('#M2').status, 'En livraison');
+  // Les commandes terminées (livrée, retour) ne sont plus interrogées : il reste 2 colis en cours.
+  calls = FAKE.count('/api/v1/get/orders');
+  syncEcotrackStatuses_();
+  assert.strictEqual(FAKE.count('/api/v1/get/orders') - calls, 2);
+});
+
+test('Ecotrack : suivi de nombreux colis par pages, colis disparu signalé', function () {
+  ecoSetup();
+  var ids = [];
+  for (var i = 1; i <= 20; i++) { ids.push('#N' + i); addConfirmed('#N' + i); }
+  var shipped = results(ship(ids));
+  FAKE.setStatus(shipped['#N1'].tracking, 'livre');
+  FAKE.remove(shipped['#N2'].tracking); // archivé chez Ecotrack
+  var calls = FAKE.count('/api/v1/get/orders');
+  var s = syncEcotrackStatuses_();
+  assert.strictEqual(s.checked, 20);
+  assert.strictEqual(s.updated, 1);
+  assert.strictEqual(s.missing, 1);
+  // 1 page pour les 19 colis, plus 1 recherche individuelle pour le colis manquant.
+  assert.strictEqual(FAKE.count('/api/v1/get/orders') - calls, 2);
+  assert.strictEqual(order('#N1').status, 'Livrée');
+  assert.strictEqual(order('#N2').status, 'Expédiée', 'statut inchangé quand le colis est introuvable');
+  assert.strictEqual(order('#N2').carrierStatus, 'Introuvable chez Ecotrack');
+  syncEcotrackStatuses_();
+  var journal = sheet('Journal').getRange(2, 4, sheet('Journal').getLastRow() - 1, 1).getValues();
+  assert.strictEqual(journal.filter(function (r) { return r[0] === 'Colis introuvable'; }).length, 1);
+});
+
+test('Ecotrack : le déclencheur automatique ne plante pas et n’écrit l’erreur qu’une fois', function () {
+  setup();
+  assert.strictEqual(syncEcotrackStatuses().configured, false, 'sans effet tant que non configuré');
+  ecoSetup();
+  addConfirmed('#Q1');
+  var shipped = results(ship(['#Q1']));
+  saveEcotrackConfig_(FAKE.host, 'JETON-PERIME-1234567890');
+  assert.strictEqual(syncEcotrackStatuses(), null);
+  assert.strictEqual(syncEcotrackStatuses(), null);
+  var log = sheet('Journal').getRange(2, 4, sheet('Journal').getLastRow() - 1, 2).getValues();
+  var errors = log.filter(function (r) { return r[0] === 'Erreur Ecotrack'; });
+  assert.strictEqual(errors.length, 1);
+  assert.ok(/refusé le jeton/.test(errors[0][1]));
+  saveEcotrackConfig_(FAKE.host, FAKE.token);
+  FAKE.setStatus(shipped['#Q1'].tracking, 'livre');
+  assert.strictEqual(syncEcotrackStatuses().updated, 1);
+  assert.strictEqual(order('#Q1').status, 'Livrée');
+});
+
+test('Ecotrack : données de la page Expéditions', function () {
+  setup();
+  addConfirmed('#V1');
+  var d0 = api_shippingList();
+  assertSerializable(d0, 'api_shippingList');
+  assert.strictEqual(d0.configured, false);
+  assert.strictEqual(d0.toShip.length, 1);
+
+  saveEcotrackConfig_(FAKE.host, FAKE.token);
+  addConfirmed('#V2', { 'Wilaya': '12 - Tébessa' });
+  addConfirmed('#V3', { 'Livraison': 'Stop desk', 'Wilaya': '14 - Tiaret' });
+  addConfirmed('#V4', { 'Société': 'Yalidine' });
+  addConfirmed('#V0', { 'Date': new Date(Date.now() - 86400000) });
+  var d = api_shippingList();
+  assertSerializable(d, 'api_shippingList');
+  assert.strictEqual(d.configured, true);
+  assert.strictEqual(d.host, 'demo.ecotrack.dz');
+  assert.deepStrictEqual(d.toShip.map(function (x) { return x.id; }), ['#V0', '#V1', '#V2', '#V3', '#V4'], 'les plus anciennes d’abord');
+  var by = {};
+  d.toShip.forEach(function (x) { by[x.id] = x; });
+  assert.deepStrictEqual(by['#V1'].problems, []);
+  assert.ok(/non desservie/.test(by['#V2'].problems.join()));
+  assert.ok(/Stop desk indisponible/.test(by['#V3'].problems.join()));
+  assert.ok(/Yalidine/.test(by['#V4'].problems.join()));
+
+  var sent = results(api_shipEcotrack(['#V1']));
+  assert.ok(sent['#V1'].ok);
+  var d2 = api_shippingList();
+  assert.strictEqual(d2.toShip.length, 4);
+  assert.strictEqual(d2.inTransit.length, 1);
+  assert.strictEqual(d2.inTransit[0].tracking, sent['#V1'].tracking);
+  assert.strictEqual(d2.inTransit[0].status, 'Expédiée');
 });
 
 test('fichier unique dist/Code.gs : à jour et fonctionnel', function () {

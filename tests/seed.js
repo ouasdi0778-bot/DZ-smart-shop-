@@ -1,3 +1,25 @@
+/** Connecte l'outil au faux Ecotrack (aperçu et tests uniquement). */
+function seedEcotrackConnection_() {
+  saveEcotrackConfig_(__fakeEcotrack.host, __fakeEcotrack.token);
+}
+
+/**
+ * Envoie des commandes confirmées au faux Ecotrack, puis fait « avancer » leurs
+ * colis (livré, retour, en livraison) et relit les statuts, comme en vrai.
+ */
+function seedEcotrack_(list) {
+  seedEcotrackConnection_();
+  syncEcotrackFees_();
+  var sent = shipToEcotrack_(list.map(function (x) { return x.id; }), { name: 'Imane' });
+  var tracking = {};
+  sent.forEach(function (r) { if (r.ok) tracking[r.id] = r.tracking; });
+  var slug = { 'Livrée': 'payé_et_archivé', 'Retour': 'retour_en_cours', 'En livraison': 'sorti_en_livraison' };
+  list.forEach(function (x) {
+    if (tracking[x.id]) __fakeEcotrack.setStatus(tracking[x.id], slug[x.status] || 'prete_a_expedier');
+  });
+  syncEcotrackStatuses_();
+}
+
 /**
  * Premier jour : classeur installé, quelques tarifs, et 2 commandes
  * qui viennent d'arriver de Shopify (pour montrer le démarrage).
@@ -22,6 +44,7 @@ function seedFirstOrders_() {
     'Wilaya': 'oran', 'Commune': 'Bir El Djir', 'Adresse': 'Cité USTO, bloc C', 'Produit': 'Sac à main',
     'Quantité': 2, 'Prix': 7400, 'Livraison': 'Stop desk', 'Source': 'Shopify' });
   processNewRows();
+  if (typeof __fakeEcotrack !== 'undefined') seedEcotrackConnection_();
 }
 
 /**
@@ -104,6 +127,7 @@ function seedDemo_() {
   processNewRows();
 
   // Faire avancer les commandes plus anciennes.
+  var viaEcotrack = [];
   var agents = ['imane@example.com', 'sonia@example.com'];
   made.forEach(function (m, i) {
     if (m.hoursAgo < 5) return;
@@ -123,15 +147,22 @@ function seedDemo_() {
         return;
       }
       api_recordCall(m.id, 'confirm', {});
-      if (m.hoursAgo < 20) return;
+      // Les plus récentes restent « confirmées, à expédier » (dont 2 avec un numéro invalide).
+      if (m.hoursAgo < 20 || i % 5 === 2 || i === 14 || i === 29) return;
       var carrier = i % 3 === 0 ? 'Ecotrack' : 'Yalidine';
-      var tracking = (carrier === 'Yalidine' ? 'YAL-' : 'ECO-') + (500000 + i * 37);
       var status = m.hoursAgo < 50 ? 'En livraison' : (fate === 3 || fate === 5 ? 'Retour' : 'Livrée');
+      if (carrier === 'Ecotrack' && typeof __fakeEcotrack !== 'undefined') {
+        // Les colis Ecotrack passent par le faux serveur : envoi, n° de suivi, statuts.
+        viaEcotrack.push({ id: m.id, status: status });
+        return;
+      }
+      var tracking = (carrier === 'Yalidine' ? 'YAL-' : 'ECO-') + (500000 + i * 37);
       api_updateOrder(m.id, { status: status, carrier: carrier, tracking: tracking });
     } catch (e) {
       // Une commande peut déjà avoir été traitée : on l'ignore.
     }
   });
+  if (viaEcotrack.length) seedEcotrack_(viaEcotrack);
   __mock.setUser('imane@example.com');
   api_setBlacklist('0555001199', true, 'Refus répétés');
   recalcAlerts();

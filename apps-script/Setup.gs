@@ -190,10 +190,16 @@ function removeEmptyDefaultSheet_(ss) {
   });
 }
 
-/** Traitement automatique des nouvelles lignes toutes les 5 minutes. */
+/**
+ * Traitement automatique des nouvelles lignes toutes les 5 minutes, et
+ * suivi des colis Ecotrack toutes les 30 minutes (sans effet tant
+ * qu'Ecotrack n'est pas configuré).
+ */
 function installTriggers_() {
+  var handlers = ['processNewRows', 'syncEcotrackStatuses'];
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'processNewRows') ScriptApp.deleteTrigger(t);
+    if (handlers.indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('processNewRows').timeBased().everyMinutes(5).create();
+  ScriptApp.newTrigger('syncEcotrackStatuses').timeBased().everyMinutes(30).create();
 }

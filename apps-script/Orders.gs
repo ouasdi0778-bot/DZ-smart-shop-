@@ -125,6 +125,7 @@ function serializeOrder_(o) {
     cancelReason: String(o.cancelReason),
     carrier: String(o.carrier),
     tracking: String(o.tracking),
+    carrierStatus: String(o.carrierStatus),
     alert: String(o.alert),
     alertLevel: alertLevel_(o.alert),
     notes: String(o.notes),
