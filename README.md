@@ -31,19 +31,13 @@ Ce qui se passe tout seul :
 
 ### 1. Créer le classeur et le script
 
-1. Créez un classeur Google Sheets vide, par exemple « DZ Smart Shop · Commandes ».
+1. Ouvrez votre classeur Google Sheets (ou créez-en un vide).
 2. Menu **Extensions › Apps Script**.
-3. Dans l'éditeur Apps Script, créez un fichier pour chaque fichier du dossier [`apps-script/`](apps-script/), avec **le même nom sans l'extension**, et collez son contenu :
-
-   | Fichier ici | Dans Apps Script |
-   |---|---|
-   | `Config.gs`, `Utils.gs`, `Orders.gs`, `Api.gs`, `Setup.gs` | **+ › Script**, nommé `Config`, `Utils`… Le fichier `Code.gs` créé par défaut peut être supprimé. |
-   | `Index.html`, `Styles.html`, `App.html` | **+ › HTML**, nommé `Index`, `Styles`, `App` |
-   | `appsscript.json` | ⚙ **Paramètres du projet** › cochez « Afficher le fichier manifeste appsscript.json », puis remplacez son contenu |
-
+3. Dans le fichier `Code.gs` qui s'ouvre, **effacez tout**, puis collez le contenu du fichier [`dist/Code.gs`](dist/Code.gs). Sur GitHub, le bouton « Copy raw file » le copie en entier.
 4. Cliquez sur 💾 **Enregistrer**.
+5. ⚙ **Paramètres du projet** › Fuseau horaire : **(GMT+01:00) Alger**.
 
-> Pour les développeurs, il est aussi possible d'envoyer les fichiers avec [clasp](https://github.com/google/clasp) : créez un `.clasp.json` contenant `{"scriptId": "<ID du script>", "rootDir": "apps-script"}`, puis lancez `clasp push`.
+> `dist/Code.gs` contient tout le code dans un seul fichier. Pour les développeurs, le code source est découpé dans [`apps-script/`](apps-script/) et peut être envoyé avec [clasp](https://github.com/google/clasp) : créez un `.clasp.json` contenant `{"scriptId": "<ID du script>", "rootDir": "apps-script"}`, puis lancez `clasp push`. Après une modification de `apps-script/`, lancez `npm run bundle` pour régénérer `dist/Code.gs`.
 
 ### 2. Installer le classeur
 
@@ -94,7 +88,8 @@ La connexion directe à Shopify (sans application intermédiaire) est la prochai
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 19 tests du code serveur contre une imitation du classeur
+npm test          # 20 tests du code serveur contre une imitation du classeur
+npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
 
@@ -112,6 +107,7 @@ apps-script/
   Index.html    page de l'application
   Styles.html   apparence (ordinateur et téléphone)
   App.html      fonctionnement de l'interface
+dist/Code.gs    tout le code ci-dessus en un seul fichier (généré par npm run bundle)
 tests/          imitation de Google Apps Script, tests, données d'exemple, aperçu
 ```
 

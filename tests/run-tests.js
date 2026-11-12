@@ -408,6 +408,31 @@ test('menu et application web : pas d’erreur', function () {
   assert.strictEqual(typeof include('Styles'), 'string');
 });
 
+test('fichier unique dist/Code.gs : à jour et fonctionnel', function () {
+  var bundle = require('./build-bundle.js');
+  var expected = bundle.build();
+  var current = fs.existsSync(bundle.OUT) ? fs.readFileSync(bundle.OUT, 'utf8') : '';
+  assert.ok(current === expected, 'dist/Code.gs n’est pas à jour : lancez « npm run bundle »');
+
+  // Le fichier unique doit tourner seul, dans un environnement neuf.
+  var sandbox = { console: console, Proxy: Proxy };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, 'gas-mock.js'), 'utf8'), sandbox);
+  vm.runInContext(expected, sandbox, { filename: 'dist/Code.gs' });
+  vm.runInContext([
+    'setup();',
+    "SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Commandes').appendRow(['#1', '', 'Test', '0550123456', 'Alger']);",
+    'var n = processNewRows();',
+    'var page = doGet().getContent();',
+    "var styles = include('Styles');"
+  ].join('\n'), sandbox);
+  assert.strictEqual(sandbox.n, 1);
+  assert.ok(/<\?!= include\('Styles'\)/.test(sandbox.page), 'page Index intégrée');
+  assert.ok(/--brand/.test(sandbox.styles), 'styles intégrés');
+  assert.strictEqual(sandbox.__mock.ss().timeZone, 'Africa/Algiers');
+});
+
 /* ---------------- Lancement ---------------- */
 
 var failed = 0;

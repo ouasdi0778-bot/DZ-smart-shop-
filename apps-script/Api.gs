@@ -10,14 +10,26 @@
 /* Application web et menu                                            */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Version « un seul fichier » (dist/Code.gs) : les pages HTML sont
+ * rangées dans HTML_FILES_ au lieu de fichiers séparés.
+ */
+function hasBundledHtml_() {
+  return typeof HTML_FILES_ !== 'undefined';
+}
+
 function doGet() {
-  return HtmlService.createTemplateFromFile('Index').evaluate()
+  var template = hasBundledHtml_()
+    ? HtmlService.createTemplate(HTML_FILES_.Index)
+    : HtmlService.createTemplateFromFile('Index');
+  return template.evaluate()
     .setTitle(APP_NAME + ' · Commandes COD')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
 }
 
 /** Insère un fichier HTML dans un autre (Styles, App). */
 function include(name) {
+  if (hasBundledHtml_() && HTML_FILES_[name] !== undefined) return HTML_FILES_[name];
   return HtmlService.createHtmlOutputFromFile(name).getContent();
 }
 

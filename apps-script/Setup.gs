@@ -22,11 +22,15 @@ function setup() {
   installTriggers_();
 
   ss.setActiveSheet(ss.getSheetByName(SHEET.ORDERS));
+  try { ss.setSpreadsheetTimeZone('Africa/Algiers'); } catch (e) { /* droits insuffisants : sans importance */ }
+  var tzWarning = Session.getScriptTimeZone() === 'Africa/Algiers' ? '' :
+    '\n\nAttention : le fuseau horaire du script est « ' + Session.getScriptTimeZone() + ' ». ' +
+    'Dans Apps Script › ⚙ Paramètres du projet, choisissez « (GMT+01:00) Alger ».';
   try {
     SpreadsheetApp.getUi().alert(APP_NAME,
       'Classeur prêt.\n\n1. Remplissez l’onglet Tarifs (prix de livraison par wilaya).\n' +
       '2. Ajoutez vos confirmatrices dans l’onglet Équipe.\n' +
-      '3. Déployez l’application web (voir README).',
+      '3. Déployez l’application web (voir README).' + tzWarning,
       SpreadsheetApp.getUi().ButtonSet.OK);
   } catch (e) {
     // Pas d'interface (lancement depuis l'éditeur ou un test) : rien à afficher.

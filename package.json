@@ -5,6 +5,7 @@
   "description": "Gestion des commandes COD sur Google Sheets (Google Apps Script)",
   "scripts": {
     "test": "node tests/run-tests.js",
+    "bundle": "node tests/build-bundle.js",
     "preview": "node tests/build-preview.js"
   },
   "license": "UNLICENSED"

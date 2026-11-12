@@ -118,6 +118,7 @@
   Spreadsheet.prototype.deleteSheet = function (s) { this.sheets = this.sheets.filter(function (x) { return x !== s; }); };
   Spreadsheet.prototype.setActiveSheet = function (s) { return s; };
   Spreadsheet.prototype.toast = function (msg) { this.toasts.push(msg); };
+  Spreadsheet.prototype.setSpreadsheetTimeZone = function (tz) { this.timeZone = tz; };
 
   /* -------------------- Constructeurs (règles) -------------------- */
 
@@ -234,6 +235,7 @@
   g.HtmlService = {
     createTemplateFromFile: function (name) { return { evaluate: function () { return output('[' + name + ']'); } }; },
     createHtmlOutputFromFile: function (name) { return output('[' + name + ']'); },
+    createTemplate: function (html) { return { evaluate: function () { return output(html); } }; },
     createHtmlOutput: function (html) { return output(html); }
   };
 
