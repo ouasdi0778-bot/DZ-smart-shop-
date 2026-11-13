@@ -15,6 +15,7 @@ function load(file) { vm.runInThisContext(fs.readFileSync(file, 'utf8'), { filen
 load(path.join(__dirname, 'gas-mock.js'));
 load(path.join(__dirname, 'fake-ecotrack.js'));
 load(path.join(__dirname, 'fake-shopify.js'));
+load(path.join(__dirname, 'fake-httpsms.js'));
 fs.readdirSync(SRC).filter(function (f) { return f.endsWith('.gs'); }).sort()
   .forEach(function (f) { load(path.join(SRC, f)); });
 load(path.join(__dirname, 'seed.js'));
@@ -761,7 +762,12 @@ test('Ecotrack : suivi des statuts en lecture groupée, statut inconnu signalé 
   FAKE.setStatus(shipped['#M2'].tracking, 'prete_a_expedier');
   syncEcotrackStatuses_();
   assert.strictEqual(order('#M2').status, 'En livraison');
-  // Les colis terminés (livré, retour) ne sont plus interrogés : il en reste 3 à suivre.
+  // Livré et payé : plus interrogé. Le retour en traitement reste suivi jusqu'à sa réception.
+  syncEcotrackStatuses_();
+  assert.strictEqual(FAKE.lastCall('/api/v1/get/orders/status').query.trackings.split(',').length, 4);
+  FAKE.setStatus(shipped['#M3'].tracking, 'retour_recu');
+  syncEcotrackStatuses_();
+  assert.strictEqual(order('#M3').carrierStatus, 'retour_recu', 'le retour reçu est vu');
   syncEcotrackStatuses_();
   assert.strictEqual(FAKE.lastCall('/api/v1/get/orders/status').query.trackings.split(',').length, 3);
   assert.ok(PropertiesService.getScriptProperties().getProperty(ECO.PROP_LAST_SYNC), 'heure de la dernière lecture gardée');
@@ -1898,7 +1904,7 @@ test('Vitesse : une confirmation écrit la commande en 2 blocs, sans case par ca
 
 test('Vitesse : réglages, tarifs, équipe et liste noire gardés en mémoire, vidés dès qu’on les modifie', function () {
   baseSetup();
-  getSettings_(); getWilayaList_(); readRates_(getWilayaList_()); readClients_(); readTeam_();
+  getSettings_(); getWilayaList_(); readRates_(getWilayaList_()); readClients_(); readTeam_(); readCatalog_();
   var again = countSheetCalls(function () {
     getSettings_(); readRates_(getWilayaList_()); readClients_(); currentUser_();
     api_bootstrap();
@@ -2074,6 +2080,332 @@ test('Maintenance de nuit : Journal raccourci, onglets allégés, RELEASIT jamai
   onOpen();
   menuMaintenance();
   assert.ok(__mock.state.alerts.some(function (a) { return /commande\(s\) archivée\(s\)/.test(a.join(' ')); }));
+});
+
+/* ---------------- Stock par modèle ---------------- */
+
+/** Remplit l'onglet Produits (comme une saisie à la main). */
+function setCatalog(rows) {
+  var sh = sheet('Produits');
+  var header = headerOf('Produits');
+  rows.forEach(function (r) {
+    var line = header.map(function (t) { return r[t] === undefined ? '' : r[t]; });
+    sh.appendRow(line);
+  });
+  userEdit('Produits');
+}
+function catalogStock(model) {
+  var c = readCatalogFromSheet_();
+  return c.rows.filter(function (r) { return r.model === model; })[0].stock;
+}
+function addOrder(id, product, extra) {
+  var f = { 'N°': id, 'Date': new Date(), 'Client': 'Client ' + id, 'Téléphone': '0550' + ('000000' + (++phoneSeq)).slice(-6), 'Wilaya': '16 - Alger',
+    'Produit': product, 'Quantité': 1, 'Prix': 1800, 'Livraison': 'Domicile', 'Frais livraison': 450, 'Total': 2250 };
+  Object.keys(extra || {}).forEach(function (k) { f[k] = extra[k]; });
+  addRaw(f);
+}
+
+test('Stock : libellés des commandes, articles, modèle retrouvé sans tenir compte des majuscules ni des tirets', function () {
+  assert.deepStrictEqual(orderItems_({ product: 'cover iPhone  - iphone 15 PRO MAX', qty: 3 }), [{ label: 'cover iPhone - iphone 15 PRO MAX', qty: 3 }]);
+  assert.deepStrictEqual(orderItems_({ product: 'Coque A ×2 + Coque B', qty: 1 }), [{ label: 'Coque A', qty: 2 }, { label: 'Coque B', qty: 1 }]);
+  assert.deepStrictEqual(orderItems_({ product: '' }), []);
+  assert.deepStrictEqual(splitLabel_('cover iPhone - iphone 15 PRO MAX'), { product: 'cover iPhone', model: 'iphone 15 PRO MAX' });
+  assert.deepStrictEqual(splitLabel_('cover iPhone — iphone 13'), { product: 'cover iPhone', model: 'iphone 13' });
+  assert.deepStrictEqual(splitLabel_('Montre'), { product: 'Montre', model: '' });
+  baseSetup();
+  assert.deepStrictEqual(headerOf('Produits'), PRODUCT_TITLES_);
+  setCatalog([{ 'Produit': 'Cover iPhone', 'Modèle': 'iPhone 15 Pro Max', "Coût d'achat": 600, 'Stock': 5 }, { 'Produit': 'Montre', 'Stock': 3 }]);
+  var cat = readCatalog_();
+  assert.strictEqual(matchCatalog_(cat, 'cover iPhone - iphone 15 PRO MAX').model, 'iPhone 15 Pro Max');
+  assert.strictEqual(matchCatalog_(cat, 'cover iPhone — iphone 15 pro max').product, 'Cover iPhone', 'format de l’import Shopify');
+  assert.strictEqual(matchCatalog_(cat, 'Montre').product, 'Montre');
+  assert.strictEqual(matchCatalog_(cat, 'cover iPhone - iphone 13'), null);
+  assert.ok(api_bootstrap().products.some(function (p) { return p.name === 'Cover iPhone — iPhone 15 Pro Max'; }));
+});
+
+test('Stock : réservé à la confirmation, avertissement, baisse quand le colis part, remonte au retour', function () {
+  baseSetup();
+  setCatalog([{ 'Produit': 'cover iPhone', 'Modèle': 'iphone 15 PRO MAX', "Coût d'achat": 600, 'Stock': 2 },
+    { 'Produit': 'cover iPhone', 'Modèle': 'iphone 13', "Coût d'achat": 550, 'Stock': 10 }]);
+  addOrder('#K1', 'cover iPhone - iphone 15 PRO MAX', { 'Quantité': 2, 'Prix': 3600 });
+  addOrder('#K2', 'cover iPhone - iphone 15 PRO MAX');
+  addOrder('#K3', 'cover iPhone - iphone 13 ×1 + cover iPhone - iphone 15 PRO MAX ×1');
+  addOrder('#K4', 'Produit inconnu');
+  processNewRows();
+
+  var k2 = api_getOrder('#K2').stock[0];
+  assert.deepStrictEqual([k2.matched, k2.tracked, k2.available, k2.short], [true, true, 2, false]);
+  api_recordCall('#K1', 'confirm', {});
+  k2 = api_getOrder('#K2').stock[0];
+  assert.deepStrictEqual([k2.reserved, k2.available, k2.short], [2, 0, true], 'les 2 sont réservés par #K1');
+  assert.strictEqual(api_getOrder('#K1').stock[0].short, false, 'sa propre réservation ne compte pas contre elle');
+  assert.strictEqual(api_getOrder('#K4').stock[0].matched, false);
+  assert.strictEqual(catalogStock('iphone 15 PRO MAX'), 2, 'réservé : le stock ne bouge pas encore');
+
+  // Le colis part (société sans connexion : statut à la main) : le stock baisse, une seule fois.
+  api_updateOrder('#K1', { status: 'Expédiée', carrier: 'Yalidine', tracking: 'Y1' });
+  assert.strictEqual(catalogStock('iphone 15 PRO MAX'), 0);
+  assert.strictEqual(order('#K1').stockMove, 'Sorti');
+  api_updateOrder('#K1', { status: 'Livrée' });
+  assert.strictEqual(catalogStock('iphone 15 PRO MAX'), 0, 'pas deux fois');
+  assert.ok(logActions().indexOf('Stock : colis parti') >= 0);
+
+  // Commande à plusieurs articles : chaque modèle baisse.
+  api_recordCall('#K3', 'confirm', {});
+  api_updateOrder('#K3', { status: 'Expédiée', carrier: 'Yalidine', tracking: 'Y3' });
+  assert.deepStrictEqual([catalogStock('iphone 13'), catalogStock('iphone 15 PRO MAX')], [9, -1]);
+  // Retour (société sans connexion : reçu dès « Retour ») : le stock remonte.
+  api_updateOrder('#K3', { status: 'Retour' });
+  assert.deepStrictEqual([catalogStock('iphone 13'), catalogStock('iphone 15 PRO MAX')], [10, 0]);
+  assert.strictEqual(order('#K3').stockMove, 'Rentré');
+  // Annulée avant le départ : la réservation est libérée.
+  api_recordCall('#K2', 'confirm', {});
+  assert.strictEqual(api_getOrder('#K2').stock[0].reserved, 1);
+  api_updateOrder('#K2', { status: 'Annulée', cancelReason: 'Doublon' });
+  assert.strictEqual(stockData_(readOrders_(), getSettings_()).products[0].reserved, 0);
+});
+
+test('Stock : colis Ecotrack (parti à la validation, rentré au retour reçu) et commandes antérieures au suivi', function () {
+  ecoSetup();
+  setCatalog([{ 'Produit': 'Sac à main', 'Stock': 5 }]);
+  addConfirmed('#E1');
+  addConfirmed('#E2');
+  ship(['#E1', '#E2']);
+  syncEcotrackStatuses_();
+  assert.strictEqual(catalogStock(''), 5, 'colis créé mais pas validé : rien ne sort');
+  FAKE.setStatus(trackingOf('#E1'), 'en_ramassage');
+  FAKE.setStatus(trackingOf('#E2'), 'retour_chez_livreur');
+  syncEcotrackStatuses_();
+  assert.strictEqual(catalogStock(''), 3, 'parti, et retour pas encore reçu : sorti');
+  FAKE.setStatus(trackingOf('#E2'), 'retour_recu');
+  FAKE.setStatus(trackingOf('#E1'), 'encaisse_non_paye');
+  syncEcotrackStatuses_();
+  assert.strictEqual(catalogStock(''), 4, 'retour reçu : remonte');
+  assert.strictEqual(order('#E1').carrierStatus, 'encaisse_non_paye', 'après la livraison, l’argent reste suivi');
+  FAKE.setStatus(trackingOf('#E1'), 'paye_et_archive');
+  syncEcotrackStatuses_();
+  assert.strictEqual(order('#E1').carrierLabel, 'Payé');
+
+  // Classeur d'avant le suivi du stock : les commandes déjà parties sont marquées, le stock ne bouge pas.
+  __mock.reset();
+  var s = __mock.ss().insertSheet('Commandes');
+  var old = ORDER_COLUMNS.filter(function (c) { return c.key !== 'stockMove'; }).map(function (c) { return c.title; });
+  s.getRange(1, 1, 1, old.length).setValues([old]);
+  var row = old.map(function () { return ''; });
+  row[old.indexOf('N°')] = '#OLD'; row[old.indexOf('Client')] = 'Ancien'; row[old.indexOf('Téléphone')] = '0550000301';
+  row[old.indexOf('Statut')] = 'Livrée'; row[old.indexOf('Produit')] = 'Sac à main';
+  s.appendRow(row);
+  setup();
+  setCatalog([{ 'Produit': 'Sac à main', 'Stock': 5 }]);
+  assert.strictEqual(order('#OLD').stockMove, 'Avant le suivi du stock');
+  withLock_(function () { applyStockMoves_(readOrders_()); });
+  assert.strictEqual(catalogStock(''), 5);
+});
+
+test('Stock : page Stock (total par produit, stock bas), modèles des commandes ajoutés au catalogue', function () {
+  baseSetup();
+  setCatalog([{ 'Produit': 'cover iPhone', 'Modèle': 'iphone 15 PRO MAX', 'Stock': 2 }, { 'Produit': 'cover iPhone', 'Modèle': 'iphone 13', 'Stock': 10, "Seuil d'alerte": 12 },
+    { 'Produit': 'Montre' }]);
+  addOrder('#P1', 'cover iPhone - iphone 15 PRO MAX');
+  addOrder('#P2', 'cover iPhone - iphone 14 Pro', { 'Prix': 1900 });
+  addOrder('#P3', 'cover iPhone - iphone 14 Pro', { 'Prix': 1700 });
+  processNewRows();
+  api_recordCall('#P1', 'confirm', {});
+  var d = api_stock();
+  assertSerializable(d, 'api_stock');
+  var cover = d.products[0];
+  assert.deepStrictEqual([cover.product, cover.stock, cover.reserved, cover.available], ['cover iPhone', 12, 1, 11]);
+  assert.strictEqual(cover.models.length, 2);
+  assert.strictEqual(d.low, 2, '15 PRO MAX : 1 disponible (seuil 2) ; iphone 13 : 10 (seuil de la ligne 12)');
+  assert.strictEqual(d.products[1].tracked, false, 'stock vide = non suivi');
+  assert.deepStrictEqual(d.unknown.map(function (u) { return [u.product, u.model, u.orders, u.price]; }), [['cover iPhone', 'iphone 14 Pro', 2, 1800]]);
+  assert.strictEqual(api_dashboard('7').todo.stockLow, 2);
+
+  var r = api_addCatalogItems(['cover iPhone - iphone 14 Pro', 'cover iPhone - iphone 15 PRO MAX']);
+  assert.strictEqual(r.added, 1, 'pas de doublon');
+  assert.deepStrictEqual(api_stock().unknown, []);
+  var row = readCatalogFromSheet_().rows.filter(function (x) { return x.model === 'iphone 14 Pro'; })[0];
+  assert.deepStrictEqual([row.product, row.price, row.stock], ['cover iPhone', 1800, null]);
+
+  asAgent();
+  assert.throws(function () { api_stock(); }, /Réservé à l’administrateur/);
+  assert.strictEqual(api_dashboard('7').todo.stockLow, 0, 'la confirmatrice ne voit pas le stock bas');
+});
+
+/* ---------------- Bénéfices et dépenses ---------------- */
+
+function setExpenseRow(values) {
+  var sh = sheet('Dépenses');
+  var header = headerOf('Dépenses');
+  sh.appendRow(header.map(function (t) { return values[t] === undefined ? '' : values[t]; }));
+}
+
+test('Bénéfices : livrée, retour, frais Ecotrack réels, coût d’achat, dépenses en dollars au taux du jour', function () {
+  baseSetup(); // Ecotrack Alger : 700 domicile, 350 stop desk
+  setCatalog([{ 'Produit': 'cover iPhone', 'Modèle': 'iphone 15', "Coût d'achat": 600, 'Stock': 50 }]);
+  var day = 86400000;
+  addOrder('#B1', 'cover iPhone - iphone 15', { 'Statut': 'Livrée', 'Société': 'Ecotrack', 'Campagne': 'Promo coques', 'Source pub': 'facebook', 'Date': new Date(Date.now() - day) });
+  addOrder('#B2', 'cover iPhone - iphone 15', { 'Statut': 'Retour', 'Société': 'Ecotrack', 'Campagne': 'Promo coques', 'Source pub': 'facebook' });
+  addOrder('#B3', 'cover iPhone - iphone 15', { 'Statut': 'Annulée', 'Campagne': 'Promo coques', 'Source pub': 'fb' });
+  addOrder('#B4', 'Montre sans coût', { 'Statut': 'Livrée', 'Société': 'Ecotrack', 'Source pub': 'tiktok', 'Campagne': 'TT montre' });
+  addOrder('#B5', 'cover iPhone - iphone 15', { 'Statut': 'Livrée', 'Société': 'Ecotrack', 'Wilaya': '30 - Ouargla' });
+  addOrder('#B6', 'cover iPhone - iphone 15', { 'Statut': 'Expédiée', 'Société': 'Ecotrack', 'Date': new Date(Date.now() - 40 * day) });
+
+  assert.strictEqual(api_addExpense({ category: 'Publicité Facebook', campaign: 'Promo coques', amount: 10, currency: 'USD' }).message, 'Dépense ajoutée : 2 500 DA.');
+  setSetting('TAUX_DOLLAR', 260);
+  setExpenseRow({ 'Date': new Date(), 'Catégorie': 'Publicité TikTok', 'Campagne': 'TT montre', 'Montant': 5, 'Devise': 'USD' });
+  setExpenseRow({ 'Date': new Date(), 'Catégorie': 'Salaires', 'Montant': 3000, 'Devise': 'DA' });
+  setExpenseRow({ 'Date': new Date(Date.now() - 45 * day), 'Catégorie': 'Loyer', 'Montant': 9999 });
+  api_addExpense({ category: 'Publicité Facebook', amount: 1000, currency: 'DA' });
+
+  var d = api_profit('30');
+  assertSerializable(d, 'api_profit');
+  var t = d.totals;
+  // #B1 : 2250 − 700 − 600 = 950 ; #B5 : pas de tarif à Ouargla → frais du client 450 : 2250 − 450 − 600 = 1200 ;
+  // #B4 : coût inconnu : 2250 − 700 = 1550 ; #B2 : −50.
+  assert.deepStrictEqual([t.orders, t.delivered, t.returned, t.cancelled], [5, 3, 1, 1]);
+  assert.strictEqual(t.revenue, 6750);
+  assert.strictEqual(t.ordersProfit, 950 + 1200 + 1550 - 50);
+  assert.strictEqual(t.returnFees, 50);
+  assert.strictEqual(t.expenses, 2500 + 1300 + 3000 + 1000, 'le dollar saisi avant le changement garde son taux (250), le nouveau prend 260');
+  assert.strictEqual(t.adSpend, 2500 + 1300 + 1000);
+  assert.strictEqual(t.net, t.ordersProfit - t.expenses);
+  assert.deepStrictEqual([d.warnings.missingCost, d.warnings.missingFee, d.warnings.missingCostLabels], [1, 1, ['Montre sans coût']]);
+  var rates = sheet('Dépenses').getRange(2, headerOf('Dépenses').indexOf('Taux') + 1, 2, 1).getValues().map(function (r) { return r[0]; });
+  assert.deepStrictEqual(rates, [250, 260], 'taux du jour écrit sur la dépense en dollars');
+
+  var promo = d.campaigns.filter(function (c) { return c.name === 'Promo coques'; })[0];
+  assert.deepStrictEqual([promo.orders, promo.delivered, promo.returned, promo.profit, promo.spend, promo.net, promo.costPerDelivered],
+    [3, 1, 1, 900, 2500, -1600, 2500]);
+  var fb = d.platforms.filter(function (x) { return x.name === 'Facebook'; })[0];
+  assert.deepStrictEqual([fb.orders, fb.spend], [3, 3500], 'fb et facebook = Facebook ; la pub Facebook sans campagne compte pour la plateforme');
+  assert.strictEqual(d.adUnassigned, 1000);
+  assert.ok(d.products.some(function (x) { return x.name === 'cover iPhone — iphone 15' && x.delivered === 2; }));
+  assert.ok(d.knownCampaigns.indexOf('TT montre') >= 0);
+  assert.strictEqual(api_profit('all').totals.orders, 6, '« Tout » compte la commande d’il y a 40 jours');
+
+  asAgent();
+  assert.throws(function () { api_profit('30'); }, /Réservé à l’administrateur/);
+  assert.throws(function () { api_addExpense({ amount: 5 }); }, /Réservé/);
+});
+
+test('Bénéfices : source et campagne publicitaires venues de RELEASIT', function () {
+  releasitSetup();
+  releasitTab(RELEASIT_HEADER.concat(['UTM source', 'UTM campaign']));
+  var row = ['#U1', localStamp(new Date()), 'Client', 'bejaia', '', 'Adresse', '+2130550123456', 'cover iPhone - iphone 15', '1', '1800', '1800', '450', '2250', 'توصيل للمكتب', 'facebook', 'Promo coques'];
+  sheet('RELEASIT').appendRow(row);
+  transferReleasitOrders_();
+  assert.deepStrictEqual([order('#U1').campaign, order('#U1').adSource], ['Promo coques', 'facebook']);
+  assert.strictEqual(adPlatform_('fb'), 'Facebook');
+  assert.strictEqual(adPlatform_('TikTok'), 'TikTok');
+  assert.strictEqual(adPlatform_('Publicité Facebook'), 'Facebook');
+  assert.strictEqual(adPlatform_('Salaires'), '');
+  assert.ok(isAdCategory_('Publicité Snap') && !isAdCategory_('Loyer'));
+});
+
+/* ---------------- SMS (httpSMS) ---------------- */
+
+var HTTPSMS = globalThis.__fakeHttpsms;
+/** Fait comme s'il était midi en Algérie (heures d'envoi). */
+function atHour(h, fn) {
+  var real = algiersHour_;
+  algiersHour_ = function () { return h; };
+  try { return fn(); } finally { algiersHour_ = real; }
+}
+function smsSetup() {
+  baseSetup();
+  saveSmsConfig_(HTTPSMS.key, '0550 12 34 56');
+}
+
+test('SMS : configuration, file d’attente au changement de statut, une seule fois par statut, texte en arabe rempli', function () {
+  assert.throws(function () { saveSmsConfig_('court', '0550123456'); }, /Clé API trop courte/);
+  assert.throws(function () { saveSmsConfig_(HTTPSMS.key, '021 23 45 67'); }, /Numéro de la carte SIM invalide/);
+  smsSetup();
+  assert.strictEqual(smsConfig_().from, '+213550123456');
+  addOrder('#T1', 'cover iPhone - iphone 15', { 'Client': 'Amine Kaci', 'Téléphone': '0661457890' });
+  addOrder('#T2', 'cover iPhone - iphone 15', { 'Téléphone': '0770981122' });
+  addOrder('#T3', 'cover iPhone - iphone 15', { 'Téléphone': '0672063914', 'Date': new Date(Date.now() - 2 * 86400000) });
+  processNewRows();
+  assert.strictEqual(readSmsQueue_(PropertiesService.getScriptProperties()).length, 3);
+
+  var s = atHour(12, function () { return sendSmsQueue_({}); });
+  assert.deepStrictEqual([s.sent, s.skipped], [2, 1], '#T3 : vieille commande, pas de « commande reçue »');
+  var m = HTTPSMS.messages[0];
+  assert.deepStrictEqual([m.from, m.to], ['+213550123456', '+213661457890']);
+  assert.strictEqual(m.content, 'شكرا Amine، وصلنا طلبك #T1. سنتصل بك قريبا للتأكيد. DZ Smart Shop');
+  assert.strictEqual(HTTPSMS.calls[0].headers['x-api-key'], HTTPSMS.key);
+  assert.strictEqual(order('#T1').sms, 'À confirmer');
+  assert.ok(logActions().indexOf('SMS envoyé') >= 0);
+  assert.strictEqual(atHour(12, function () { return sendSmsQueue_({}); }).sent, 0, 'rien en double');
+
+  api_recordCall('#T1', 'confirm', {});
+  api_recordCall('#T2', 'no_answer', {});
+  api_recordCall('#T2', 'no_answer', {});
+  atHour(12, function () { sendSmsQueue_({}); });
+  assert.strictEqual(order('#T1').sms, 'À confirmer, Confirmée');
+  assert.strictEqual(order('#T2').sms, 'À confirmer, Pas de réponse', 'un seul « Pas de réponse » même après 2 appels');
+  assert.ok(/تم تأكيد طلبك #T1/.test(HTTPSMS.messages[2].content));
+
+  // Statut sans texte (Rappeler) : rien. Statut déjà dépassé quand le SMS part : rien.
+  api_recordCall('#T3', 'callback', { callback: new Date(Date.now() + 3600000).toISOString() });
+  api_recordCall('#T2', 'cancel', { reason: 'Doublon' });
+  assert.strictEqual(readSmsQueue_(PropertiesService.getScriptProperties()).length, 0);
+  // Liste noire : pas de SMS.
+  api_setBlacklist('0661457890', true);
+  api_updateOrder('#T1', { status: 'Pas de réponse' });
+  assert.strictEqual(atHour(12, function () { return sendSmsQueue_({}); }).sent, 0);
+  assert.strictEqual(HTTPSMS.messages.length, 4);
+});
+
+test('SMS : la nuit ils attendent ; clé refusée signalée une fois ; httpSMS en panne : réessai', function () {
+  smsSetup();
+  addOrder('#N1', 'cover iPhone - iphone 15', { 'Téléphone': '0661457891' });
+  processNewRows();
+  var night = atHour(2, function () { return sendSmsQueue_({}); });
+  assert.deepStrictEqual([night.night, night.waiting, HTTPSMS.messages.length], [true, 1, 0]);
+  assert.ok(/partiront le matin/.test(smsSendMessage_(night)));
+
+  saveSmsConfig_('mauvaise-cle-1234567890', '0550123456');
+  var bad = atHour(9, function () { return sendSmsQueue(); });
+  assert.ok(/refusé la clé API/.test(bad.error));
+  atHour(9, function () { sendSmsQueue(); });
+  assert.strictEqual(logActions().filter(function (a) { return a === 'Erreur SMS'; }).length, 1);
+  assert.ok(/refusé la clé/.test(api_importStatus().sms.lastError));
+  assert.strictEqual(readSmsQueue_(PropertiesService.getScriptProperties()).length, 1, 'gardé pour plus tard');
+
+  saveSmsConfig_(HTTPSMS.key, '0550123456');
+  HTTPSMS.queue.push({ code: 500 });
+  assert.strictEqual(atHour(9, function () { return sendSmsQueue_({}); }).sent, 0);
+  assert.strictEqual(atHour(9, function () { return sendSmsQueue_({}); }).sent, 1, 'réessayé à la minute suivante');
+  assert.strictEqual(api_importStatus().sms.lastError, '');
+});
+
+test('SMS : statut venu d’Ecotrack (n° de suivi dans le texte), déclencheur, état affiché, SMS de test', function () {
+  ecoSetup();
+  setup();
+  assert.ok(triggerList().indexOf('sendSmsQueue/1') < 0, 'pas configuré : pas de déclencheur');
+  saveSmsConfig_(HTTPSMS.key, '0550123456');
+  setup();
+  assert.ok(triggerList().indexOf('sendSmsQueue/1') >= 0);
+  addConfirmed('#X9', { 'Téléphone': '0661457892' });
+  ship(['#X9']);
+  FAKE.validate(trackingOf('#X9'));
+  syncEcotrackStatuses_();
+  atHour(10, function () { sendSmsQueue_({}); });
+  var last = HTTPSMS.messages[HTTPSMS.messages.length - 1];
+  assert.strictEqual(last.content, 'طلبك #X9 في الطريق. رقم التتبع: ' + trackingOf('#X9'));
+  var st = api_importStatus().sms;
+  assertSerializable(st, 'sms');
+  assert.deepStrictEqual([st.configured, st.from, st.waiting, st.hours], [true, '0550123456', 0, '8 h – 21 h']);
+  assert.deepStrictEqual(st.statuses, ['À confirmer', 'Pas de réponse', 'Confirmée', 'Expédiée', 'En livraison']);
+  assert.ok(/SMS de test envoyé/.test(api_smsTest().message));
+  assert.strictEqual(HTTPSMS.messages[HTTPSMS.messages.length - 1].to, '+213550123456');
+  setSetting('SMS_CONFIRMEE', '');
+  assert.strictEqual(getSettings_().SMS_CONFIRMEE, '', 'case vidée = pas de SMS');
+  __mock.state.prompts.push(HTTPSMS.key, '0550 12 34 56');
+  onOpen();
+  menuSmsSetup();
+  assert.ok(__mock.state.alerts.some(function (a) { return /partiront du \+213550123456/.test(a.join(' ')); }));
 });
 
 test('fichier unique dist/Code.gs : à jour et fonctionnel', function () {

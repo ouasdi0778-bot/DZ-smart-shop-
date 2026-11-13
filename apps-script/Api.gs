@@ -61,6 +61,10 @@ function onOpen() {
     .addSubMenu(ui.createMenu('Releasit')
       .addItem('Transférer les commandes maintenant', 'menuReleasitTransfer')
       .addItem('Vérifier les colonnes de l’onglet RELEASIT', 'menuReleasitCheck'))
+    .addSubMenu(ui.createMenu('SMS (httpSMS)')
+      .addItem('Enregistrer la clé et le numéro', 'menuSmsSetup')
+      .addItem('Envoyer un SMS de test', 'menuSmsTest')
+      .addItem('Envoyer les SMS en attente maintenant', 'menuSmsSend'))
     .addSubMenu(ui.createMenu('Shopify')
       .addItem('Enregistrer la boutique et l’accès', 'menuShopifySetup')
       .addItem('Tester la connexion', 'menuShopifyTest')
@@ -113,17 +117,10 @@ function menuRecalc() {
 function api_bootstrap(preload) {
   var s = getSettings_();
   var wilayas = getWilayaList_();
-  var products = cached_('cfg:products', function () {
-    var list = [];
-    var sh = ss_().getSheetByName(SHEET.PRODUCTS);
-    if (sh && sh.getLastRow() > 1) {
-      sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(function (r) {
-        var name = String(r[0]).trim();
-        if (name) list.push({ name: name, price: toNumber_(r[1]) });
-      });
-    }
-    return list;
+  var products = readCatalog_().rows.map(function (r) {
+    return { name: r.product + (r.model ? ' — ' + r.model : ''), price: r.price || 0 };
   });
+  var me = currentUser_();
   var first = null;
   var counts = null;
   try {
@@ -153,7 +150,7 @@ function api_bootstrap(preload) {
     counts: counts,
     app: { name: APP_NAME, version: APP_VERSION },
     shop: s.NOM_BOUTIQUE,
-    user: currentUser_(),
+    user: { email: me.email, name: me.name, role: me.role, admin: isAdmin_(me) },
     statuses: STATUS_LIST,
     queueStatuses: QUEUE_STATUSES,
     styles: STATUS_STYLE,
@@ -250,7 +247,8 @@ function dashboardData_(ctx, period) {
       callbacksToday: callbacksToday,
       toShip: ctx.orders.filter(has([STATUS.CONFIRMED])).length,
       unreachable: ctx.orders.filter(has([STATUS.UNREACHABLE])).length,
-      parcelAlerts: trackingAlerts_(ctx.orders, getSettings_(), now).filter(function (a) { return a.level !== 'info'; }).length
+      parcelAlerts: trackingAlerts_(ctx.orders, getSettings_(), now).filter(function (a) { return a.level !== 'info'; }).length,
+      stockLow: isAdmin_(currentUser_()) ? stockData_(ctx, getSettings_()).low : 0
     },
     byWilaya: group(function (o) { return o.wilaya; }, has(SHIPPED_STATUSES)).slice(0, 10),
     byAgent: group(function (o) { return o.agent; }, function (o) {
@@ -427,6 +425,7 @@ function orderDetail_(ctx, env, o, user) {
     order: serializeOrder_(o),
     rules: rules,
     history: { orders: h.orders, delivered: h.delivered, returned: h.returned, cancelled: h.cancelled, recent: recent },
+    stock: orderStockInfo_(ctx, o),
     blacklisted: !!env.blacklist[phone.phone],
     phoneValid: phone.valid,
     intlPhone: intlPhone_(o.phone)
@@ -595,6 +594,7 @@ function api_updateOrder(id, input) {
     if (edited.length) changes.push('Modifié : ' + edited.join(', '));
     f.updated = env.now;
     writeFields_(ctx, o, f);
+    if (f.status !== undefined) applyStockMoves_(ctx);
     if (force) log_(user, o.id, 'Déverrouillage', 'Motif : ' + why + ' · ' + changes.join(' · '));
     else log_(user, o.id, 'Modification', changes.join(' · '));
     var res = serializeOrder_(o);

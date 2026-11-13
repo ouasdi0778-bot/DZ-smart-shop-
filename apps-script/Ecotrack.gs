@@ -588,8 +588,18 @@ STATUS_RANK_[STATUS.CANCELLED] = 3;
 
 /** Colis Ecotrack à suivre : créés (même pas encore validés), expédiés ou en livraison. */
 function isEcotrackTracked_(o) {
-  return String(o.carrier) === ECO.NAME && !isBlank_(o.tracking) &&
-    (o.status === STATUS.CONFIRMED || o.status === STATUS.SHIPPED || o.status === STATUS.IN_DELIVERY);
+  if (String(o.carrier) !== ECO.NAME || isBlank_(o.tracking)) return false;
+  if (isEcotrackActive_(o)) return true;
+  // Après la livraison ou le retour, on suit encore l'argent (jusqu'au versement) et le colis (jusqu'à sa réception).
+  var info = ecotrackStatusInfo_(o.carrierStatus);
+  if (o.status === STATUS.DELIVERED) return !(info && (info.group === 'paid' || info.group === 'missing'));
+  if (o.status === STATUS.RETURNED) return !(info && (info.group === 'returned' || info.group === 'missing'));
+  return false;
+}
+
+/** Colis pas encore arrivé : créé, expédié ou en livraison. */
+function isEcotrackActive_(o) {
+  return o.status === STATUS.CONFIRMED || o.status === STATUS.SHIPPED || o.status === STATUS.IN_DELIVERY;
 }
 
 /** Les lignes de colis d'une réponse (plusieurs présentations possibles). */
@@ -691,7 +701,8 @@ function syncEcotrackStatuses_() {
       var rec = found[t.tracking];
       var f = {};
       if (!rec) {
-        if (!looked[t.tracking]) return;
+        // Un colis déjà livré ou retourné qui n'apparaît plus n'est pas « introuvable » : on le laisse tel quel.
+        if (!looked[t.tracking] || !isEcotrackActive_(o)) return;
         summary.missing++;
         if (String(o.carrierStatus) !== ECO.MISSING) {
           f.carrierStatus = ECO.MISSING;
@@ -725,6 +736,7 @@ function syncEcotrackStatuses_() {
         writeFields_(ctx, o, f);
       }
     });
+    applyStockMoves_(ctx); // colis partis, retours reçus
   });
   markSynced_();
   return summary;

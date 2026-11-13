@@ -49,6 +49,7 @@ var RELEASIT_COLUMNS_ = [
   { key: 'total', label: 'Total', names: ['Prix total', 'Total', 'Total price'] },
   { key: 'mode', label: 'Livraison', names: ['Type de livraison', 'Mode de livraison', 'Méthode de livraison', 'Livraison', 'Shipping method', 'Shipping rate'] },
   { key: 'campaign', label: 'Campagne', names: ['UTM campaign', 'utm_campaign', 'Campagne'] },
+  { key: 'adSource', label: 'Source pub', names: ['UTM source', 'utm_source', 'Source pub', 'Plateforme'] },
   { key: 'notes', label: 'Notes', names: ['Note', 'Notes', 'Remarque', 'Commentaire'] }
 ];
 
@@ -198,7 +199,8 @@ function releasitRowsToOrder_(rows, col, envFn) {
     total: total,
     notes: notes.join(' · '),
     source: 'Releasit',
-    campaign: texts('campaign')[0] || ''
+    campaign: texts('campaign')[0] || '',
+    adSource: texts('adSource')[0] || ''
   };
 }
 
@@ -404,7 +406,8 @@ function api_importStatus() {
       lastError: String(p.getProperty(RELEASIT.PROP_LAST_ERROR) || ''),
       missing: report.missing
     },
-    shopify: api_shopifyStatus()
+    shopify: api_shopifyStatus(),
+    sms: smsStatus_()
   };
 }
 

@@ -169,7 +169,7 @@ function readArchivedOrders_() {
   if (!sh || sh.getLastRow() < 2) return [];
   var values = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getValues();
   var map = headerMap_(values[0]);
-  var keys = ['id', 'date', 'status', 'total', 'wilaya', 'agent', 'product', 'carrier'];
+  var keys = ['id', 'date', 'status', 'total', 'wilaya', 'agent', 'product', 'qty', 'price', 'carrier', 'mode', 'shipping', 'campaign', 'adSource', 'carrierStatus', 'tracking'];
   var out = [];
   for (var r = 1; r < values.length; r++) {
     var o = { archived: true };
@@ -238,6 +238,7 @@ function nightlyMaintenance() {
   var step = function (name, fn) {
     try { fn(); } catch (e) { out.errors.push(name + ' : ' + (e && e.message ? e.message : e)); }
   };
+  step('stock', function () { withLock_(function () { applyStockMoves_(readOrders_()); }); });
   step('archivage', function () { out.archived = archiveOldOrders_().archived; });
   step('journal', function () { out.journal = trimJournal_(getSettings_().JOURNAL_JOURS); });
   step('allègement', function () { out.rows = lightenSheets_(); });

@@ -18,17 +18,17 @@ function seedShopify_() {
 function seedReleasit_() {
   var sh = ss_().getSheetByName('RELEASIT') || ss_().insertSheet('RELEASIT');
   var header = ['Order ID', 'Date', 'Client', 'Wilaya', 'Commune', 'Adresse', 'Téléphone', 'Produit et variant', 'Quantité',
-    'prix de produit ', 'sous total ', 'prix de livraison  ', 'prix total ', 'type de livraison '];
+    'prix de produit ', 'sous total ', 'prix de livraison  ', 'prix total ', 'type de livraison ', 'UTM source', 'UTM campaign'];
   sh.getRange(1, 1, 1, header.length).setValues([header]);
   var stamp = function (m) {
     var d = new Date(Date.now() - m * 60000);
     var p = function (n) { return ('0' + n).slice(-2); };
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
   };
-  sh.appendRow(['#2004', stamp(25), 'Nadir B.', 'bejaia', 'البلدية أقبو', 'Cité 100 logements', '+2130551234567', 'cover iPhone  - iphone 15 PRO MAX', '3', '5400', '5400', '450', '5850', 'توصيل للمكتب ']);
+  sh.appendRow(['#2004', stamp(25), 'Nadir B.', 'bejaia', 'البلدية أقبو', 'Cité 100 logements', '+2130551234567', 'cover iPhone  - iphone 15 PRO MAX', '3', '5400', '5400', '450', '5850', 'توصيل للمكتب ', 'facebook', 'Promo coques']);
   transferReleasitOrders_();
-  sh.appendRow(['#2005', stamp(4), 'Lina K.', 'Oran', 'البلدية بئر الجير', 'Hai Khemisti', '+2130662345678', 'cover iPhone  - iphone 13', '1', '1800', '1800', '650', '2450', 'التوصيل للمنزل']);
-  sh.appendRow(['#2006', stamp(1), 'Walid M.', 'الجزائر', 'البلدية باب الزوار', 'Rue des frères', '+2130773456789', 'chargeur moto', '2', '2400', '2400', '400', '2800', 'توصيل للمكتب ']);
+  sh.appendRow(['#2005', stamp(4), 'Lina K.', 'Oran', 'البلدية بئر الجير', 'Hai Khemisti', '+2130662345678', 'cover iPhone  - iphone 13', '1', '1800', '1800', '650', '2450', 'التوصيل للمنزل', 'facebook', 'Promo coques']);
+  sh.appendRow(['#2006', stamp(1), 'Walid M.', 'الجزائر', 'البلدية باب الزوار', 'Rue des frères', '+2130773456789', 'chargeur moto', '2', '2400', '2400', '400', '2800', 'توصيل للمكتب ', 'tiktok', 'TT montre']);
 }
 
 /** Connecte l'outil au faux Ecotrack (aperçu et tests uniquement). */
@@ -144,11 +144,14 @@ function seedDemo_() {
     ['imane@example.com', 'Imane', 'Confirmatrice'],
     ['sonia@example.com', 'Sonia', 'Confirmatrice']
   ]);
-  ss.getSheetByName('Produits').getRange(2, 1, 4, 4).setValues([
-    ['Montre connectée', 4300, 2100, 40],
-    ['Sac à main', 3700, 1600, 25],
-    ['Écouteurs sans fil', 2600, 1100, 60],
-    ['Crème visage', 1700, 600, 80]
+  ss.getSheetByName('Produits').getRange(2, 1, 7, 6).setValues([
+    ['Montre connectée', '', 4300, 2100, 40, ''],
+    ['Sac à main', '', 3700, 1600, 25, ''],
+    ['Écouteurs sans fil', '', 2600, 1100, 60, ''],
+    ['Crème visage', '', 1700, 600, 80, ''],
+    ['cover iPhone', 'iphone 15 PRO MAX', 1800, 600, 4, ''],
+    ['cover iPhone', 'iphone 13', 1800, 550, 12, ''],
+    ['cover iPhone', 'iphone 13 PRO MAX', 1800, 600, 1, '']
   ]);
   clearConfigCache_();
 
@@ -240,5 +243,13 @@ function seedDemo_() {
   api_setBlacklist('0555001199', true, 'Refus répétés');
   seedShopify_();
   seedReleasit_();
+  // SMS reliés au faux httpSMS (aperçu uniquement).
+  if (typeof __fakeHttpsms !== 'undefined') saveSmsConfig_(__fakeHttpsms.key, '0550 12 34 56');
+  // Dépenses d'exemple (publicité en dollars, salaires en dinars).
+  __mock.setUser('admin@example.com');
+  api_addExpense({ category: 'Publicité Facebook', campaign: 'Promo coques', amount: 25, currency: 'USD' });
+  api_addExpense({ category: 'Publicité TikTok', campaign: 'TT montre', amount: 12, currency: 'USD' });
+  api_addExpense({ category: 'Salaires', amount: 15000, currency: 'DA', note: 'Confirmatrices' });
+  __mock.setUser('imane@example.com');
   recalcAlerts();
 }

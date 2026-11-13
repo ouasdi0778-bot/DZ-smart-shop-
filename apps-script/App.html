@@ -25,7 +25,8 @@
     preloaded: {},    // réponses déjà reçues avec le démarrage (clé : fonction + arguments)
     prefetch: null,   // commande suivante préparée à l'avance { id, data }
     pending: {},      // commandes envoyées, en cours d'enregistrement
-    cooldown: 0       // évite qu'un double clic traite aussi la commande suivante
+    cooldown: 0,      // évite qu'un double clic traite aussi la commande suivante
+    profit: { period: '30', tab: 'resume', data: null, stock: null }
   };
   var TZ = 'Africa/Algiers';
   var ALERT = {
@@ -146,7 +147,7 @@
   /* Navigation                                                       */
   /* ================================================================ */
 
-  var ROUTES = ['tableau', 'commandes', 'confirmation', 'expeditions', 'suivi'];
+  var ROUTES = ['tableau', 'commandes', 'confirmation', 'expeditions', 'suivi', 'benefices'];
 
   function currentRoute() {
     var r = (location.hash || '').replace(/^#\/?/, '');
@@ -184,6 +185,7 @@
     else if (r === 'commandes') pageOrders();
     else if (r === 'expeditions') pageShipping();
     else if (r === 'suivi') pageTracking();
+    else if (r === 'benefices') { if (S.boot.user.admin) pageProfit(); else { location.hash = '#/tableau'; return; } }
     else pageConfirm();
     view.focus({ preventScroll: true });
     window.scrollTo(0, 0);
@@ -256,6 +258,7 @@
       [d.todo.unreachable, 'clients injoignables', 'commandes', 'Injoignable', 'Voir', st['Injoignable']],
       [d.todo.parcelAlerts, 'colis à traiter (suspendus, retours, sans mouvement…)', 'suivi', '', 'Suivi', st['Retour']]
     ];
+    if (d.todo.stockLow) todo.push([d.todo.stockLow, 'modèles en stock bas', 'benefices', '', 'Stock', st['Rappeler'], 'stock']);
 
     var html = '<div class="stack">';
     html += '<section class="grid-kpi" aria-label="Chiffres clés">' + kpis.map(function (k) {
@@ -270,7 +273,7 @@
     html += '<section class="card"><h2>À faire</h2>' + todo.map(function (t) {
       return '<div class="todo"><span class="n" style="background:' + t[5].bg + ';color:' + t[5].fg + '">' + t[0] + '</span>' +
         '<span class="t">' + h(t[1]) + '</span>' +
-        '<button type="button" class="btn" data-act="goto" data-route="' + t[2] + '" data-status="' + h(t[3]) + '">' + t[4] + '</button></div>';
+        '<button type="button" class="btn" data-act="goto" data-route="' + t[2] + '" data-status="' + h(t[3]) + '"' + (t[6] ? ' data-tab="' + t[6] + '"' : '') + '>' + t[4] + '</button></div>';
     }).join('') + '</section>';
 
     html += '<section class="card"><h2>Taux de livraison par wilaya</h2>';
@@ -365,6 +368,14 @@
           ' · importation automatique toutes les 5 minutes</span>' +
           '<button type="button" class="btn" style="min-height:40px" data-act="shop-import">Importer maintenant</button>') +
           (s.lastError ? '<div style="margin-bottom:14px">' + errorBox(s.lastError) + '</div>' : '');
+      }
+      var sm = st.sms;
+      if (sm && sm.configured) {
+        html += statusCard('<span><strong>SMS</strong> · depuis le ' + h(sm.from) + ' · ' + h(sm.hours) + ' · ' +
+          (sm.waiting ? sm.waiting + ' en attente' : 'aucun en attente') + (sm.lastRun ? ' · dernier passage ' + h(ago(sm.lastRun)) : '') +
+          '<br><span class="small">Statuts avec SMS : ' + h(sm.statuses.join(', ') || 'aucun') + '</span></span>' +
+          (S.boot.user.admin && sm.waiting ? '<button type="button" class="btn" style="min-height:40px" data-act="sms-send">Envoyer maintenant</button>' : '')) +
+          (sm.lastError ? '<div style="margin-bottom:14px">' + errorBox(sm.lastError) + '</div>' : '');
       }
       if (!r.found && !s.configured) {
         html += statusCard('<span class="muted">Les commandes n’arrivent pas encore automatiquement. Connectez Releasit COD à un onglet <strong>RELEASIT</strong> du classeur, ' +
@@ -494,7 +505,9 @@
     var hist = data.history;
     var b = S.boot;
     var meta = '<p class="small" style="margin-top:4px">Reçue le ' + fmtDate(o.date) + ' · source : ' + h(o.source || '—') +
-      (o.agent ? ' · traitée par ' + h(o.agent) : '') + (o.attempts ? ' · ' + plural(o.attempts, 'appel', 'appels') : '') + '</p>' +
+      (o.campaign ? ' · campagne : ' + h(o.campaign) + (o.adSource ? ' (' + h(o.adSource) + ')' : '') : '') +
+      (o.agent ? ' · traitée par ' + h(o.agent) : '') + (o.attempts ? ' · ' + plural(o.attempts, 'appel', 'appels') : '') +
+      (o.sms ? ' · SMS envoyés : ' + h(o.sms) : '') + '</p>' +
       '<p style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' + pill(o.status) + alertPill(o.alert, o.alertLevel) + '</p>';
     var histText = hist.orders
       ? 'Autres commandes de ce numéro : ' + hist.orders + ' (' + hist.delivered + ' livrées, ' + hist.returned + ' retours, ' + hist.cancelled + ' annulées)'
@@ -507,6 +520,7 @@
         '<span>' + (o.carrierLabel ? h(o.carrierLabel) : 'statut pas encore lu') + (o.carrierMoved ? ' · mouvement ' + h(ago(o.carrierMoved)) : '') + '</span>' +
         '<button type="button" class="btn" style="min-height:36px;margin-left:auto" data-act="track-history" data-id="' + h(o.id) + '">Voir la chronologie</button></div>' +
         '<div id="parcel-history"></div>' : '') +
+      stockNote(data.stock) +
       lockBox(o, r, unlocked) +
       '<div id="order-form" data-id="' + h(o.id) + '" data-locked="' + (locked ? '1' : '') + '" data-force="' + (unlocked ? '1' : '') + '">' +
         '<div class="form-grid">' +
@@ -580,6 +594,21 @@
       afterOrderSaved(o);
       openOrder(id);
     }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  }
+
+  /** Avertissement de stock pour les articles d'une commande. */
+  function stockNote(items) {
+    if (!items || !items.length) return '';
+    var short = items.filter(function (it) { return it.short; });
+    var html = short.map(function (it) {
+      return '<div class="stock-warn">⚠ Stock insuffisant : ' + h(it.model || it.product) + ' — disponible ' + Math.max(it.available, 0) +
+        (it.reserved ? ' (' + it.reserved + ' réservé' + (it.reserved > 1 ? 's' : '') + ')' : '') + ', demandé ' + it.qty + '</div>';
+    }).join('');
+    if (!short.length && S.boot.user.admin) {
+      var unknown = items.filter(function (it) { return !it.matched; });
+      if (unknown.length) html += '<div class="stock-warn info">Produit absent de l’onglet Produits : stock et bénéfice non suivis (' + h(unknown.map(function (u) { return u.label; }).join(', ')) + ').</div>';
+    }
+    return html;
   }
 
   function toggleCancelField() {
@@ -811,6 +840,7 @@
           '<div class="quick"><button type="button" class="btn queue-toggle" data-act="toggle-queue">File (' + dueCount + ')</button>' + callBtn + waBtn + '</div>' +
         '</div>' +
         '<div class="history" style="background:' + a.bg + '"><span class="strong" style="color:' + a.fg + '">' + h(o.alert || 'Nouveau client') + '</span><span>' + h(histText) + '</span></div>' +
+        stockNote(d.stock) +
         '<div class="form-grid" id="d-form">' +
           field('Client', input('client', o.client)) +
           field('Téléphone', input('phone', o.phone, ' inputmode="tel"')) +
@@ -1319,11 +1349,230 @@
   }
 
   /* ================================================================ */
+  /* Bénéfices et stock (administrateur)                              */
+  /* ================================================================ */
+
+  function pageProfit() {
+    view.innerHTML = '<div id="profit"><p class="loading">Chargement…</p></div>';
+    S.profit.stock = null;
+    loadProfit();
+  }
+
+  function loadProfit() {
+    var t = ++S.token;
+    var p = S.profit;
+    var box = $('#profit-body');
+    if (box) box.innerHTML = '<p class="loading">Chargement…</p>';
+    return call('api_profit', p.period).then(function (d) {
+      if (t !== S.token || S.route !== 'benefices') return;
+      p.data = d;
+      renderProfit();
+    }).catch(function (e) {
+      if (t === S.token && S.route === 'benefices') $('#profit').innerHTML = errorBox(e);
+    });
+  }
+
+  function loadStock() {
+    return call('api_stock').then(function (d) {
+      S.profit.stock = d;
+      if (S.route === 'benefices' && S.profit.tab === 'stock') renderProfit();
+    }).catch(function (e) {
+      if (S.route === 'benefices') $('#profit-body').innerHTML = errorBox(e);
+    });
+  }
+
+  function signed(n) {
+    return '<span class="' + (n < 0 ? 'neg' : 'pos') + '">' + money(n) + '</span>';
+  }
+
+  function renderProfit() {
+    var p = S.profit;
+    var d = p.data;
+    var box = $('#profit');
+    if (!box || !d) return;
+    var periods = [['today', 'Aujourd’hui'], ['7', '7 jours'], ['30', '30 jours'], ['all', 'Tout']];
+    var tabs = [['resume', 'Résumé'], ['produits', 'Produits'], ['campagnes', 'Publicité'], ['depenses', 'Dépenses'], ['stock', 'Stock']];
+    var html = '<div class="page-head"><div><h1>Bénéfices et stock</h1><p class="sub">Commandes comptées à leur date de commande · visible seulement par l’administrateur</p></div>' +
+      '<div class="seg" role="group" aria-label="Période">' + periods.map(function (x) {
+        return '<button type="button" data-act="profit-period" data-period="' + x[0] + '" aria-pressed="' + (p.period === x[0]) + '">' + x[1] + '</button>';
+      }).join('') + '</div></div>' +
+      '<div class="tabs" role="group" aria-label="Rubrique">' + tabs.map(function (x) {
+        return '<button type="button" class="chip" data-act="profit-tab" data-tab="' + x[0] + '" aria-pressed="' + (p.tab === x[0]) + '">' + x[1] + '</button>';
+      }).join('') + '</div><div id="profit-body"></div>';
+    box.innerHTML = html;
+    var body = $('#profit-body');
+    if (p.tab === 'produits') body.innerHTML = profitProducts(d);
+    else if (p.tab === 'campagnes') body.innerHTML = profitCampaigns(d);
+    else if (p.tab === 'depenses') body.innerHTML = profitExpenses(d);
+    else if (p.tab === 'stock') {
+      if (p.stock) body.innerHTML = stockView(p.stock);
+      else { body.innerHTML = '<p class="loading">Chargement…</p>'; loadStock(); }
+    } else body.innerHTML = profitSummary(d);
+  }
+
+  function profitSummary(d) {
+    var t = d.totals;
+    var kpis = [
+      ['Chiffre livré', money(t.revenue), plural(t.delivered, 'commande livrée', 'commandes livrées')],
+      ['Bénéfice des commandes', signed(t.ordersProfit), 'Après livraison, achat et retours'],
+      ['Dépenses', money(t.expenses), 'Dont publicité : ' + money(t.adSpend)],
+      ['Bénéfice net', signed(t.net), 'Ce qui vous reste sur la période'],
+      ['Publicité par commande livrée', t.costPerDelivered === null ? '—' : money(t.costPerDelivered), t.deliveryRate === null ? 'Aucune commande terminée' : 'Taux de livraison : ' + Math.round(t.deliveryRate * 100) + ' %']
+    ];
+    var html = '<div class="stack"><section class="grid-kpi" aria-label="Chiffres clés">' + kpis.map(function (k) {
+      return '<div class="card kpi"><span class="label">' + h(k[0]) + '</span><span class="value">' + k[1] + '</span><span class="note">' + h(k[2]) + '</span></div>';
+    }).join('') + '</section>';
+    var warn = [];
+    if (d.warnings.missingCost) warn.push(plural(d.warnings.missingCost, 'commande livrée sans coût d’achat', 'commandes livrées sans coût d’achat') + ' (' + h(d.warnings.missingCostLabels.join(', ')) + ') : complétez l’onglet Produits.');
+    if (d.warnings.missingFee) warn.push(plural(d.warnings.missingFee, 'commande sans tarif de livraison', 'commandes sans tarif de livraison') + ' dans l’onglet Tarifs : les frais payés par le client sont utilisés.');
+    if (warn.length) html += '<div class="stock-warn" style="flex-direction:column;align-items:flex-start">' + warn.map(function (w) { return '<span>⚠ ' + w + '</span>'; }).join('') + '</div>';
+    html += '<section class="card"><h2>Détail</h2><div class="money-lines">' +
+      '<div><span>Chiffre livré (encaissé par le livreur)</span><span>' + money(t.revenue) + '</span></div>' +
+      '<div><span>− Frais de livraison</span><span>' + money(t.deliveryFees) + '</span></div>' +
+      '<div><span>− Coût d’achat des produits livrés</span><span>' + money(t.productCost) + '</span></div>' +
+      '<div><span>− Frais de retour (' + t.returned + ' × ' + money(d.returnFee) + ')</span><span>' + money(t.returnFees) + '</span></div>' +
+      (t.packaging ? '<div><span>− Emballage</span><span>' + money(t.packaging) + '</span></div>' : '') +
+      '<div class="total"><span>Bénéfice des commandes</span>' + signed(t.ordersProfit) + '</div>' +
+      d.expensesByCategory.map(function (e) { return '<div><span>− ' + h(e.category) + '</span><span>' + money(e.amount) + '</span></div>'; }).join('') +
+      '<div class="total"><span>Bénéfice net</span>' + signed(t.net) + '</div>' +
+      '</div><p class="small" style="margin-top:10px">' + t.inTransit + ' commande(s) encore en route ne sont pas comptées : leur bénéfice arrivera à la livraison.</p></section></div>';
+    return html;
+  }
+
+  function groupRows(list, first) {
+    return list.map(function (g) {
+      return [first(g), g.orders, g.delivered, g.returned, g.deliveryRate === null ? '—' : Math.round(g.deliveryRate * 100) + ' %',
+        money(g.revenue), signed(g.profit)];
+    });
+  }
+
+  function profitProducts(d) {
+    if (!d.products.length) return '<div class="card"><p class="empty">Aucune commande sur la période.</p></div>';
+    return '<section class="card"><h2>Par produit</h2>' +
+      table(['Produit', 'Commandes', 'Livrées', 'Retours', 'Livraison', 'Chiffre livré', 'Bénéfice'], groupRows(d.products, function (g) { return h(g.name); }), [1, 2, 3, 4, 5, 6]) +
+      '<p class="small" style="margin-top:10px">Une commande à plusieurs produits est partagée selon les quantités. Bénéfice avant dépenses (publicité…).</p></section>';
+  }
+
+  function adRows(list) {
+    return list.map(function (g) {
+      return [h(g.name), g.orders, g.delivered, g.deliveryRate === null ? '—' : Math.round(g.deliveryRate * 100) + ' %', signed(g.profit),
+        money(g.spend), signed(g.net), g.costPerDelivered === null ? '—' : money(g.costPerDelivered)];
+    });
+  }
+
+  function profitCampaigns(d) {
+    var head = ['', 'Commandes', 'Livrées', 'Livraison', 'Bénéfice', 'Publicité', 'Net', 'Pub / livrée'];
+    var html = '<div class="stack"><section class="card"><h2>Par plateforme</h2>' +
+      table(['Plateforme'].concat(head.slice(1)), adRows(d.platforms), [1, 2, 3, 4, 5, 6, 7]) + '</section>' +
+      '<section class="card"><h2>Par campagne</h2>' +
+      table(['Campagne'].concat(head.slice(1)), adRows(d.campaigns), [1, 2, 3, 4, 5, 6, 7]) +
+      (d.adUnassigned ? '<p class="small" style="margin-top:10px">' + money(d.adUnassigned) + ' de publicité sans campagne : comptés pour la plateforme, pas pour une campagne.</p>' : '') +
+      '<p class="small" style="margin-top:10px">Pour relier vos commandes à vos publicités : ajoutez « UTM source » et « UTM campaign » à la fin de l’onglet RELEASIT, et dans le lien de vos annonces : ' +
+      '<span class="mono">utm_source=facebook&amp;utm_campaign={{campaign.name}}</span> (Facebook) ou <span class="mono">utm_source=tiktok&amp;utm_campaign=__CAMPAIGN_NAME__</span> (TikTok). ' +
+      'Dans vos dépenses, écrivez le même nom de campagne.</p></section></div>';
+    return html;
+  }
+
+  function profitExpenses(d) {
+    var today = new Date();
+    var iso = today.getFullYear() + '-' + ('0' + (today.getMonth() + 1)).slice(-2) + '-' + ('0' + today.getDate()).slice(-2);
+    var html = '<div class="stack"><section class="card"><h2>Ajouter une dépense</h2><div class="form-grid" id="expense-form">' +
+      field('Date', '<input name="date" type="date" value="' + iso + '">') +
+      field('Catégorie', '<select name="category">' + options(d.categories, d.categories[0]) + '</select>') +
+      field('Campagne (facultatif)', input('campaign', '', ' list="campaign-list" placeholder="Nom de la campagne"')) +
+      field('Montant', input('amount', '', ' type="number" min="0" step="0.01" inputmode="decimal"')) +
+      field('Devise', '<select name="currency"><option>USD</option><option>DA</option></select>') +
+      field('Note', input('note', ''), 'full') +
+      '</div><datalist id="campaign-list">' + d.knownCampaigns.map(function (c) { return '<option value="' + h(c) + '">'; }).join('') + '</datalist>' +
+      '<p class="small" style="margin:10px 0">Dollar : ' + money(d.rate) + ' (réglage TAUX_DOLLAR dans Paramètres). Une dépense garde le taux du jour où elle est saisie.</p>' +
+      '<button type="button" class="btn primary" data-act="expense-add">Ajouter la dépense</button></section>';
+    html += '<section class="card"><h2>Dépenses de la période</h2>' + (d.expenses.length ? table(
+      ['Date', 'Catégorie', 'Campagne', 'Montant', 'En dinars'],
+      d.expenses.map(function (e) {
+        return [h(fmtDay(e.date)), h(e.category), h(e.campaign || '—'),
+          e.currency === 'USD' ? h(e.amount + ' $ × ' + e.rate) : money(e.amount), money(e.amountDA)];
+      }), [3, 4]
+    ) : '<p class="empty">Aucune dépense sur la période.</p>') +
+      '<p class="small" style="margin-top:10px">Pour corriger ou supprimer une dépense : onglet Dépenses du classeur.</p></section></div>';
+    return html;
+  }
+
+  function fmtDay(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    return ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2) + '/' + d.getFullYear();
+  }
+
+  function addExpense(btn) {
+    var data = readForm($('#expense-form'));
+    btn.disabled = true;
+    call('api_addExpense', data).then(function (r) {
+      toast(r.message);
+      btn.disabled = false;
+      loadProfit();
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  }
+
+  function stockView(s) {
+    var html = '<div class="stack">';
+    if (!s.products.length) {
+      html += '<div class="card"><p class="empty">L’onglet Produits est vide. Ajoutez les modèles de vos commandes ci-dessous, puis indiquez leur coût d’achat et leur stock dans le classeur.</p></div>';
+    }
+    s.products.forEach(function (g) {
+      html += '<section class="card"><h2>' + h(g.product) + '</h2>' +
+        '<p class="sub" style="margin:-4px 0 10px">' + (g.tracked ? 'Stock ' + g.stock + ' · réservé ' + g.reserved + ' · <strong>disponible ' + g.available + '</strong>' : 'Stock non suivi (colonne Stock vide)') + '</p>' +
+        '<div class="table-wrap" style="border:0"><table class="data cards"><thead><tr>' +
+        ['Modèle', 'Stock', 'Réservé', 'Disponible', 'Coût d’achat', 'Prix de vente'].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') +
+        '</tr></thead><tbody>' + g.models.map(function (m) {
+          return '<tr class="model-row' + (m.low ? ' low' : '') + '">' +
+            '<td data-label="Modèle">' + h(m.model || '—') + (m.low ? ' <span class="pill" style="background:#FFF3DC;color:#8A5200">stock bas</span>' : '') + '</td>' +
+            '<td data-label="Stock" class="num">' + (m.tracked ? m.stock : '—') + '</td>' +
+            '<td data-label="Réservé" class="num">' + m.reserved + '</td>' +
+            '<td data-label="Disponible" class="num strong">' + (m.tracked ? m.available : '—') + '</td>' +
+            '<td data-label="Coût d’achat" class="num">' + (m.cost === null ? '<span class="neg">à remplir</span>' : money(m.cost)) + '</td>' +
+            '<td data-label="Prix de vente" class="num">' + (m.price === null ? '—' : money(m.price)) + '</td></tr>';
+        }).join('') + '</tbody></table></div></section>';
+    });
+    if (s.unknown.length) {
+      html += '<section class="card"><h2>Modèles vus dans les commandes, absents de l’onglet Produits</h2>' +
+        table(['Produit', 'Modèle', 'Commandes', ''], s.unknown.map(function (u) {
+          return [h(u.product), h(u.model || '—'), u.orders, '<button type="button" class="btn" style="min-height:36px" data-act="catalog-add" data-label="' + h(u.label) + '">Ajouter</button>'];
+        }), [2]) +
+        '<p style="margin-top:12px"><button type="button" class="btn primary" data-act="catalog-add">Tout ajouter à l’onglet Produits</button></p>' +
+        '<p class="small" style="margin-top:8px">Ensuite, dans le classeur, indiquez pour chaque modèle son coût d’achat et son stock.</p></section>';
+    }
+    html += '<p class="small">Une commande confirmée réserve ses produits ; le stock baisse quand le colis part et remonte quand le retour est reçu. Le stock se corrige à la main dans l’onglet Produits.</p></div>';
+    return html;
+  }
+
+  function addToCatalog(labels, btn) {
+    var list = labels || (S.profit.stock ? S.profit.stock.unknown.map(function (u) { return u.label; }) : []);
+    if (!list.length) return;
+    btn.disabled = true;
+    call('api_addCatalogItems', list).then(function (r) {
+      toast(r.message);
+      S.profit.stock = null;
+      renderProfit();
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  }
+
+  /* ================================================================ */
   /* Événements                                                       */
   /* ================================================================ */
 
   var ACTIONS = {
-    'goto': function (el) { navigate(el.getAttribute('data-route'), el.getAttribute('data-status')); },
+    'goto': function (el) {
+      if (el.getAttribute('data-tab')) S.profit.tab = el.getAttribute('data-tab');
+      navigate(el.getAttribute('data-route'), el.getAttribute('data-status'));
+    },
+    'profit-period': function (el) { S.profit.period = el.getAttribute('data-period'); loadProfit(); },
+    'profit-tab': function (el) { S.profit.tab = el.getAttribute('data-tab'); renderProfit(); },
+    'expense-add': addExpense,
+    'catalog-add': function (el) { addToCatalog(el.getAttribute('data-label') ? [el.getAttribute('data-label')] : null, el); },
+    'sms-send': function (el) {
+      el.disabled = true;
+      call('api_smsSendNow').then(function (r) { toast(r.message); loadShopStatus(); }).catch(function (e) { el.disabled = false; toast(errText(e), true); });
+    },
     'period': function (el) { S.period = el.getAttribute('data-period'); pageDashboard(); },
     'chip': function (el) { S.filter.status = el.getAttribute('data-status'); S.filter.limit = 100; loadOrders(); },
     'more': function () { S.filter.limit += 100; loadOrders(); },
@@ -1469,6 +1718,7 @@
     $all('[data-shop]').forEach(function (el) { el.textContent = b.shop; });
     $all('[data-user-name]').forEach(function (el) { el.textContent = b.user.name; });
     $all('[data-user-mail]').forEach(function (el) { el.textContent = b.user.email; });
+    $all('[data-admin]').forEach(function (el) { el.hidden = !b.user.admin; });
     window.addEventListener('hashchange', go);
     go();
     if (!b.counts) refreshCount();

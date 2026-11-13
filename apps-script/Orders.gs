@@ -68,6 +68,7 @@ var TEXT_KEYS_ = ['id', 'phone', 'tracking', 'paymentId', 'shopifyId'];
  * cases voisines : une seule écriture par groupe au lieu d'une par case.
  */
 function writeFields_(ctx, order, fields) {
+  if (fields.status !== undefined && String(fields.status) !== String(order.status)) noteStatusChange_(order, fields.status);
   var cells = [];
   Object.keys(fields).forEach(function (key) {
     order[key] = fields[key];
@@ -160,7 +161,10 @@ function serializeOrder_(o) {
     paymentId: String(o.paymentId),
     followUp: iso_(o.followUp),
     campaign: String(o.campaign),
+    adSource: String(o.adSource == null ? '' : o.adSource),
     shopifyId: String(o.shopifyId),
+    stockMove: String(o.stockMove == null ? '' : o.stockMove),
+    sms: String(o.sms == null ? '' : o.sms),
     alert: String(o.alert),
     alertLevel: alertLevel_(o.alert),
     notes: String(o.notes),

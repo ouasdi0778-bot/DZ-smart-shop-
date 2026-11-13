@@ -398,6 +398,7 @@ function shopifyNodeToOrder_(node) {
     notes: notes.join(' · '),
     source: 'Shopify',
     campaign: pick(['UTM campaign']),
+    adSource: pick(['UTM source']),
     shopifyId: String(node.id || '').replace(/^.*\//, '')
   };
 }

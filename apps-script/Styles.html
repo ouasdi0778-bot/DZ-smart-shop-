@@ -155,6 +155,15 @@
   .lock-box p { flex: 1 1 260px; margin: 0; font-weight: 600; }
   .lock-box.warn { background: #FFF3DC; color: #6B4100; }
   .lock-icon { font-size: 12px; }
+  .stock-warn { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; background: #FFF3DC; color: #6B4100; border-radius: 10px; padding: 10px 14px; margin: 10px 0; font-weight: 600; }
+  .stock-warn.info { background: #EEF0F3; color: #3D4350; font-weight: 500; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+  .money-lines { display: grid; gap: 6px; max-width: 520px; }
+  .money-lines div { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+  .money-lines div.total { border-bottom: 0; font-weight: 700; font-size: 16px; }
+  .pos { color: #146C2E; }
+  .neg { color: #A12626; }
+  .model-row.low td { background: #FFF6E6; }
   .history { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 14px; border-radius: 10px; margin-bottom: 14px; }
   .sum { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; margin-top: 14px; border-top: 1px solid #EEF0F3; }
   .sum div { display: flex; justify-content: space-between; gap: 12px; }
@@ -199,7 +208,7 @@
     .content { padding: 16px 14px 96px; }
     h1 { font-size: 22px; }
     .bottom-nav {
-      display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+      display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
       background: var(--side); padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
     }
     .bottom-nav a { min-height: 52px; display: flex; align-items: center; justify-content: center; gap: 4px; color: var(--side-ink); text-decoration: none; font-size: 11.5px; font-weight: 600; border-radius: 10px; padding: 0 1px; }

@@ -140,6 +140,74 @@ La page **Suivi** réunit :
 - **Colis en cours**, filtrables : à valider, en route, en livraison, suspendus, retours.
 - **Chronologie** d'un colis (`get/tracking/info`), aussi dans la fiche de chaque commande : validé, récupéré, au centre de tri, confié au livreur, tentative de livraison, livré, encaissé, payé… Si la réponse d'Ecotrack n'est pas reconnue, elle est affichée telle quelle.
 - Le délai d'alerte se règle dans l'onglet **Paramètres** (`SUIVI_ALERTE_HEURES`, 26 par défaut).
+- Après la livraison, un colis Ecotrack reste suivi **jusqu'au versement de l'argent** (encaissé, prêt, payé), et un retour **jusqu'à sa réception**.
+
+## Stock par modèle
+
+L'onglet **Produits** a une ligne par modèle : **Produit | Modèle | Prix de vente | Coût d'achat | Stock | Seuil d'alerte**. Par exemple : cover iPhone | iphone 15 PRO MAX | 1800 | 600 | 25.
+
+- **Reconnaissance** : une commande est reliée à son modèle par son libellé. « cover iPhone - iphone 15 PRO MAX » (Releasit) ou « cover iPhone — iphone 15 PRO MAX » (Shopify) correspondent à la ligne cover iPhone / iphone 15 PRO MAX. Les majuscules, accents et tirets ne comptent pas.
+- **Réservé** : une commande **confirmée** réserve ses produits. Disponible = Stock − Réservé.
+  - Dans le centre de confirmation, **« Stock insuffisant »** s'affiche si le modèle manque ; la confirmation reste possible.
+  - Une annulation libère la réservation.
+- **Le colis part** (Expédiée, En livraison, Livrée) : le **Stock baisse**.
+- **Le retour est reçu** (Ecotrack : « retour reçu » ; société sans connexion : statut Retour) : il **remonte**.
+- Chaque commande ne compte **qu'une fois** : colonne « Mouvement stock » des commandes, avec « Sorti » puis « Rentré ». Les commandes déjà parties avant l'installation du suivi sont marquées « Avant le suivi du stock » et ne touchent pas au stock.
+- **Stock vide** = modèle non suivi.
+- Le stock se corrige à la main dans l'onglet Produits, par exemple à l'arrivée d'une marchandise.
+- Page **Bénéfices et stock › Stock** :
+  - le **total par produit** et le détail par modèle (stock, réservé, disponible) ;
+  - les modèles en **stock bas** (disponible ≤ seuil de la ligne, sinon `STOCK_SEUIL`), aussi dans le tableau de bord ;
+  - les modèles vus dans les commandes mais absents de l'onglet Produits, avec un bouton **Ajouter**. Ils arrivent avec leur prix de vente moyen ; il reste à remplir leur coût d'achat et leur stock.
+
+## Bénéfices et dépenses
+
+Page **Bénéfices et stock**, visible seulement par l'**administrateur** (rôle « Administrateur » dans l'onglet Équipe). Les commandes y comptent à leur **date de commande**.
+
+| Commande | Bénéfice |
+|---|---|
+| Livrée | Total encaissé − frais de la société de livraison (onglet Tarifs, ceux d'Ecotrack sont récupérés par l'API) − coût d'achat × quantité − emballage (`COUT_EMBALLAGE`) |
+| Retour | − frais de retour (`FRAIS_RETOUR`, 50 DA) − emballage |
+| En route, en confirmation, annulée | Non comptée |
+
+- **Onglet Dépenses** (la publicité en fait partie) : **Date | Catégorie | Campagne | Montant | Devise (DA ou USD) | Taux | Note**.
+  - Les catégories se règlent dans `CATEGORIES_DEPENSES`.
+  - Une dépense en dollars prend le **taux du jour** (`TAUX_DOLLAR`) quand elle est saisie dans l'application, ou la première fois qu'elle est lue si elle est tapée dans le classeur. Changer le taux plus tard ne modifie pas les anciennes dépenses.
+- **Résumé** : chiffre livré, bénéfice des commandes, dépenses, **bénéfice net**, publicité par commande livrée, avec le détail ligne par ligne. Un avertissement apparaît s'il manque un coût d'achat ou un tarif de livraison ; dans ce cas, les frais payés par le client sont utilisés.
+- **Produits** : commandes, livrées, retours, taux de livraison, chiffre livré et bénéfice par modèle.
+- **Publicité** :
+  - **par plateforme** (Facebook, TikTok, selon « UTM source ») et **par campagne** (« UTM campaign ») : commandes, livrées, bénéfice, dépense, **net**, publicité par commande livrée ;
+  - pour relier commandes et publicités, ajoutez « UTM source » et « UTM campaign » à la fin de l'onglet RELEASIT, et dans le lien des annonces : `utm_source=facebook&utm_campaign={{campaign.name}}` (Facebook) ou `utm_source=tiktok&utm_campaign=__CAMPAIGN_NAME__` (TikTok) ;
+  - écrivez le même nom de campagne dans vos dépenses.
+- **Dépenses** : ajout rapide depuis le téléphone, et liste de la période.
+
+## SMS automatiques (httpSMS)
+
+Les SMS partent de **votre téléphone Android**, avec l'application httpSMS et votre carte SIM.
+
+1. Installez l'application httpSMS sur le téléphone et connectez-la à votre compte.
+2. Sur httpsms.com, réglez éventuellement le nombre de SMS par minute et les heures d'envoi.
+3. Dans le classeur : **DZ Smart Shop › SMS (httpSMS) › Enregistrer la clé et le numéro**. Collez la **clé API de la page Settings** de httpsms.com (pas la « Phone API key »), puis le numéro de la carte SIM. Tout est gardé dans les propriétés du script, jamais dans le classeur.
+4. **Envoyer un SMS de test** : il part de la carte SIM et arrive sur le même numéro.
+
+Fonctionnement :
+
+- **Un texte par statut**, en arabe, dans l'onglet Paramètres : `SMS_A_CONFIRMER`, `SMS_PAS_DE_REPONSE`, `SMS_CONFIRMEE`, `SMS_EXPEDIEE`, `SMS_EN_LIVRAISON`… **Texte vide = pas de SMS** : c'est le cas par défaut de Rappeler, Injoignable, Livrée, Retour et Annulée.
+- **Champs remplacés** : `{prenom}` `{client}` `{numero}` `{produit}` `{total}` `{suivi}` `{commune}` `{wilaya}` `{boutique}`.
+- Quand le statut change (centre de confirmation, Ecotrack, modification, nouvelle commande), le SMS part **dans la minute**, en arrière-plan.
+- **Une seule fois par statut** et par commande : colonne « SMS envoyés ».
+- **Pas la nuit** : hors de `SMS_HEURES` (8-21), les SMS attendent le matin.
+- **Jamais de SMS** :
+  - aux numéros invalides ni à la liste noire ;
+  - pour un statut déjà dépassé quand le SMS devrait partir ;
+  - pour une commande reçue il y a plus de 24 h (par exemple au premier transfert de l'onglet RELEASIT).
+- **En cas de problème** :
+  - si httpSMS est injoignable, le SMS est réessayé ;
+  - si la clé est refusée, une erreur claire s'affiche dans la page Commandes, et les SMS attendent.
+- La page **Commandes** montre l'état : numéro, heures, SMS en attente, statuts avec SMS, et un bouton **Envoyer maintenant**.
+- **Limites** :
+  - un SMS en arabe tient en 70 caractères ; un texte plus long compte pour plusieurs SMS ;
+  - l'outil sait que le SMS est parti vers votre téléphone, pas s'il est arrivé chez le client.
 
 ## Sécurité et fiabilité (Ecotrack)
 
@@ -258,7 +326,7 @@ Ce que fait l'outil pour rester rapide :
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 83 tests du code serveur (dont Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 92 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
@@ -278,6 +346,9 @@ apps-script/
   Releasit.gs   transfert des commandes de l'onglet RELEASIT (écrites par Releasit COD)
   Rules.gs      verrouillage selon l'étape, annulation d'un colis Ecotrack, corbeille
   Maintenance.gs  archivage de nuit, Journal raccourci, onglets allégés
+  Stock.gs      catalogue par modèle, stock réservé, sorti et rentré
+  Profit.gs     bénéfice des commandes, dépenses, rentabilité par produit et par campagne
+  Sms.gs        SMS automatiques selon le statut (httpSMS)
   Api.gs        application web, menu du classeur, fonctions appelées par l'interface
   Setup.gs      création/réparation du classeur et du traitement automatique
   Index.html    page de l'application
@@ -291,9 +362,9 @@ tests/          imitation de Google Apps Script, tests, données d'exemple, aper
 
 1. **Shopify, sens retour** : étiquette « confirmée » ou annulation dans Shopify quand une commande est confirmée ou annulée dans l'outil, et retrait des commandes annulées dans Shopify (demande la permission `write_orders`).
 2. **Liste des communes** d'Ecotrack en liste déroulante dans la confirmation, si Ecotrack fournit un point de terminaison pour cela.
-3. **SMS avec httpSMS** : SMS automatique à la commande, confirmation par réponse « 1 » / « 2 ».
+3. **SMS** : confirmation par réponse « 1 » / « 2 » du client, et accusé de réception des SMS (demande une adresse publique pour httpSMS).
 4. **Yalidine** (Ecotrack est fait) : création des colis, suivi des statuts, et impression des bordereaux pour les deux sociétés.
-5. **Stock et bénéfice réel** par commande, et taux de confirmation par campagne publicitaire.
+5. **Suivi avancé** : liste « à prévenir aujourd'hui », remarques au livreur et réponses (Ecotrack `add/maj`, `get/maj`), demande de retour, rapprochement des versements, résumé du matin par e-mail.
 
 ## Limites connues
 

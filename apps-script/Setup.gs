@@ -15,7 +15,8 @@ function setup() {
   setupSettingsSheet_(ss);
   setupTeamSheet_(ss);
   setupRatesSheet_(ss);
-  setupSimpleSheet_(ss, SHEET.PRODUCTS, ['Produit', 'Prix de vente', "Coût d'achat", 'Stock'], [220, 120, 120, 90]);
+  setupSimpleSheet_(ss, SHEET.PRODUCTS, PRODUCT_TITLES_, [220, 180, 120, 120, 90, 110]);
+  setupExpensesSheet_(ss);
   setupClientsSheet_(ss);
   setupSimpleSheet_(ss, SHEET.LOG, ['Date', 'Utilisateur', 'Commande', 'Action', 'Détail'], [140, 130, 90, 160, 420]);
   setupOrdersSheet_(ss);
@@ -115,6 +116,7 @@ function setupOrdersSheet_(ss) {
   var header = lastCol ? sh.getRange(1, 1, 1, lastCol).getValues()[0] : [];
   var map = headerMap_(header);
   var empty = !header.some(function (v) { return !isBlank_(v); });
+  var newStockColumn = !empty && map.stockMove === undefined;
   var missing = ORDER_COLUMNS.filter(function (c) { return map[c.key] === undefined; })
     .map(function (c) { return c.title; });
   if (empty) {
@@ -124,6 +126,8 @@ function setupOrdersSheet_(ss) {
   }
   header = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
   map = headerMap_(header);
+  // Nouvelle colonne « Mouvement stock » : les commandes déjà parties ne retouchent pas le stock.
+  if (newStockColumn) markStockBefore_(sh, map);
   sh.setFrozenRows(1);
   ORDER_COLUMNS.forEach(function (c) {
     var cell = sh.getRange(1, map[c.key] + 1);
@@ -204,18 +208,20 @@ function removeEmptyDefaultSheet_(ss) {
  * Déclencheurs automatiques :
  *  - transfert des commandes de l'onglet RELEASIT chaque minute (si l'onglet existe) ;
  *  - importation Shopify toutes les 5 minutes (seulement si Shopify est configuré) ;
+ *  - envoi des SMS en attente chaque minute (seulement si les SMS sont configurés) ;
  *  - traitement des nouvelles lignes toutes les 5 minutes ;
  *  - suivi des colis Ecotrack toutes les 30 minutes (sans effet tant qu'Ecotrack n'est pas configuré) ;
  *  - maintenance chaque nuit vers 3 h : archivage, Journal raccourci, onglets allégés (Maintenance.gs).
  * Google limite le temps de calcul quotidien : rien n'est lancé inutilement.
  */
 function installTriggers_() {
-  var handlers = ['processNewRows', 'syncEcotrackStatuses', 'importShopifyOrders', 'transferReleasitOrders', 'nightlyMaintenance'];
+  var handlers = ['processNewRows', 'syncEcotrackStatuses', 'importShopifyOrders', 'transferReleasitOrders', 'nightlyMaintenance', 'sendSmsQueue'];
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (handlers.indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t);
   });
   if (ss_().getSheetByName(RELEASIT.SHEET)) ScriptApp.newTrigger('transferReleasitOrders').timeBased().everyMinutes(1).create();
   if (shopifyConfig_().configured) ScriptApp.newTrigger('importShopifyOrders').timeBased().everyMinutes(5).create();
+  if (smsConfig_().configured) ScriptApp.newTrigger('sendSmsQueue').timeBased().everyMinutes(1).create();
   ScriptApp.newTrigger('processNewRows').timeBased().everyMinutes(5).create();
   ScriptApp.newTrigger('syncEcotrackStatuses').timeBased().everyMinutes(30).create();
   ScriptApp.newTrigger('nightlyMaintenance').timeBased().everyDays(1).atHour(3).create();

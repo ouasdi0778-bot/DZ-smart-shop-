@@ -173,6 +173,7 @@
     state.alertAnswer = 'OK';
     if (g.__fakeEcotrack) g.__fakeEcotrack.reset();
     if (g.__fakeShopify) g.__fakeShopify.reset();
+    if (g.__fakeHttpsms) g.__fakeHttpsms.reset();
   }
   reset();
 
@@ -265,6 +266,7 @@
   var pad = function (n) { return (n < 10 ? '0' : '') + n; };
   g.Utilities = {
     formatDate: function (d, tz, fmt) {
+      if (fmt === 'H') return String(d.getHours());
       return fmt.replace('yyyy', d.getFullYear()).replace('MM', pad(d.getMonth() + 1)).replace('dd', pad(d.getDate()))
         .replace('HH', pad(d.getHours())).replace('mm', pad(d.getMinutes())).replace('ss', pad(d.getSeconds()));
     },

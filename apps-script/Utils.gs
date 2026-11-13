@@ -102,6 +102,8 @@ function withLock_(fn) {
   try {
     return withLogBatch_(fn);
   } finally {
+    // Les SMS des statuts changés sont mis en file d'attente (envoyés en arrière-plan).
+    try { flushSmsPending_(); } catch (e) { /* ne bloque jamais l'action */ }
     lock.releaseLock();
   }
 }
@@ -119,8 +121,8 @@ function readSettings_() {
     sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(function (r) {
       var key = String(r[0]).trim();
       if (key && !isBlank_(r[1])) s[key] = r[1];
-      // Cette case peut volontairement rester vide : « pas de filtre ».
-      else if (key === 'SHOPIFY_TAG') s[key] = '';
+      // Ces cases peuvent volontairement rester vides : « pas de filtre », « pas de SMS ».
+      else if (key === 'SHOPIFY_TAG' || /^SMS_/.test(key)) s[key] = '';
     });
   }
   s.MAX_TENTATIVES = Math.max(1, toNumber_(s.MAX_TENTATIVES) || 3);
@@ -133,6 +135,15 @@ function readSettings_() {
   // 0 = jamais ; sinon au moins 30 jours, pour ne rien archiver ou effacer par erreur.
   var days = function (v) { var n = Math.round(toNumber_(v)); return n <= 0 ? 0 : Math.max(n, 30); };
   s.ARCHIVE_JOURS = days(s.ARCHIVE_JOURS);
+  s.FRAIS_RETOUR = Math.max(0, toNumber_(s.FRAIS_RETOUR));
+  s.COUT_EMBALLAGE = Math.max(0, toNumber_(s.COUT_EMBALLAGE));
+  s.TAUX_DOLLAR = Math.max(0, toNumber_(s.TAUX_DOLLAR));
+  s.STOCK_SEUIL = Math.max(0, Math.round(toNumber_(s.STOCK_SEUIL)));
+  s.categories = String(s.CATEGORIES_DEPENSES || '').split(';').map(function (c) { return c.trim(); }).filter(function (c) { return c; });
+  if (!s.categories.length) s.categories = ['Autre'];
+  var hours = String(s.SMS_HEURES || '8-21').match(/(\d{1,2})\D+(\d{1,2})/);
+  s.smsFrom = hours ? Math.min(+hours[1], 23) : 8;
+  s.smsTo = hours ? Math.min(Math.max(+hours[2], s.smsFrom + 1), 24) : 21;
   s.JOURNAL_JOURS = days(s.JOURNAL_JOURS);
   s.SHOPIFY_TAG = String(s.SHOPIFY_TAG == null ? '' : s.SHOPIFY_TAG).trim();
   s.SHOPIFY_JOURS_INITIAL = Math.min(Math.max(toNumber_(s.SHOPIFY_JOURS_INITIAL) || 3, 1), 60);
@@ -239,6 +250,11 @@ function configKeysFor_(sheetName) {
 
 function allConfigKeys_() {
   return ['cfg:settings', 'cfg:wilayas', 'cfg:rates', 'cfg:clients', 'cfg:team', 'cfg:products'];
+}
+
+/** 2850 → « 2 850 » (sans dépendre de la langue du serveur). */
+function fmtAmount_(n) {
+  return String(Math.round(toNumber_(n))).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 }
 
 /** Valeur gardée en mémoire (CacheService) ; calculée par compute() si absente. */
