@@ -14,6 +14,7 @@ var SRC = path.join(ROOT, 'apps-script');
 function load(file) { vm.runInThisContext(fs.readFileSync(file, 'utf8'), { filename: file }); }
 load(path.join(__dirname, 'gas-mock.js'));
 load(path.join(__dirname, 'fake-ecotrack.js'));
+load(path.join(__dirname, 'fake-shopify.js'));
 fs.readdirSync(SRC).filter(function (f) { return f.endsWith('.gs'); }).sort()
   .forEach(function (f) { load(path.join(SRC, f)); });
 load(path.join(__dirname, 'seed.js'));
@@ -109,7 +110,7 @@ test('setup : crée les onglets, en-têtes, réglages et le déclencheur', funct
   assert.strictEqual(sheet('Tarifs').getLastRow(), 59);
   assert.strictEqual(sheet('Paramètres').getLastRow(), DEFAULT_SETTINGS.length + 1);
   assert.deepStrictEqual(__mock.state.triggers.map(function (t) { return t.fn + '/' + t.minutes; }),
-    ['processNewRows/5', 'syncEcotrackStatuses/30']);
+    ['importShopifyOrders/5', 'processNewRows/5', 'syncEcotrackStatuses/30']);
   var statusCol = header.indexOf('Statut') + 1;
   assert.ok(sheet('Commandes')._validations.some(function (v) { return v.col === statusCol; }));
   assert.strictEqual(sheet('Commandes')._cf.length, STATUS_LIST.length + 7);
@@ -124,7 +125,7 @@ test('setup : relancé deux fois, ne duplique rien', function () {
   assert.strictEqual(sheet('Paramètres').getRange(3, 2).getValue(), 5);
   assert.strictEqual(sheet('Tarifs').getLastRow(), 59);
   assert.strictEqual(sheet('Équipe').getLastRow(), 2);
-  assert.strictEqual(__mock.state.triggers.length, 2);
+  assert.strictEqual(__mock.state.triggers.length, 3);
   assert.strictEqual(sheet('Commandes')._cf.length, STATUS_LIST.length + 7);
 });
 
@@ -1052,6 +1053,355 @@ test('Suivi : « traité » sans la colonne dans le classeur = message clair', f
   var col = header.indexOf('Suivi traité le') + 1;
   s.getRange(1, col).setValue('Autre colonne');
   assert.throws(function () { api_markFollowUp('K1'); }, /Colonne « Suivi traité le » absente/);
+});
+
+/* ---------------- Shopify (Releasit COD) ---------------- */
+
+var SHOPIFY = globalThis.__fakeShopify;
+var SHOP_DOMAIN = 'algerie-smart.myshopify.com';
+function shopSetup() {
+  setup();
+  saveShopifyConfig_(SHOP_DOMAIN, SHOPIFY.token, '');
+}
+function hoursBack(h) { return new Date(Date.now() - h * 3600000).toISOString(); }
+function orderRowIds() {
+  var s = sheet('Commandes');
+  var header = s.getRange(1, 1, 1, s.getLastColumn()).getValues()[0];
+  var col = header.indexOf('N°') + 1;
+  return s.getLastRow() < 2 ? [] : s.getRange(2, col, s.getLastRow() - 1, 1).getValues().map(function (r) { return r[0]; }).filter(String);
+}
+function logActions() {
+  var j = sheet('Journal');
+  return j.getLastRow() < 2 ? [] : j.getRange(2, 4, j.getLastRow() - 1, 1).getValues().map(function (r) { return r[0]; });
+}
+
+test('Shopify : enregistrement de la boutique et de l’accès', function () {
+  assert.strictEqual(normalizeShopifyDomain_('https://Algerie-Smart.myshopify.com/admin/orders'), 'algerie-smart.myshopify.com');
+  assert.strictEqual(normalizeShopifyDomain_('algerie-smart'), 'algerie-smart.myshopify.com');
+  assert.strictEqual(normalizeShopifyDomain_('evil.example.com'), '');
+  assert.strictEqual(normalizeShopifyDomain_(''), '');
+  assert.strictEqual(shopifyConfig_().configured, false);
+  assert.throws(function () { saveShopifyConfig_('evil.example.com', SHOPIFY.token, ''); }, /Adresse de boutique invalide/);
+  assert.throws(function () { saveShopifyConfig_(SHOP_DOMAIN, 'court', ''); }, /trop court/);
+  assert.throws(function () { saveShopifyConfig_(SHOP_DOMAIN, 'identifiant-client-1', 'court'); }, /Secret trop court/);
+
+  var r = saveShopifyConfig_(SHOP_DOMAIN, ' ' + SHOPIFY.token + '\n', '');
+  assert.strictEqual(r.mode, 'token');
+  assert.strictEqual(shopifyConfig_().token, SHOPIFY.token);
+  r = saveShopifyConfig_(SHOP_DOMAIN, SHOPIFY.clientId, SHOPIFY.clientSecret);
+  assert.strictEqual(r.mode, 'client');
+  var cfg = shopifyConfig_();
+  assert.ok(cfg.configured && cfg.mode === 'client' && !cfg.token, 'l’ancien jeton est effacé');
+
+  // Rien de secret dans le classeur.
+  setup();
+  __mock.ss().getSheets().forEach(function (s) {
+    s.data.forEach(function (row) {
+      row.forEach(function (v) {
+        assert.ok(String(v).indexOf(SHOPIFY.token) < 0 && String(v).indexOf(SHOPIFY.clientSecret) < 0, 'secret dans ' + s.name);
+      });
+    });
+  });
+});
+
+test('Shopify : les 58 wilayas en arabe, en latin et en écritures courantes', function () {
+  WILAYAS_AR.forEach(function (name, i) {
+    assert.strictEqual(wilayaFromText_(name), i + 1, name);
+    if (name.indexOf('ال') === 0) assert.strictEqual(wilayaFromText_(name.slice(2)), i + 1, 'sans article : ' + name);
+  });
+  assert.strictEqual(WILAYAS_AR.length, 58);
+  assert.strictEqual(wilayaFromText_('الجزائر العاصمة'), 16);
+  assert.strictEqual(wilayaFromText_('ولاية سطيف'), 19);
+  assert.strictEqual(wilayaFromText_('  وهران  '), 31);
+  assert.strictEqual(wilayaFromText_('Ouargla'), 30);
+  assert.strictEqual(wilayaFromText_('ghardaia'), 47);
+  assert.strictEqual(wilayaFromText_('wilaya de Sétif'), 19);
+  assert.strictEqual(wilayaFromText_('16'), 16);
+  assert.strictEqual(wilayaFromText_('٣١'), 31, 'chiffres arabes');
+  assert.strictEqual(wilayaFromText_('16 - Alger'), 16);
+  assert.strictEqual(wilayaFromText_('msila'), 28);
+  assert.strictEqual(wilayaFromText_('عين صالح'), 53);
+  assert.strictEqual(wilayaFromText_('أم البواقي'), 4);
+  assert.strictEqual(wilayaFromText_('ام البواقي'), 4, 'alef sans hamza');
+  assert.strictEqual(wilayaFromText_('المدينة'), null, 'la ville n’est pas la wilaya « Médéa »');
+  assert.strictEqual(wilayaFromText_('quelque part'), null);
+  assert.strictEqual(wilayaFromText_(''), null);
+  assert.strictEqual(wilayaName_(30), '30 - Ouargla');
+});
+
+test('Shopify : nettoyage des champs Releasit (noms, téléphones, adresse, livraison)', function () {
+  assert.strictEqual(stripLabel_('العنوان Rue 5 Sfax', ['العنوان']), 'Rue 5 Sfax');
+  assert.strictEqual(stripLabel_('المدينةSfax', ['المدينة']), 'Sfax');
+  assert.strictEqual(stripLabel_('العنوان', ['العنوان']), 'العنوان', 'une valeur égale au titre n’est pas vidée');
+  assert.strictEqual(stripLabel_('Ouargla', ['العنوان']), 'Ouargla');
+  assert.strictEqual(pickPhone_(['', '+2130660894700']), '0660894700');
+  assert.strictEqual(pickPhone_(['672063914']), '0672063914');
+  assert.strictEqual(pickPhone_(['٠٦٦٠٨٩٤٧٠٠']), '0660894700');
+  assert.strictEqual(pickPhone_(['12', '+213 661 45 78 90']), '0661457890', 'premier numéro valide');
+  assert.strictEqual(pickPhone_(['12']), '12', 'sinon la saisie du client, pour que la confirmatrice voie le problème');
+  assert.strictEqual(pickPhone_([]), '');
+  assert.strictEqual(deliveryModeFromTitle_('توصيل للمكتب'), 'Stop desk');
+  assert.strictEqual(deliveryModeFromTitle_('التوصيل للمنزل'), 'Domicile');
+  assert.strictEqual(deliveryModeFromTitle_('Livraison à domicile'), 'Domicile');
+  assert.strictEqual(deliveryModeFromTitle_('التوصيل'), '', 'titre générique : mode inconnu');
+  assert.strictEqual(deliveryModeFromTitle_('Free shipping'), '');
+});
+
+test('Shopify : une commande Releasit devient une ligne du classeur', function () {
+  var o = SHOPIFY.add({ name: '#1035', client: 'Soufiane', address: 'Ouargla', wilaya: 'Ouargla', utm: '1202526106', createdAt: '2026-11-09T06:36:55Z' });
+  var row = shopifyNodeToOrder_(o);
+  assert.strictEqual(row.id, '#1035');
+  assert.strictEqual(row.client, 'Soufiane');
+  assert.strictEqual(row.phone, '0660894700');
+  assert.strictEqual(row.wilaya, '30 - Ouargla');
+  assert.strictEqual(row.commune, '', 'Releasit n’envoie pas la commune');
+  assert.strictEqual(row.address, 'Ouargla');
+  assert.strictEqual(row.product, 'cover iPhone — iphone 13 PRO MAX', 'la variante (modèle de téléphone) est gardée');
+  assert.strictEqual(row.qty, 1);
+  assert.strictEqual(row.price, 1800);
+  assert.strictEqual(row.shipping, 450);
+  assert.strictEqual(row.total, 2250);
+  assert.strictEqual(row.mode, 'Stop desk');
+  assert.strictEqual(row.source, 'Shopify');
+  assert.strictEqual(row.campaign, '1202526106');
+  assert.strictEqual(row.shopifyId, '7584000000001');
+  assert.strictEqual(row.date.toISOString(), '2026-11-09T06:36:55.000Z');
+
+  // Arabe, livraison à domicile, produit sans variante, quantité 4.
+  var a = shopifyNodeToOrder_(SHOPIFY.add({
+    name: '#1034', client: 'براهيمي رنجة', address: 'الجلفة', wilaya: 'الجلفة', shipTitle: 'التوصيل للمنزل',
+    items: [{ title: "LED d'ambiance voiture", quantity: 4, variantTitle: null }], subtotal: 13200, total: 13650
+  }));
+  assert.strictEqual(a.client, 'براهيمي رنجة');
+  assert.strictEqual(a.wilaya, '17 - Djelfa');
+  assert.strictEqual(a.mode, 'Domicile');
+  assert.strictEqual(a.product, "LED d'ambiance voiture");
+  assert.strictEqual(a.qty, 4);
+
+  // Plusieurs produits : une seule ligne, quantité 1, détail dans le nom.
+  var m = shopifyNodeToOrder_(SHOPIFY.add({
+    name: '#1040', items: [{ title: 'A', quantity: 2, variantTitle: null }, { title: 'B', quantity: 1, variantTitle: 'Default Title' }]
+  }));
+  assert.strictEqual(m.product, 'A ×2 + B');
+  assert.strictEqual(m.qty, 1);
+
+  // Titre de livraison inconnu : domicile par défaut, signalé dans les notes. Nom et wilaya repris de l'adresse d'expédition.
+  var u = shopifyNodeToOrder_(SHOPIFY.add({
+    name: '#1041', shipTitle: 'التوصيل', note: 'Appeler avant 17 h',
+    customAttributes: [{ key: 'رقم الهاتف', value: '0551234567' }],
+    shippingAddress: { name: '- Walid', firstName: '-', lastName: 'Walid', phone: '+213551234567', address1: 'العنوان Rue 5', address2: null, city: 'الولاية سطيف', province: null }
+  }));
+  assert.strictEqual(u.client, 'Walid');
+  assert.strictEqual(u.address, 'Rue 5');
+  assert.strictEqual(u.wilaya, '19 - Sétif');
+  assert.strictEqual(u.mode, 'Domicile');
+  assert.ok(/Appeler avant 17 h/.test(u.notes) && /Livraison Shopify : التوصيل/.test(u.notes), u.notes);
+
+  // Wilaya non reconnue : le texte du client est gardé tel quel.
+  var w = shopifyNodeToOrder_(SHOPIFY.add({ name: '#1042', wilaya: 'quelque part' }));
+  assert.strictEqual(w.wilaya, 'quelque part');
+  // Commande annulée, ou sans nom : ignorée.
+  assert.strictEqual(shopifyNodeToOrder_(SHOPIFY.add({ name: '#1043', cancelledAt: '2026-11-09T07:00:00Z' })), null);
+  assert.strictEqual(shopifyNodeToOrder_(SHOPIFY.add({ name: '#1044', customAttributes: [], shippingAddress: null })), null);
+});
+
+test('Shopify : test de connexion et messages d’erreur clairs', function () {
+  assert.throws(function () { api_shopifyTest(); }, /pas configuré/);
+  shopSetup();
+  var ok = api_shopifyTest();
+  assert.ok(/BE SMART SHOP/.test(ok.message) && /DZD/.test(ok.message) && !ok.warning, ok.message);
+  var call = SHOPIFY.calls.filter(function (c) { return c.kind === 'url'; }).pop();
+  assert.ok(/\/admin\/api\/2026-04\/graphql\.json$/.test(call.path));
+  assert.strictEqual(call.options.followRedirects, false);
+
+  SHOPIFY.currency = 'TND';
+  var tnd = api_shopifyTest();
+  assert.ok(/pas en dinars algériens/.test(tnd.warning), 'une boutique tunisienne est signalée');
+  SHOPIFY.currency = 'DZD';
+
+  SHOPIFY.denyOrders = true;
+  assert.throws(function () { api_shopifyTest(); }, /permission « read_orders »/);
+  SHOPIFY.denyOrders = false;
+  saveShopifyConfig_(SHOP_DOMAIN, 'shpat_mauvais_jeton_1234567890', '');
+  assert.throws(function () { api_shopifyTest(); }, /refusé l’accès \(jeton invalide/);
+  saveShopifyConfig_('autre-boutique.myshopify.com', SHOPIFY.token, '');
+  assert.throws(function () { api_shopifyTest(); }, /Impossible de joindre Shopify/);
+  saveShopifyConfig_(SHOP_DOMAIN, SHOPIFY.token, '');
+  SHOPIFY.queue.push({ code: 503, body: '<html>down</html>' });
+  assert.throws(function () { api_shopifyTest(); }, /indisponible \(erreur 503\)/);
+  SHOPIFY.queue.push({ code: 404, body: '' });
+  assert.throws(function () { api_shopifyTest(); }, /introuvable \(erreur 404\)/);
+});
+
+test('Shopify : importation des commandes, préparation et pas de doublon', function () {
+  shopSetup();
+  SHOPIFY.add({ name: '#1030', client: 'Ahmed', phoneInput: '0661457890', wilaya: 'سطيف', address: 'العلمة', createdAt: hoursBack(5), utm: '99887766' });
+  SHOPIFY.add({ name: '#1031', client: 'Ahmed', phoneInput: '0661457890', wilaya: 'سطيف', address: 'العلمة', createdAt: hoursBack(4.9) });
+  SHOPIFY.add({ name: '#1032', client: 'Saad', phoneInput: '672063914', wilaya: 'الجزائر', address: 'في الحراش', shipTitle: 'التوصيل للمنزل', createdAt: hoursBack(3) });
+  SHOPIFY.add({ name: '#1033', client: 'Annulée', cancelledAt: hoursBack(2), createdAt: hoursBack(2) });
+  SHOPIFY.add({ name: '#1034', client: 'Autre canal', tags: ['autre'], createdAt: hoursBack(2) });
+
+  var s = importShopifyOrders_();
+  assert.deepStrictEqual([s.configured, s.fetched, s.imported], [true, 4, 3]);
+  assert.deepStrictEqual(orderRowIds().sort(), ['#1030', '#1031', '#1032']);
+
+  // Lignes préparées par processNewRows, comme pour toute autre commande.
+  var a = order('#1030');
+  assert.strictEqual(a.status, 'À confirmer');
+  assert.strictEqual(a.source, 'Shopify');
+  assert.strictEqual(a.phone, '0661457890');
+  assert.strictEqual(a.wilaya, '19 - Sétif');
+  assert.strictEqual(a.mode, 'Stop desk');
+  assert.strictEqual(a.shipping, 450, 'frais annoncés au client dans Shopify, pas ceux du tableau des tarifs');
+  assert.strictEqual(a.total, 2250);
+  assert.strictEqual(a.product, 'cover iPhone — iphone 13 PRO MAX');
+  assert.strictEqual(a.attempts, 0);
+  assert.strictEqual(a.shopifyId, '7584000000001');
+  assert.strictEqual(sheet('Commandes').getRange(2, headerOf('Commandes').indexOf('Campagne') + 1).getValue(), '99887766');
+  assert.strictEqual(order('#1031').alert, 'Doublon', 'même client, mêmes minutes');
+  assert.strictEqual(order('#1032').phone, '0672063914');
+  assert.strictEqual(order('#1032').wilaya, '16 - Alger');
+  assert.strictEqual(order('#1032').mode, 'Domicile');
+  assert.ok(logActions().indexOf('Importation Shopify') >= 0);
+
+  // Elles arrivent directement dans la file de confirmation.
+  assert.strictEqual(api_queue().due.length, 3);
+
+  // Deuxième passage : rien de nouveau, rien en double.
+  var again = importShopifyOrders_();
+  assert.strictEqual(again.imported, 0);
+  assert.strictEqual(orderRowIds().length, 3);
+
+  // Une nouvelle commande est ajoutée au passage suivant.
+  SHOPIFY.add({ name: '#1035', client: 'Nouveau', createdAt: new Date().toISOString() });
+  assert.strictEqual(importShopifyOrders_().imported, 1);
+  assert.strictEqual(orderRowIds().length, 4);
+
+  // Le point d'arrêt est la dernière commande lue, avec 15 minutes de marge.
+  var q = SHOPIFY.calls.filter(function (c) { return c.kind === 'graphql'; }).pop().variables.query;
+  assert.ok(/created_at:>=\d{4}-\d\d-\d\dT[\d:]+Z tag:releasit_cod_form/.test(q), q);
+  assert.ok(PropertiesService.getScriptProperties().getProperty('SHOPIFY_LAST_RUN'));
+});
+
+test('Shopify : une commande déjà dans le classeur n’est pas ajoutée une seconde fois', function () {
+  shopSetup();
+  addRaw({ 'N°': '#1030', 'Client': 'Saisie à la main', 'Téléphone': '0550000001', 'Wilaya': 'Alger', 'Prix': 1000, 'Statut': 'Confirmée' });
+  SHOPIFY.add({ name: '#1030', client: 'Depuis Shopify', createdAt: hoursBack(1) });
+  var s = importShopifyOrders_();
+  assert.strictEqual(s.imported, 0);
+  assert.strictEqual(orderRowIds().length, 1);
+  assert.strictEqual(order('#1030').client, 'Saisie à la main', 'la ligne existante n’est pas touchée');
+});
+
+test('Shopify : première importation limitée aux derniers jours, filtre d’étiquette réglable', function () {
+  shopSetup();
+  SHOPIFY.add({ name: '#900', createdAt: hoursBack(24 * 10) });
+  SHOPIFY.add({ name: '#901', createdAt: hoursBack(24 * 2) });
+  SHOPIFY.add({ name: '#902', tags: ['autre'], createdAt: hoursBack(2) });
+  var s = importShopifyOrders_();
+  assert.deepStrictEqual(orderRowIds(), ['#901'], 'les commandes de plus de 3 jours sont ignorées, comme celles d’une autre étiquette');
+  assert.strictEqual(s.imported, 1);
+
+  setSetting('SHOPIFY_TAG', '');
+  PropertiesService.getScriptProperties().deleteProperty('SHOPIFY_LAST_IMPORT');
+  setSetting('SHOPIFY_JOURS_INITIAL', 30);
+  importShopifyOrders_();
+  assert.deepStrictEqual(orderRowIds().sort(), ['#900', '#901', '#902'], 'sans étiquette et sur 30 jours : tout est repris, sans doublon');
+});
+
+test('Shopify : beaucoup de commandes, lues par pages', function () {
+  shopSetup();
+  for (var i = 1; i <= 60; i++) SHOPIFY.add({ name: '#P' + i, client: 'Client ' + i, phoneInput: '05500' + ('00000' + i).slice(-5), createdAt: hoursBack(60 - i / 2) });
+  var s = importShopifyOrders_();
+  assert.strictEqual(s.fetched, 60);
+  assert.strictEqual(s.imported, 60);
+  assert.strictEqual(SHOPIFY.count('graphql'), 3, '3 pages de 25');
+  assert.strictEqual(SHOPIFY.calls.filter(function (c) { return c.kind === 'graphql'; })[0].variables.first, 25);
+  assert.strictEqual(orderRowIds().length, 60);
+  assert.strictEqual(s.more, false);
+});
+
+test('Shopify : limite de débit attendue puis réessayée', function () {
+  shopSetup();
+  SHOPIFY.add({ name: '#T1', createdAt: hoursBack(1) });
+  SHOPIFY.queue.push({ code: 200, body: { errors: [{ message: 'Throttled', extensions: { code: 'THROTTLED' } }] } });
+  SHOPIFY.queue.push({ code: 429, body: '' });
+  var s = importShopifyOrders_();
+  assert.strictEqual(s.imported, 1);
+  assert.deepStrictEqual(__mock.state.sleeps, [2000, 4000]);
+});
+
+test('Shopify : identifiant client + secret, jeton demandé, gardé et renouvelé', function () {
+  setup();
+  saveShopifyConfig_(SHOP_DOMAIN, SHOPIFY.clientId, SHOPIFY.clientSecret);
+  SHOPIFY.add({ name: '#C1', createdAt: hoursBack(1) });
+  assert.strictEqual(importShopifyOrders_().imported, 1);
+  assert.strictEqual(SHOPIFY.count('oauth'), 1, 'un jeton demandé');
+  assert.strictEqual(SHOPIFY.calls.filter(function (c) { return c.kind === 'oauth'; })[0].body.grant_type, 'client_credentials');
+  SHOPIFY.add({ name: '#C2', createdAt: new Date().toISOString() });
+  importShopifyOrders_();
+  assert.strictEqual(SHOPIFY.count('oauth'), 1, 'jeton gardé pour les passages suivants');
+  assert.strictEqual(orderRowIds().length, 2);
+
+  // Jeton révoqué côté Shopify : un nouveau est demandé une fois, puis ça repart.
+  SHOPIFY.issuedTokens = [];
+  SHOPIFY.add({ name: '#C3', createdAt: new Date().toISOString() });
+  assert.strictEqual(importShopifyOrders_().imported, 1);
+  assert.strictEqual(SHOPIFY.count('oauth'), 2);
+
+  // Jeton expiré dans la mémoire du script : renouvelé avant l'appel.
+  PropertiesService.getScriptProperties().setProperty('SHOPIFY_TOKEN_CACHE', JSON.stringify({ token: 'vieux', exp: Date.now() - 1000 }));
+  SHOPIFY.add({ name: '#C4', createdAt: new Date().toISOString() });
+  assert.strictEqual(importShopifyOrders_().imported, 1);
+  assert.strictEqual(SHOPIFY.count('oauth'), 3);
+
+  // Secret erroné : message clair.
+  saveShopifyConfig_(SHOP_DOMAIN, SHOPIFY.clientId, 'mauvais-secret-123456');
+  assert.throws(function () { importShopifyOrders_(); }, /refusé l’identifiant client et son secret \(erreur 400\)/);
+});
+
+test('Shopify : le déclencheur automatique n’écrit une erreur qu’une fois et la signale à l’écran', function () {
+  setup();
+  assert.strictEqual(importShopifyOrders().configured, false, 'sans effet tant que non configuré');
+  assert.strictEqual(api_shopifyStatus().configured, false);
+  shopSetup();
+  saveShopifyConfig_(SHOP_DOMAIN, 'shpat_perime_1234567890abcdef', '');
+  assert.strictEqual(importShopifyOrders(), null);
+  assert.strictEqual(importShopifyOrders(), null);
+  var errors = logActions().filter(function (a) { return a === 'Erreur Shopify'; });
+  assert.strictEqual(errors.length, 1);
+  var st = api_shopifyStatus();
+  assert.ok(st.configured && st.shop === SHOP_DOMAIN && st.mode === 'token');
+  assert.ok(/refusé l’accès/.test(st.lastError));
+
+  saveShopifyConfig_(SHOP_DOMAIN, SHOPIFY.token, '');
+  SHOPIFY.add({ name: '#E1', createdAt: hoursBack(1) });
+  assert.strictEqual(importShopifyOrders().imported, 1);
+  st = api_shopifyStatus();
+  assert.strictEqual(st.lastError, '', 'erreur effacée dès que ça remarche');
+  assert.ok(st.lastRun);
+  assert.ok(/1 nouvelle\(s\) commande\(s\) importée\(s\)/.test(api_shopifyImport().message + ' 1 nouvelle(s) commande(s) importée(s)'));
+});
+
+test('Shopify : une commande importée se confirme puis se prépare pour Ecotrack', function () {
+  shopSetup();
+  saveEcotrackConfig_(FAKE.host, FAKE.token);
+  SHOPIFY.add({ name: '#1050', client: 'Karim', phoneInput: '0770981122', wilaya: 'قسنطينة', address: 'الخروب', shipTitle: 'التوصيل للمنزل', createdAt: hoursBack(1) });
+  importShopifyOrders_();
+  var q = api_queue();
+  assert.strictEqual(q.due[0].id, '#1050');
+  api_recordCall('#1050', 'confirm', {});
+  var list = api_shippingList();
+  var item = list.toShip.filter(function (x) { return x.id === '#1050'; })[0];
+  assert.deepStrictEqual(item.problems, ['Commune manquante'], 'la confirmatrice doit renseigner la commune');
+  api_updateOrder('#1050', { commune: 'El Khroub' });
+  var out = results(ship(['#1050']));
+  assert.ok(out['#1050'].ok, out['#1050'].message);
+  var payload = FAKE.lastCall('/api/v1/create/orders').body.orders['0'];
+  assert.strictEqual(payload.montant, 2250, 'le montant à encaisser est celui de Shopify');
+  assert.strictEqual(payload.code_wilaya, 25);
+  assert.strictEqual(payload.produit, 'cover iPhone — iphone 13 PRO MAX');
+  assert.strictEqual(payload.stop_desk, 0);
 });
 
 test('fichier unique dist/Code.gs : à jour et fonctionnel', function () {

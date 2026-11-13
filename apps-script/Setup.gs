@@ -196,10 +196,11 @@ function removeEmptyDefaultSheet_(ss) {
  * qu'Ecotrack n'est pas configuré).
  */
 function installTriggers_() {
-  var handlers = ['processNewRows', 'syncEcotrackStatuses'];
+  var handlers = ['processNewRows', 'syncEcotrackStatuses', 'importShopifyOrders'];
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (handlers.indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t);
   });
+  ScriptApp.newTrigger('importShopifyOrders').timeBased().everyMinutes(5).create();
   ScriptApp.newTrigger('processNewRows').timeBased().everyMinutes(5).create();
   ScriptApp.newTrigger('syncEcotrackStatuses').timeBased().everyMinutes(30).create();
 }

@@ -278,6 +278,7 @@
     view.innerHTML =
       '<div class="page-head"><div><h1>Commandes</h1><p class="sub">Toutes les commandes du classeur. Cliquez sur une commande pour la modifier.</p></div>' +
       '<button type="button" class="btn primary" data-act="new-order">+ Nouvelle commande</button></div>' +
+      '<div id="shop-status"></div>' +
       '<div class="chips" id="chips" role="group" aria-label="Filtrer par statut"></div>' +
       '<div class="filters">' +
         field('Rechercher', '<input type="search" id="f-q" value="' + h(f.q) + '" placeholder="Nom, téléphone, n° de commande ou de suivi">', 'wide') +
@@ -288,6 +289,26 @@
       '</div>' +
       '<div id="orders-list"><p class="loading">Chargement…</p></div>';
     loadOrders();
+    loadShopStatus();
+  }
+
+  /* Connexion Shopify : état et importation à la demande. */
+  function loadShopStatus() {
+    call('api_shopifyStatus').then(function (s) {
+      var box = $('#shop-status');
+      if (!box || S.route !== 'commandes') return;
+      var html = '<div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px;padding:12px 16px">';
+      if (!s.configured) {
+        html += '<span class="muted">Shopify n’est pas encore connecté : les commandes arrivent seulement si une application les ajoute au classeur. ' +
+          'Dans le classeur, sur ordinateur : menu <strong>DZ Smart Shop › Shopify</strong>.</span></div>';
+      } else {
+        html += '<span><strong>Shopify</strong> · ' + h(s.shop) + ' · ' + (s.lastRun ? 'dernière importation ' + h(ago(s.lastRun)) : 'pas encore importé') +
+          ' · importation automatique toutes les 5 minutes</span>' +
+          '<button type="button" class="btn" style="min-height:40px" data-act="shop-import">Importer maintenant</button></div>' +
+          (s.lastError ? '<div style="margin-bottom:14px">' + errorBox(s.lastError) + '</div>' : '');
+      }
+      box.innerHTML = html;
+    }).catch(function () {});
   }
 
   function loadOrders() {
@@ -1058,6 +1079,15 @@
     'more': function () { S.filter.limit += 100; loadOrders(); },
     'open-order': function (el) { openOrder(el.getAttribute('data-id')); },
     'new-order': openNewOrder,
+    'shop-import': function () {
+      toast('Importation depuis Shopify…');
+      call('api_shopifyImport').then(function (r) {
+        toast(r.message);
+        loadShopStatus();
+        loadOrders();
+        refreshCount();
+      }).catch(function (e) { toast(errText(e), true); loadShopStatus(); });
+    },
     'close-modal': closeModal,
     'save-order': saveOrder,
     'create-order': createOrder,

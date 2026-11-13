@@ -156,6 +156,7 @@
     state.prompts = [];
     state.alertAnswer = 'OK';
     if (g.__fakeEcotrack) g.__fakeEcotrack.reset();
+    if (g.__fakeShopify) g.__fakeShopify.reset();
   }
   reset();
 

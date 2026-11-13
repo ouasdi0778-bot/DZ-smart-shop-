@@ -115,6 +115,8 @@ function getSettings_() {
     sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(function (r) {
       var key = String(r[0]).trim();
       if (key && !isBlank_(r[1])) s[key] = r[1];
+      // Cette case peut volontairement rester vide : « pas de filtre ».
+      else if (key === 'SHOPIFY_TAG') s[key] = '';
     });
   }
   s.MAX_TENTATIVES = Math.max(1, toNumber_(s.MAX_TENTATIVES) || 3);
@@ -124,6 +126,9 @@ function getSettings_() {
   s.NOM_BOUTIQUE = String(s.NOM_BOUTIQUE || APP_NAME).trim();
   s.MESSAGE_WHATSAPP = String(s.MESSAGE_WHATSAPP || '');
   s.SUIVI_ALERTE_HEURES = Math.max(1, toNumber_(s.SUIVI_ALERTE_HEURES) || 26);
+  s.SHOPIFY_TAG = String(s.SHOPIFY_TAG == null ? '' : s.SHOPIFY_TAG).trim();
+  s.SHOPIFY_JOURS_INITIAL = Math.min(Math.max(toNumber_(s.SHOPIFY_JOURS_INITIAL) || 3, 1), 60);
+  s.SHOPIFY_API_VERSION = /^\d{4}-\d{2}$/.test(String(s.SHOPIFY_API_VERSION || '').trim()) ? String(s.SHOPIFY_API_VERSION).trim() : '2026-04';
   s.motifs = String(s.MOTIFS_ANNULATION || '').split(';')
     .map(function (m) { return m.trim(); })
     .filter(function (m) { return m; });

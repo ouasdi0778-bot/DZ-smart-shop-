@@ -1,3 +1,16 @@
+/** Connecte l'outil au faux Shopify et importe quelques commandes Releasit (aperçu uniquement). */
+function seedShopify_() {
+  if (typeof __fakeShopify === 'undefined') return;
+  saveShopifyConfig_('algerie-smart.myshopify.com', __fakeShopify.token, '');
+  var minutes = function (m) { return new Date(Date.now() - m * 60000).toISOString(); };
+  __fakeShopify.add({ name: '#2001', client: 'قصي', phoneInput: '672063914', wilaya: 'سطيف', address: 'العلمة', createdAt: minutes(40),
+    items: [{ title: "LED d'ambiance voiture", quantity: 1, variantTitle: null }], subtotal: 3300, total: 3750 });
+  __fakeShopify.add({ name: '#2002', client: 'Soufiane', phoneInput: '0660894700', wilaya: 'Ouargla', address: 'Ouargla', createdAt: minutes(12), utm: '120252610599940199' });
+  __fakeShopify.add({ name: '#2003', client: 'سعد', phoneInput: '0663253847', wilaya: 'الجزائر', address: 'في الحراش', shipTitle: 'التوصيل للمنزل', createdAt: minutes(3),
+    items: [{ title: 'chargeur moto', quantity: 2, variantTitle: null }], subtotal: 2400, total: 2850 });
+  importShopifyOrders_();
+}
+
 /** Connecte l'outil au faux Ecotrack (aperçu et tests uniquement). */
 function seedEcotrackConnection_() {
   saveEcotrackConfig_(__fakeEcotrack.host, __fakeEcotrack.token);
@@ -82,6 +95,7 @@ function seedFirstOrders_() {
     'Quantité': 2, 'Prix': 7400, 'Livraison': 'Stop desk', 'Source': 'Shopify' });
   processNewRows();
   if (typeof __fakeEcotrack !== 'undefined') seedEcotrackConnection_();
+  seedShopify_();
 }
 
 /**
@@ -202,5 +216,6 @@ function seedDemo_() {
   if (viaEcotrack.length) seedEcotrack_(viaEcotrack);
   __mock.setUser('imane@example.com');
   api_setBlacklist('0555001199', true, 'Refus répétés');
+  seedShopify_();
   recalcAlerts();
 }

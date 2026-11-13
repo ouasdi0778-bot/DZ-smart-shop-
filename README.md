@@ -135,22 +135,47 @@ La page **Suivi** réunit :
 - Choisir un bureau précis pour le stop desk : l'API ne demande que « domicile » ou « stop desk ».
 - Remarques au livreur (`add/maj`), demande de retour, bordereaux PDF, et Yalidine.
 
-## Faire arriver les commandes Shopify
+## Importer les commandes Shopify (Releasit COD)
 
-Pour l'instant, toute application ou automatisation qui **ajoute une ligne** dans l'onglet **Commandes** fonctionne : application de formulaire COD, Shopify Flow, import, copier-coller.
+Toutes les **5 minutes**, les nouvelles commandes de la boutique sont ajoutées à l'onglet Commandes, puis préparées comme les autres (téléphone, wilaya, alertes, statut « À confirmer »). Elles arrivent donc directement dans le centre de confirmation. Une commande déjà présente n'est jamais ajoutée deux fois (le n° de commande Shopify sert de clé). **L'accès est en lecture seule** : rien n'est modifié dans Shopify.
 
-- **Laissez la colonne Statut vide.** La ligne sera préparée dans les 5 minutes, ou tout de suite avec **DZ Smart Shop › Traiter les nouvelles commandes**.
-- **Titres de colonnes acceptés** : les colonnes sont retrouvées par leur titre, et plusieurs variantes sont reconnues. Par exemple `Order ID` ou `N°`, `Nom complet` ou `Client`, `Phone` ou `Téléphone`, `Province` ou `Wilaya`, `City` ou `Commune`, `Price` ou `Prix`. La liste complète est dans `ORDER_COLUMNS` (fichier `Config.gs`).
-- **Prix** = le prix des produits, **sans** la livraison. Si votre application envoie déjà le total livraison comprise, mettez-le dans la colonne **Total** : il sera gardé tel quel.
+### Configuration (une seule fois)
 
-La connexion directe à Shopify (sans application intermédiaire) est la prochaine étape.
+L'outil lit Shopify avec une « application » que vous créez pour votre boutique. Il lui faut la seule permission **`read_orders`**.
+
+1. Créez l'application et installez-la sur la boutique (voir les étapes dans la conversation, ou la documentation de Shopify : *Dev Dashboard*, ou *Paramètres › Applications › Développer des applications* si votre boutique le permet encore).
+2. Relancez **DZ Smart Shop › Installer / réparer le classeur** : colonnes **Campagne** et **ID Shopify**, réglages `SHOPIFY_*`, et déclencheur d'importation.
+3. **DZ Smart Shop › Shopify › Enregistrer la boutique et l'accès** : adresse de la boutique (`xxxx.myshopify.com`), puis le **jeton d'accès** (`shpat_…`) **ou** l'**identifiant client** suivi de son **secret** (l'outil demande alors lui-même un jeton à Shopify et le renouvelle). Ils sont gardés dans les propriétés du script, jamais dans le classeur. Un test vérifie la connexion, la permission, et **signale une boutique qui n'est pas en dinars algériens**.
+4. **Shopify › Importer les commandes maintenant** pour la première importation.
+
+### Ce qui est importé
+
+| Shopify (Releasit COD) | Dans le classeur |
+|---|---|
+| N° de commande `#1035` | N° |
+| Champ « الاسم و اللقب » (sinon le nom d'expédition) | Client |
+| Champ « رقم الهاتف » (sinon le téléphone de la commande) | Téléphone, remis au format `0660123456` (`+213`, chiffres arabes, 0 manquant) |
+| Champ « الولاية » (sinon la ville d'expédition) | Wilaya, reconnue en arabe, en latin ou avec son numéro (« الجزائر », « ولاية سطيف », « Ouargla »…) |
+| Champ « العنوان » | Adresse (le titre du champ collé devant la valeur est retiré) |
+| « توصيل للمكتب » / « التوصيل للمنزل » | Livraison : Stop desk / Domicile (autre titre : domicile, noté dans les notes) |
+| Produit + modèle (variante) | Produit, par exemple « cover iPhone — iphone 13 PRO MAX » |
+| Prix des produits, frais de livraison et total de Shopify | Prix, Frais livraison, Total : **le total annoncé au client est gardé tel quel** |
+| UTM campaign | Campagne |
+| Identifiant Shopify | ID Shopify (pour les mises à jour futures) |
+
+- **La commune n'est pas envoyée par Releasit** : elle reste vide, et la confirmatrice la renseigne pendant l'appel. Une commande sans commune ne peut pas être envoyée à Ecotrack (elle est signalée dans Expéditions). Pour la pré-remplir, ajoutez au formulaire Releasit un champ « commune ».
+- **Ignorées** : commandes annulées, commandes d'une autre étiquette que `SHOPIFY_TAG` (`releasit_cod_form` par défaut ; videz la case dans Paramètres pour tout importer).
+- **Première importation** : seulement les `SHOPIFY_JOURS_INITIAL` derniers jours (3 par défaut), pour ne pas remplir la file avec d'anciennes commandes. Ensuite, chaque passage reprend là où le précédent s'est arrêté (avec 15 minutes de marge).
+- Les commandes annulées dans Shopify **après** leur importation ne sont pas encore retirées du classeur.
+
+Toute autre application ou automatisation qui **ajoute une ligne** dans l'onglet Commandes (statut vide) fonctionne toujours : les colonnes sont retrouvées par leur titre, avec plusieurs variantes (`Order ID`, `Phone`, `Province`…, voir `ORDER_COLUMNS` dans `Config.gs`).
 
 ## Tester sans Google (pour les développeurs)
 
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 45 tests du code serveur (dont Ecotrack et le suivi, contre un faux serveur Ecotrack) sur une imitation du classeur
+npm test          # 58 tests du code serveur (dont Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
@@ -166,6 +191,7 @@ apps-script/
   Orders.gs     lecture/écriture des commandes, tarifs, alertes, traitement des nouvelles lignes
   Ecotrack.gs   création des colis, tarifs, statuts Ecotrack
   Tracking.gs   page Suivi : alertes, argent, versements, chronologie
+  Shopify.gs    importation des commandes Shopify (Releasit COD), wilayas en arabe
   Api.gs        application web, menu du classeur, fonctions appelées par l'interface
   Setup.gs      création/réparation du classeur et du traitement automatique
   Index.html    page de l'application
@@ -177,10 +203,11 @@ tests/          imitation de Google Apps Script, tests, données d'exemple, aper
 
 ## Prochaines étapes prévues
 
-1. **Shopify** : récupération directe des nouvelles commandes, et mise à jour de Shopify quand une commande est confirmée ou annulée.
-2. **SMS avec httpSMS** : SMS automatique à la commande, confirmation par réponse « 1 » / « 2 ».
-3. **Yalidine** (Ecotrack est fait) : création des colis, suivi des statuts, et impression des bordereaux pour les deux sociétés.
-4. **Stock et bénéfice réel** par commande.
+1. **Shopify, sens retour** : étiquette « confirmée » ou annulation dans Shopify quand une commande est confirmée ou annulée dans l'outil, et retrait des commandes annulées dans Shopify (demande la permission `write_orders`).
+2. **Liste des communes** d'Ecotrack en liste déroulante dans la confirmation, si Ecotrack fournit un point de terminaison pour cela.
+3. **SMS avec httpSMS** : SMS automatique à la commande, confirmation par réponse « 1 » / « 2 ».
+4. **Yalidine** (Ecotrack est fait) : création des colis, suivi des statuts, et impression des bordereaux pour les deux sociétés.
+5. **Stock et bénéfice réel** par commande, et taux de confirmation par campagne publicitaire.
 
 ## Limites connues
 
