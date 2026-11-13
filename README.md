@@ -13,7 +13,8 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 | **Tableau de bord** | Commandes reçues, taux de confirmation et de livraison, montant livré, argent en route, liste « à faire », taux de livraison par wilaya, résultats par confirmatrice et par produit |
 | **Commandes** | Liste filtrable (statut, wilaya, période, recherche par nom, téléphone, n° de commande ou de suivi), modification d'une commande, ajout à la main, liste noire |
 | **Centre de confirmation** | File d'appels (rappels dus en premier, puis les plus anciennes), fiche client avec historique et alerte, boutons Appeler et WhatsApp (message pré-rempli), correction de la commande avec recalcul des frais et du total, résultat en un clic : Confirmer, Pas de réponse, Rappeler plus tard, Annuler (avec motif) |
-| **Expéditions** | Commandes confirmées prêtes à partir (avec les problèmes à corriger avant l'envoi), envoi à **Ecotrack** en un clic, n° de suivi écrit dans le classeur, suivi des colis en cours |
+| **Expéditions** | Commandes confirmées prêtes à partir (avec les problèmes à corriger avant l'envoi), **création des colis chez Ecotrack** en un clic avec n° de suivi écrit dans le classeur, et liste des colis créés qui attendent votre validation chez Ecotrack |
+| **Suivi** | Statut de chaque colis relu toutes les 30 minutes, **alertes « à traiter »** (colis suspendu, retour en cours, sans mouvement depuis 26 h, créé mais jamais validé…), **où est l'argent** (chez le livreur, livré pas encaissé, encaissé pas payé, prêt à verser, payé) avec les versements, et **chronologie** détaillée de chaque colis |
 
 Ce qui se passe tout seul :
 
@@ -81,32 +82,58 @@ L'intégration suit la [documentation de l'API Ecotrack](https://documenter.getp
 ### Configuration (une seule fois)
 
 1. Collez le nouveau `dist/Code.gs` dans Apps Script, puis 💾 **Enregistrer**.
-2. Relancez **DZ Smart Shop › Installer / réparer le classeur**. Google demande une **nouvelle autorisation** (« se connecter à un service externe ») : acceptez. La colonne **Statut société** est ajoutée et le suivi automatique toutes les 30 minutes est installé.
+2. Relancez **DZ Smart Shop › Installer / réparer le classeur**. Google demande une **nouvelle autorisation** (« se connecter à un service externe ») : acceptez. Quatre colonnes sont ajoutées à l'onglet Commandes (**Statut société**, **Dernier mouvement colis**, **N° de versement**, **Suivi traité le**), le réglage `SUIVI_ALERTE_HEURES` (26) apparaît dans l'onglet Paramètres, et la lecture automatique des statuts toutes les 30 minutes est installée.
 3. **DZ Smart Shop › Ecotrack › Enregistrer l'adresse et le jeton** : saisissez l'adresse de votre plateforme (ex. `https://monsociete.ecotrack.dz`) puis votre jeton API. Le jeton est gardé dans les **propriétés du script** : il n'est jamais écrit dans le classeur ni dans le code. Un test de connexion est fait tout de suite.
 4. **DZ Smart Shop › Ecotrack › Récupérer les tarifs** : remplit les colonnes « Ecotrack domicile » et « Ecotrack stop desk » de l'onglet Tarifs. Une case reste vide quand le service n'existe pas (stop desk à 0 chez Ecotrack, wilaya non desservie). Les colonnes Yalidine ne sont pas touchées, et vous pouvez toujours corriger un prix à la main.
 5. **Déployer › Gérer les déploiements › ✏️ › Version : Nouvelle version** pour que l'application web utilise le nouveau code. Chaque confirmatrice devra accepter la nouvelle autorisation à sa prochaine ouverture.
 
 ### Au quotidien
 
-- Page **Expéditions › À expédier** : sélectionnez les commandes **prêtes**, puis **Envoyer à Ecotrack**. Une commande avec un problème (téléphone invalide, adresse ou commune manquante, wilaya non desservie, stop desk indisponible…) est signalée et se corrige avec **Modifier**.
-- Chaque colis créé reçoit son **n° de suivi** dans le classeur, et la commande passe **Expédiée**.
-- Si Ecotrack refuse un colis (par exemple « Commune mal écrite »), le motif est affiché et la commande reste confirmée : corrigez-la, puis renvoyez-la.
-- Les statuts des colis sont relus **toutes les 30 minutes** (ou à la demande avec « Mettre à jour les statuts ») et traduits : `prete_a_expedier` → Expédiée, en transit ou en livraison → En livraison, livré ou payé → Livrée, retour → Retour. Le statut exact d'Ecotrack est gardé dans la colonne **Statut société**.
-- Un statut qu'Ecotrack envoie et que l'outil ne connaît pas **ne change rien** : il est affiché dans « Statut société » et noté une fois dans l'onglet **Journal**. La correspondance se trouve dans la fonction `mapEcotrackStatus_` (fichier `Ecotrack.gs`).
-- Un colis qui n'apparaît plus dans la liste d'Ecotrack (archivé) est marqué « Introuvable chez Ecotrack » et signalé dans le Journal. Son statut reste inchangé : mettez-le à jour à la main.
+1. Page **Expéditions › À expédier** : sélectionnez les commandes **prêtes**, puis **Envoyer à Ecotrack**. Une commande avec un problème (téléphone invalide, adresse ou commune manquante, wilaya non desservie, stop desk indisponible…) est signalée et se corrige avec **Modifier**.
+2. L'outil **crée** le colis chez Ecotrack et écrit son **n° de suivi** dans le classeur. **Il ne l'expédie pas** : la commande reste « Confirmée » et apparaît dans l'onglet **Créés, à valider chez Ecotrack**.
+3. **Vous validez l'expédition dans l'interface d'Ecotrack.** L'outil le voit à la lecture suivante des statuts et la commande passe « Expédiée », puis « En livraison », « Livrée » ou « Retour » toute seule.
+4. Si Ecotrack refuse un colis (par exemple « Commune mal écrite »), le motif est affiché et la commande reste sans n° de suivi : corrigez-la, puis renvoyez-la.
 
-### Sécurité et fiabilité
+### Statuts
+
+Les statuts sont relus **toutes les 30 minutes** (ou à la demande avec « Actualiser les statuts »), 100 colis par requête. Le statut exact d'Ecotrack est gardé dans la colonne **Statut société** et traduit ainsi :
+
+| Statut Ecotrack | Dans l'outil |
+|---|---|
+| `prete_a_expedier` | reste Confirmée (créé, pas encore validé) |
+| `en_ramassage`, `en_preparation_stock`, `vers_hub`, `en_hub`, `vers_wilaya`, `en_preparation` | Expédiée |
+| `en_livraison`, `suspendu` | En livraison |
+| `livre_non_encaisse`, `encaisse_non_paye`, `paiements_prets`, `paye_et_archive` | Livrée |
+| `retour_chez_livreur`, `retour_transit_entrepot`, `retour_en_traitement`, `retour_recu`, `retour_archive` | Retour |
+| `annule` | Annulée (motif « Annulée chez Ecotrack ») |
+
+- Un statut ne revient jamais en arrière (une commande « En livraison » ne redevient pas « Expédiée »).
+- Un statut inconnu **ne change rien** : il est affiché dans « Statut société », signalé dans la page Suivi et noté une fois dans l'onglet **Journal**. La table se trouve dans `ECO_STATUSES_` (fichier `Ecotrack.gs`).
+- Un colis qu'Ecotrack ne retrouve pas est marqué « Introuvable chez Ecotrack » et signalé dans le Journal. Son statut reste inchangé.
+- La lecture groupée utilise `get/orders/status`, dont la documentation ne décrit pas la réponse : l'outil lit alors la liste d'Ecotrack par pages, puis colis par colis, en secours.
+
+## Suivi des colis
+
+La page **Suivi** réunit :
+
+- **À traiter** : colis **suspendu** ou **retour en cours** (urgent : appelez le client), colis **sans mouvement** depuis plus de 26 h, colis **créé mais jamais validé** depuis plus de 26 h, colis **introuvable**, **statut inconnu**. Chaque alerte propose Appeler, WhatsApp, Chronologie et **Marquer comme traité**. Une alerte traitée disparaît jusqu'au prochain changement du colis (ou pendant 26 h pour une alerte « sans mouvement »). Le nombre d'alertes apparaît sur le menu et sur le tableau de bord.
+- **Où est l'argent** : chez le livreur, livré pas encaissé, encaissé pas payé, prêt à être versé, payé (sur 7, 30 ou 90 jours), et la liste des **versements** (n° fourni par Ecotrack). Les montants sont les totaux à encaisser, avant déduction des frais d'Ecotrack.
+- **Colis en cours**, filtrables : à valider, en route, en livraison, suspendus, retours.
+- **Chronologie** d'un colis (`get/tracking/info`), aussi dans la fiche de chaque commande : validé, récupéré, au centre de tri, confié au livreur, tentative de livraison, livré, encaissé, payé… Si la réponse d'Ecotrack n'est pas reconnue, elle est affichée telle quelle.
+- Le délai d'alerte se règle dans l'onglet **Paramètres** (`SUIVI_ALERTE_HEURES`, 26 par défaut).
+
+## Sécurité et fiabilité (Ecotrack)
 
 - Le jeton est envoyé uniquement à l'adresse enregistrée, en `https`, et les redirections ne sont jamais suivies.
-- Une commande ne peut pas partir deux fois : seules les commandes **Confirmée** sans n° de suivi sont envoyées, et une commande en cours d'envoi est verrouillée.
+- Une commande ne peut pas être créée deux fois : seules les commandes **Confirmée** sans n° de suivi sont envoyées, et une commande en cours d'envoi est verrouillée.
 - Si la connexion est coupée en plein envoi, l'outil cherche chez Ecotrack (par notre numéro de commande) si le colis a été créé avant de conclure : pas de doublon.
 - Les limites d'Ecotrack (50 requêtes par minute) sont respectées : jusqu'à 100 commandes par requête, et attente automatique en cas d'erreur 429.
 
-### Pas encore pris en charge
+## Pas encore pris en charge (Ecotrack)
 
-- Annuler ou modifier un colis déjà envoyé : à faire dans Ecotrack (une commande annulée dans l'outil après son envoi n'est **pas** annulée chez Ecotrack).
+- Valider l'expédition, modifier ou supprimer un colis : à faire dans l'interface d'Ecotrack (une commande annulée dans l'outil après la création de son colis n'est **pas** annulée chez Ecotrack).
 - Choisir un bureau précis pour le stop desk : l'API ne demande que « domicile » ou « stop desk ».
-- Bordereaux à imprimer, et Yalidine.
+- Remarques au livreur (`add/maj`), demande de retour, bordereaux PDF, et Yalidine.
 
 ## Faire arriver les commandes Shopify
 
@@ -123,7 +150,7 @@ La connexion directe à Shopify (sans application intermédiaire) est la prochai
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 38 tests du code serveur (dont l'intégration Ecotrack contre un faux serveur) contre une imitation du classeur
+npm test          # 45 tests du code serveur (dont Ecotrack et le suivi, contre un faux serveur Ecotrack) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
@@ -137,7 +164,8 @@ apps-script/
   Config.gs     onglets, colonnes, statuts, couleurs, réglages par défaut, 58 wilayas
   Utils.gs      téléphones, nombres, dates, réglages, utilisateur, verrou, journal
   Orders.gs     lecture/écriture des commandes, tarifs, alertes, traitement des nouvelles lignes
-  Ecotrack.gs   envoi des colis, tarifs et suivi des statuts Ecotrack
+  Ecotrack.gs   création des colis, tarifs, statuts Ecotrack
+  Tracking.gs   page Suivi : alertes, argent, versements, chronologie
   Api.gs        application web, menu du classeur, fonctions appelées par l'interface
   Setup.gs      création/réparation du classeur et du traitement automatique
   Index.html    page de l'application

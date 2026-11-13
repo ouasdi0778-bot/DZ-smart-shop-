@@ -123,6 +123,7 @@ function getSettings_() {
   s.SOCIETE_PAR_DEFAUT = String(s.SOCIETE_PAR_DEFAUT || CARRIERS[0]).trim();
   s.NOM_BOUTIQUE = String(s.NOM_BOUTIQUE || APP_NAME).trim();
   s.MESSAGE_WHATSAPP = String(s.MESSAGE_WHATSAPP || '');
+  s.SUIVI_ALERTE_HEURES = Math.max(1, toNumber_(s.SUIVI_ALERTE_HEURES) || 26);
   s.motifs = String(s.MOTIFS_ANNULATION || '').split(';')
     .map(function (m) { return m.trim(); })
     .filter(function (m) { return m; });

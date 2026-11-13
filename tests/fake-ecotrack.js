@@ -20,12 +20,24 @@
     createThenFail: false, // true : crée les colis puis « coupe » la connexion (délai dépassé)
     counter: 0,
     badCommunes: ['xx'],
+    statusEndpoint: 'ok',  // 'ok' | 'missing' (erreur 404) | 'weird' (réponse de forme inconnue)
+    apiDisabled: false,    // true : « TOKEN_NOT_ALLOWED »
+    history: {},           // n° de suivi -> étapes renvoyées par get/tracking/info
+    historyShape: 'list',  // 'list' | 'weird'
     reset: function () {
       fake.orders = []; fake.calls = []; fake.queue = []; fake.down = false;
       fake.createThenFail = false; fake.counter = 0; fake.badCommunes = ['xx'];
+      fake.statusEndpoint = 'ok'; fake.apiDisabled = false; fake.history = {}; fake.historyShape = 'list';
     },
     setStatus: function (tracking, status) {
       fake.orders.forEach(function (o) { if (o.tracking === tracking) o.status = status; });
+    },
+    setPayment: function (tracking, paymentId) {
+      fake.orders.forEach(function (o) { if (o.tracking === tracking) o.payment_id = paymentId; });
+    },
+    /** Ce que vous faites dans l'interface d'Ecotrack : valider l'expédition. */
+    validate: function (tracking) {
+      fake.setStatus(tracking, 'en_ramassage');
     },
     remove: function (tracking) {
       fake.orders = fake.orders.filter(function (o) { return o.tracking !== tracking; });
@@ -119,8 +131,28 @@
     return respond(anyError ? 422 : 200, { results: results });
   }
 
+  var ARCHIVED = ['paye_et_archive', 'retour_archive'];
+
+  /** get/orders/status : statuts de plusieurs colis, archivés compris. */
+  function statusOrders(query) {
+    if (fake.statusEndpoint === 'missing') return respond(404, { message: 'Not found' });
+    if (query.api_token !== fake.token) return respond(401, { message: 'Unauthenticated.' });
+    if (fake.statusEndpoint === 'weird') return respond(200, { message: 'ok', count: 3 });
+    var wanted = String(query.trackings || '').split(',').filter(Boolean);
+    if (wanted.length > 100) return respond(422, { message: 'Maximum 100 trackings.' });
+    return respond(200, { data: fake.orders.filter(function (o) { return wanted.indexOf(o.tracking) >= 0; }) });
+  }
+
+  /** get/tracking/info : étapes d'un colis. */
+  function trackingInfo(query) {
+    var known = fake.orders.some(function (o) { return o.tracking === query.tracking; });
+    if (!known) return respond(422, { message: 'The given data was invalid.', errors: { tracking: ['Le champ tracking sélectionné est invalide.'] } });
+    if (fake.historyShape === 'weird') return respond(200, { colis: { numero: query.tracking }, ok: true });
+    return respond(200, { tracking: query.tracking, activities: fake.history[query.tracking] || [] });
+  }
+
   function listOrders(query) {
-    var rows = fake.orders.slice();
+    var rows = fake.orders.filter(function (o) { return ARCHIVED.indexOf(o.status) < 0; });
     if (query.tracking) rows = rows.filter(function (o) { return o.tracking === query.tracking; });
     if (query.start_date) rows = rows.filter(function (o) { return o.created_at >= query.start_date; });
     var page = Math.max(parseInt(query.page, 10) || 1, 1);
@@ -144,9 +176,15 @@
         var forced = fake.queue.shift();
         return respond(forced.code, forced.body || { message: 'forced' }, forced.headers);
       }
-      if (headers.Authorization !== 'Bearer ' + fake.token) return respond(401, { message: 'Unauthenticated.' });
-
       var method = String(params.method || 'get').toUpperCase();
+      if (method === 'GET' && u.path === '/api/v1/validate/token') {
+        if (fake.apiDisabled) return respond(200, { success: false, message: 'TOKEN_NOT_ALLOWED' });
+        return u.query.api_token === fake.token ? respond(200, { success: true, message: 'VALID_TOKEN' })
+          : respond(200, { success: false, message: 'INVALID_TOKEN' });
+      }
+      if (headers.Authorization !== 'Bearer ' + fake.token) return respond(401, { message: 'Unauthenticated.' });
+      if (method === 'GET' && u.path === '/api/v1/get/orders/status') return statusOrders(u.query);
+      if (method === 'GET' && u.path === '/api/v1/get/tracking/info') return trackingInfo(u.query);
       if (method === 'GET' && u.path === '/api/v1/get/wilayas') return respond(200, wilayas());
       if (method === 'GET' && u.path === '/api/v1/get/fees') return respond(200, fees());
       if (method === 'GET' && u.path === '/api/v1/get/orders') return listOrders(u.query);

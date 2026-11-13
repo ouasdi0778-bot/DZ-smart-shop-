@@ -1,10 +1,14 @@
 /**
- * Ecotrack.gs : envoi des colis à Ecotrack, tarifs et suivi des statuts.
+ * Ecotrack.gs : création des colis chez Ecotrack, tarifs et statuts.
  *
  * L'adresse de votre plateforme Ecotrack et votre jeton API sont enregistrés
  * dans les « Propriétés du script » (menu DZ Smart Shop › Ecotrack ›
  * Enregistrer l'adresse et le jeton). Ils ne sont jamais écrits dans le
  * classeur ni dans le code.
+ *
+ * L'outil CRÉE les colis (create/orders). La VALIDATION de l'expédition se
+ * fait ensuite dans l'interface d'Ecotrack : l'outil la détecte tout seul en
+ * relisant les statuts (voir Tracking.gs pour le suivi, les alertes et l'argent).
  *
  * Documentation de l'API : https://documenter.getpostman.com/view/14517169/Tz5je15g
  */
@@ -14,9 +18,11 @@ var ECO = {
   PROP_URL: 'ECOTRACK_URL',
   PROP_TOKEN: 'ECOTRACK_TOKEN',
   PROP_LAST_ERROR: 'ECOTRACK_LAST_ERROR',
-  BATCH: 100,              // commandes par requête (limite d'Ecotrack)
-  MAX_PAGES: 15,           // pages lues au maximum à chaque mise à jour des statuts (40 colis par page)
-  SINGLE_LOOKUPS: 15,      // colis interrogés un par un quand la liste ne les contient pas
+  PROP_LAST_SYNC: 'ECOTRACK_LAST_SYNC',
+  BATCH: 100,              // commandes créées par requête (limite d'Ecotrack)
+  STATUS_BATCH: 100,       // colis interrogés par requête de statuts (limite d'Ecotrack)
+  MAX_PAGES: 15,           // pages lues au maximum en secours (40 colis par page)
+  SINGLE_LOOKUPS: 15,      // colis interrogés un par un quand les autres méthodes ne les trouvent pas
   CACHE_KEY: 'eco:catalog:v1',
   CACHE_SECONDS: 6 * 3600,
   CLAIM_SECONDS: 300,
@@ -67,6 +73,8 @@ function ecotrackError_(message, ambiguous, code) {
   return e;
 }
 
+var ECO_NOT_CONFIGURED_ = 'Ecotrack n’est pas configuré. Menu « DZ Smart Shop › Ecotrack › Enregistrer l’adresse et le jeton ».';
+
 /* ------------------------------------------------------------------ */
 /* Appels HTTP                                                        */
 /* ------------------------------------------------------------------ */
@@ -100,9 +108,7 @@ function retryAfterMs_(resp) {
 function ecotrackCall_(method, path, opts) {
   opts = opts || {};
   var cfg = ecotrackConfig_();
-  if (!cfg.configured) {
-    throw ecotrackError_('Ecotrack n’est pas configuré. Menu « DZ Smart Shop › Ecotrack › Enregistrer l’adresse et le jeton ».', false);
-  }
+  if (!cfg.configured) throw ecotrackError_(ECO_NOT_CONFIGURED_, false);
   var params = {
     method: method,
     muteHttpExceptions: true,
@@ -137,8 +143,8 @@ function flattenEcotrackErrors_(errors) {
   if (typeof errors === 'string') return errors;
   var parts = [];
   Object.keys(errors).forEach(function (k) {
-    if (k === 'success' || k === 'tracking') return;
     var v = errors[k];
+    if (k === 'success' || (k === 'tracking' && typeof v === 'string')) return; // « tracking » = le n° d'un colis créé, pas une erreur
     var text = Array.isArray(v) ? v.join(' ') : (v && typeof v === 'object' ? flattenEcotrackErrors_(v) : String(v));
     var label = ECO.FIELD_LABELS[k];
     parts.push(label ? label + ' : ' + text : text);
@@ -185,6 +191,44 @@ function listOf_(json, keys) {
 
 function ymd_(d) {
   return Utilities.formatDate(d, 'Africa/Algiers', 'yyyy-MM-dd');
+}
+
+/** Exécute fn avec le verrou ; 2 essais, car ce qui est écrit ici ne doit pas être perdu. */
+function lockedWithRetry_(fn) {
+  var lastError = null;
+  for (var attempt = 0; attempt < 2; attempt++) {
+    try {
+      return withLock_(fn);
+    } catch (e) {
+      lastError = e;
+      Utilities.sleep(2000);
+    }
+  }
+  throw lastError;
+}
+
+/* ------------------------------------------------------------------ */
+/* Test de connexion                                                  */
+/* ------------------------------------------------------------------ */
+
+/** Vérifie le jeton (validate/token) puis lit la liste des wilayas. */
+function ecotrackTest_() {
+  var cfg = ecotrackConfig_();
+  if (!cfg.configured) throw ecotrackError_(ECO_NOT_CONFIGURED_, false);
+  var res = ecotrackCall_('GET', '/api/v1/validate/token', { query: { api_token: cfg.token } });
+  var msg = res.json && res.json.message ? String(res.json.message) : '';
+  if (msg === 'INVALID_TOKEN') {
+    throw ecotrackError_('Ecotrack a refusé le jeton (jeton invalide). Enregistrez-le de nouveau : menu « DZ Smart Shop › Ecotrack › Enregistrer l’adresse et le jeton ».', false, 401);
+  }
+  if (msg === 'TOKEN_NOT_ALLOWED') {
+    throw ecotrackError_('L’accès à l’API est désactivé pour ce compte Ecotrack. Demandez son activation à Ecotrack.', false, 403);
+  }
+  if (!res.ok && res.code !== 404) throw ecotrackFail_(res);
+  if (res.ok && res.json === null) {
+    throw ecotrackError_('Réponse inattendue d’Ecotrack. Vérifiez l’adresse enregistrée : elle doit être celle de votre plateforme Ecotrack.', false);
+  }
+  var list = listOf_(ecotrackGet_('/api/v1/get/wilayas'), ['data', 'wilayas']);
+  return { ok: true, wilayas: list.length };
 }
 
 /* ------------------------------------------------------------------ */
@@ -330,12 +374,14 @@ function ecotrackPayload_(o) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Envoi des colis                                                    */
+/* Création des colis                                                 */
 /* ------------------------------------------------------------------ */
 
 /**
- * Envoie les commandes confirmées à Ecotrack et écrit le n° de suivi.
- * Renvoie une ligne par commande : { id, client, ok, tracking, message }.
+ * Crée les colis chez Ecotrack (sans les expédier : vous les validez dans
+ * l'interface d'Ecotrack) et écrit le n° de suivi. La commande reste
+ * « Confirmée » jusqu'à ce que la validation soit détectée. Renvoie une ligne
+ * par commande : { id, client, ok, tracking, message }.
  */
 function shipToEcotrack_(rawIds, user) {
   var ids = [];
@@ -345,9 +391,7 @@ function shipToEcotrack_(rawIds, user) {
   });
   if (!ids.length) throw new Error('Aucune commande sélectionnée.');
   if (ids.length > 200) throw new Error('Envoyez 200 commandes au maximum à la fois.');
-  if (!ecotrackConfig_().configured) {
-    throw new Error('Ecotrack n’est pas configuré. Menu « DZ Smart Shop › Ecotrack › Enregistrer l’adresse et le jeton ».');
-  }
+  if (!ecotrackConfig_().configured) throw new Error(ECO_NOT_CONFIGURED_);
   var catalog = ecotrackCatalog_(false);
   var cache = CacheService.getScriptCache();
   var results = {};
@@ -370,7 +414,7 @@ function shipToEcotrack_(rawIds, user) {
     });
   });
 
-  // 2. Envoi (le classeur n'est pas bloqué pendant que l'on attend Ecotrack).
+  // 2. Création (le classeur n'est pas bloqué pendant que l'on attend Ecotrack).
   try {
     for (var i = 0; i < queue.length; i += ECO.BATCH) {
       sendEcotrackChunk_(queue.slice(i, i + ECO.BATCH), results);
@@ -435,10 +479,8 @@ function ecotrackFindByReferences_(refs) {
     var since = ymd_(new Date(Date.now() - 2 * 86400000));
     for (var page = 1; page <= 5; page++) {
       var json = ecotrackGet_('/api/v1/get/orders', { page: page, start_date: since });
-      listOf_(json, ['data']).forEach(function (r) {
-        if (r && !isBlank_(r.reference) && r.tracking && refs.indexOf(String(r.reference)) >= 0) {
-          out.found[String(r.reference)] = String(r.tracking);
-        }
+      ecotrackRecords_(json).forEach(function (r) {
+        if (!isBlank_(r.reference) && refs.indexOf(String(r.reference)) >= 0) out.found[String(r.reference)] = String(r.tracking);
       });
       if (page >= (parseInt(json && json.last_page, 10) || 1)) break;
     }
@@ -449,76 +491,114 @@ function ecotrackFindByReferences_(refs) {
   return out;
 }
 
-/** Écrit n° de suivi et statut « Expédiée ». Un colis créé ne doit jamais être perdu : 2 essais. */
+/** Écrit le n° de suivi. Un colis créé ne doit jamais être perdu : 2 essais. */
 function writeShipResults_(queue, results, user) {
-  var written = false;
-  var lastError = null;
-  for (var attempt = 0; attempt < 2 && !written; attempt++) {
-    try {
-      withLock_(function () {
-        var ctx = readOrders_();
-        var now = new Date();
-        queue.forEach(function (it) {
-          var r = results[it.id];
-          if (!r || !r.ok) return;
-          var o = findOrder_(ctx, it.id);
-          if (!o || String(o.tracking).trim() === r.tracking) return;
-          var f = { carrier: ECO.NAME, tracking: r.tracking, carrierStatus: '', updated: now };
-          if (o.status === STATUS.CONFIRMED) {
-            f.status = STATUS.SHIPPED;
-          } else {
-            r.message = 'Colis créé, mais la commande est passée en « ' + o.status + ' » entre-temps : vérifiez.';
-          }
-          writeFields_(ctx, o, f);
-          log_(user, o.id, 'Envoyée à Ecotrack', 'Suivi ' + r.tracking + (r.message ? ' · ' + r.message : ''));
-        });
+  var okItems = queue.filter(function (it) { return results[it.id] && results[it.id].ok; });
+  if (!okItems.length) return;
+  try {
+    lockedWithRetry_(function () {
+      var ctx = readOrders_();
+      var now = new Date();
+      okItems.forEach(function (it) {
+        var r = results[it.id];
+        var o = findOrder_(ctx, it.id);
+        if (!o || String(o.tracking).trim() === r.tracking) return;
+        if (o.status !== STATUS.CONFIRMED) {
+          r.message = 'Colis créé, mais la commande est passée en « ' + o.status + ' » entre-temps : vérifiez.';
+        }
+        // carrierMoved = date de création du colis : sert à signaler un colis jamais validé.
+        writeFields_(ctx, o, { carrier: ECO.NAME, tracking: r.tracking, carrierStatus: '', carrierMoved: now, updated: now });
+        log_(user, o.id, 'Colis créé chez Ecotrack', 'Suivi ' + r.tracking + ' (à valider dans Ecotrack)' + (r.message ? ' · ' + r.message : ''));
       });
-      written = true;
-    } catch (e) {
-      lastError = e;
-      Utilities.sleep(2000);
-    }
-  }
-  if (!written) {
-    var lines = queue.filter(function (it) { return results[it.id] && results[it.id].ok; })
-      .map(function (it) { return it.id + ' → ' + results[it.id].tracking; }).join(' ; ');
-    throw new Error('Les colis ont été créés chez Ecotrack, mais le classeur n’a pas pu être mis à jour (' +
-      (lastError && lastError.message) + '). Notez les numéros de suivi : ' + lines);
+    });
+  } catch (e) {
+    var lines = okItems.map(function (it) { return it.id + ' → ' + results[it.id].tracking; }).join(' ; ');
+    throw new Error('Les colis ont été créés chez Ecotrack, mais le classeur n’a pas pu être mis à jour (' + e.message + '). Notez les numéros de suivi : ' + lines);
   }
 }
 
 /* ------------------------------------------------------------------ */
-/* Suivi des statuts                                                  */
+/* Statuts Ecotrack                                                   */
 /* ------------------------------------------------------------------ */
 
 /**
- * Traduit le statut Ecotrack (ex. « prete_a_expedier », « payé_et_archivé »)
- * en statut de l'outil, ou null si le statut n'est pas reconnu : il est alors
- * affiché tel quel dans la colonne « Statut société » et noté dans le Journal.
+ * Statuts d'Ecotrack (liste de la documentation, point get/orders/status) :
+ *   tool  = statut correspondant dans l'outil ('' = ne change rien)
+ *   group = famille, utilisée par le suivi (alertes, argent)
+ *   label = texte affiché
+ */
+var ECO_STATUSES_ = {
+  prete_a_expedier: { tool: '', group: 'draft', label: 'Créé, à valider chez Ecotrack' },
+  en_ramassage: { tool: 'Expédiée', group: 'transit', label: 'Ramassage en cours' },
+  en_preparation_stock: { tool: 'Expédiée', group: 'transit', label: 'Préparation (stock)' },
+  vers_hub: { tool: 'Expédiée', group: 'transit', label: 'En route vers le centre de tri' },
+  en_hub: { tool: 'Expédiée', group: 'transit', label: 'Au centre de tri' },
+  vers_wilaya: { tool: 'Expédiée', group: 'transit', label: 'En route vers la wilaya' },
+  en_preparation: { tool: 'Expédiée', group: 'transit', label: 'Préparation avant livraison' },
+  en_livraison: { tool: 'En livraison', group: 'delivery', label: 'En livraison' },
+  suspendu: { tool: 'En livraison', group: 'suspended', label: 'Suspendu' },
+  livre_non_encaisse: { tool: 'Livrée', group: 'delivered', label: 'Livré, pas encore encaissé' },
+  encaisse_non_paye: { tool: 'Livrée', group: 'cashed', label: 'Encaissé, pas encore payé' },
+  paiements_prets: { tool: 'Livrée', group: 'ready', label: 'Paiement prêt à être versé' },
+  paye_et_archive: { tool: 'Livrée', group: 'paid', label: 'Payé' },
+  retour_chez_livreur: { tool: 'Retour', group: 'returning', label: 'Retour chez le livreur' },
+  retour_transit_entrepot: { tool: 'Retour', group: 'returning', label: 'Retour en transit' },
+  retour_en_traitement: { tool: 'Retour', group: 'returning', label: 'Retour en traitement' },
+  retour_recu: { tool: 'Retour', group: 'returned', label: 'Retour reçu' },
+  retour_archive: { tool: 'Retour', group: 'returned', label: 'Retour archivé' },
+  annule: { tool: 'Annulée', group: 'cancelled', label: 'Annulé' }
+};
+
+/** { tool, group, label } d'un statut Ecotrack, ou null si le champ est vide. */
+function ecotrackStatusInfo_(raw) {
+  var text = String(raw == null ? '' : raw).trim();
+  if (!text) return null;
+  var key = normalizeText_(text).replace(/ /g, '_');
+  if (Object.prototype.hasOwnProperty.call(ECO_STATUSES_, key)) return ECO_STATUSES_[key];
+  if (text === ECO.MISSING) return { tool: null, group: 'missing', label: text };
+  // Variantes proches d'un statut connu (au cas où Ecotrack en renommerait un).
+  if (/^retour/.test(key)) return { tool: STATUS.RETURNED, group: 'returning', label: text };
+  if (/^paye|^encaisse|^livre\b/.test(key)) return { tool: STATUS.DELIVERED, group: 'delivered', label: text };
+  return { tool: null, group: 'unknown', label: text };
+}
+
+function ecotrackLabel_(raw) {
+  var info = ecotrackStatusInfo_(raw);
+  return info ? info.label : '';
+}
+
+/**
+ * Statut de l'outil pour un statut Ecotrack : un statut (« Livrée »…), '' si
+ * le statut est connu mais ne change rien, ou null s'il est inconnu : il est
+ * alors affiché tel quel dans « Statut société » et noté dans le Journal.
  */
 function mapEcotrackStatus_(raw) {
-  var s = normalizeText_(raw);
-  if (!s) return null;
-  if (/retour|retourn|refus/.test(s)) return STATUS.RETURNED;
-  if (/\bnon livre|tentative|echec|injoignable|report|suspendu/.test(s)) return STATUS.IN_DELIVERY;
-  if (/\blivre(e)?\b|encaisse|\bpaye|paiement/.test(s)) return STATUS.DELIVERED;
-  if (/livraison|transit|\bhub\b|centre|agence|dispatch|distribution|sorti/.test(s)) return STATUS.IN_DELIVERY;
-  if (/prete|attente|valid|ramass|expedie|enregistre|cree/.test(s)) return STATUS.SHIPPED;
-  return null;
+  var info = ecotrackStatusInfo_(raw);
+  return info ? info.tool : null;
 }
 
 var STATUS_RANK_ = {};
+STATUS_RANK_[STATUS.CONFIRMED] = 0;
 STATUS_RANK_[STATUS.SHIPPED] = 1;
 STATUS_RANK_[STATUS.IN_DELIVERY] = 2;
 STATUS_RANK_[STATUS.DELIVERED] = 3;
 STATUS_RANK_[STATUS.RETURNED] = 3;
+STATUS_RANK_[STATUS.CANCELLED] = 3;
 
-function isEcotrackInTransit_(o) {
+/** Colis Ecotrack à suivre : créés (même pas encore validés), expédiés ou en livraison. */
+function isEcotrackTracked_(o) {
   return String(o.carrier) === ECO.NAME && !isBlank_(o.tracking) &&
-    (o.status === STATUS.SHIPPED || o.status === STATUS.IN_DELIVERY);
+    (o.status === STATUS.CONFIRMED || o.status === STATUS.SHIPPED || o.status === STATUS.IN_DELIVERY);
 }
 
-/** Lit les commandes Ecotrack créées depuis une date (40 par page). */
+/** Les lignes de colis d'une réponse (plusieurs présentations possibles). */
+function ecotrackRecords_(json) {
+  var rows = listOf_(json, ['data', 'orders', 'results']);
+  if (!rows.length && json && !Array.isArray(json) && json.tracking) rows = [json];
+  return rows.filter(function (r) { return r && typeof r === 'object' && r.tracking; });
+}
+
+/** Lit les commandes Ecotrack créées depuis une date (40 par page). En secours. */
 function ecotrackListSince_(since) {
   var map = {};
   var query = {};
@@ -526,22 +606,37 @@ function ecotrackListSince_(since) {
   for (var page = 1; page <= ECO.MAX_PAGES; page++) {
     query.page = page;
     var json = ecotrackGet_('/api/v1/get/orders', query);
-    listOf_(json, ['data']).forEach(function (r) {
-      if (r && r.tracking) map[String(r.tracking)] = r;
-    });
+    ecotrackRecords_(json).forEach(function (r) { map[String(r.tracking)] = r; });
     if (page >= (parseInt(json && json.last_page, 10) || 1)) break;
   }
   return map;
 }
 
+/** Un colis à la fois. En secours. */
 function ecotrackLookup_(tracking) {
-  var json = ecotrackGet_('/api/v1/get/orders', { tracking: tracking });
-  var rows = listOf_(json, ['data']);
-  if (!rows.length && json && json.tracking) rows = [json];
+  var rows = ecotrackRecords_(ecotrackGet_('/api/v1/get/orders', { tracking: tracking }));
   for (var i = 0; i < rows.length; i++) {
-    if (rows[i] && String(rows[i].tracking) === tracking) return rows[i];
+    if (String(rows[i].tracking) === tracking) return rows[i];
   }
   return null;
+}
+
+/**
+ * Statuts de jusqu'à 100 colis par requête (get/orders/status), y compris les
+ * colis archivés. Un colis sans statut dans la réponse est ignoré : la forme
+ * exacte de la réponse n'est pas décrite dans la documentation.
+ */
+function ecotrackStatusLookup_(trackings) {
+  var token = ecotrackConfig_().token;
+  var found = {};
+  for (var i = 0; i < trackings.length; i += ECO.STATUS_BATCH) {
+    var chunk = trackings.slice(i, i + ECO.STATUS_BATCH);
+    var json = ecotrackGet_('/api/v1/get/orders/status', { api_token: token, trackings: chunk.join(','), status: 'all' });
+    ecotrackRecords_(json).forEach(function (r) {
+      if (r.status !== undefined && r.status !== null) found[String(r.tracking)] = r;
+    });
+  }
+  return found;
 }
 
 function clearEcotrackError_() {
@@ -549,24 +644,34 @@ function clearEcotrackError_() {
   if (p.getProperty(ECO.PROP_LAST_ERROR) !== null) p.deleteProperty(ECO.PROP_LAST_ERROR);
 }
 
-/** Met à jour le statut de tous les colis Ecotrack en cours. Renvoie un résumé. */
+/** Met à jour le statut de tous les colis Ecotrack à suivre. Renvoie un résumé. */
 function syncEcotrackStatuses_() {
   var summary = { configured: true, checked: 0, updated: 0, missing: 0, unknown: 0 };
   if (!ecotrackConfig_().configured) { summary.configured = false; return summary; }
 
   var tracked = withLock_(function () {
-    return readOrders_().orders.filter(isEcotrackInTransit_).map(function (o) {
+    return readOrders_().orders.filter(isEcotrackTracked_).map(function (o) {
       return { id: String(o.id), tracking: String(o.tracking).trim(), date: toDate_(o.date) };
     });
   });
   summary.checked = tracked.length;
-  if (!tracked.length) { clearEcotrackError_(); return summary; }
+  if (!tracked.length) { markSynced_(); return summary; }
 
-  // Beaucoup de colis : on lit la liste d'Ecotrack par pages. Peu de colis : un appel par colis.
+  // 1. Lecture groupée des statuts (100 colis par requête).
   var found = {};
-  if (tracked.length > ECO.SINGLE_LOOKUPS) {
-    var oldest = tracked.reduce(function (min, t) { return t.date && (!min || t.date < min) ? t.date : min; }, null);
-    found = ecotrackListSince_(oldest ? new Date(oldest.getTime() - 86400000) : null);
+  try {
+    found = ecotrackStatusLookup_(tracked.map(function (t) { return t.tracking; }));
+  } catch (e) {
+    // Jeton refusé, limite atteinte ou Ecotrack coupé : inutile d'insister avec d'autres méthodes.
+    if (e.ambiguous || e.code === 401 || e.code === 403 || e.code === 429) throw e;
+    found = {};
+  }
+  // 2. Secours : liste par pages, puis un appel par colis, pour ceux que la lecture groupée n'a pas trouvés.
+  var missing = tracked.filter(function (t) { return !found[t.tracking]; });
+  if (missing.length > ECO.SINGLE_LOOKUPS) {
+    var oldest = missing.reduce(function (min, t) { return t.date && (!min || t.date < min) ? t.date : min; }, null);
+    var listed = ecotrackListSince_(oldest ? new Date(oldest.getTime() - 86400000) : null);
+    missing.forEach(function (t) { if (listed[t.tracking]) found[t.tracking] = listed[t.tracking]; });
   }
   var looked = {};
   tracked.filter(function (t) { return !found[t.tracking]; }).slice(0, ECO.SINGLE_LOOKUPS).forEach(function (t) {
@@ -582,7 +687,7 @@ function syncEcotrackStatuses_() {
     var actor = { name: 'Ecotrack' };
     tracked.forEach(function (t) {
       var o = findOrder_(ctx, t.id);
-      if (!o || !isEcotrackInTransit_(o) || String(o.tracking).trim() !== t.tracking) return;
+      if (!o || !isEcotrackTracked_(o) || String(o.tracking).trim() !== t.tracking) return;
       var rec = found[t.tracking];
       var f = {};
       if (!rec) {
@@ -590,17 +695,25 @@ function syncEcotrackStatuses_() {
         summary.missing++;
         if (String(o.carrierStatus) !== ECO.MISSING) {
           f.carrierStatus = ECO.MISSING;
-          log_(actor, o.id, 'Colis introuvable', 'Le suivi ' + t.tracking + ' n’apparaît plus dans la liste d’Ecotrack (colis archivé ?). Vérifiez dans Ecotrack.');
+          f.carrierMoved = now;
+          log_(actor, o.id, 'Colis introuvable', 'Le suivi ' + t.tracking + ' n’apparaît pas chez Ecotrack. Vérifiez dans Ecotrack.');
         }
       } else {
         var raw = String(rec.status == null ? '' : rec.status).trim();
         var mapped = mapEcotrackStatus_(raw);
-        if (raw && raw !== String(o.carrierStatus)) f.carrierStatus = raw;
+        if (raw && raw !== String(o.carrierStatus)) {
+          f.carrierStatus = raw;
+          // Le premier statut lu ne remet pas à zéro l'horloge du colis (date de création).
+          if (!isBlank_(o.carrierStatus) || isBlank_(o.carrierMoved)) f.carrierMoved = now;
+        }
+        var payment = rec.payment_id == null ? '' : String(rec.payment_id).trim();
+        if (payment && payment !== String(o.paymentId)) f.paymentId = payment;
         if (mapped && mapped !== o.status && STATUS_RANK_[mapped] > STATUS_RANK_[o.status]) {
           f.status = mapped;
+          if (mapped === STATUS.CANCELLED) f.cancelReason = 'Annulée chez Ecotrack';
           summary.updated++;
           log_(actor, o.id, 'Statut du colis', raw + ' → ' + mapped);
-        } else if (!mapped && raw) {
+        } else if (mapped === null && raw) {
           summary.unknown++;
           if (hasRaw && raw !== String(o.carrierStatus)) {
             log_(actor, o.id, 'Statut Ecotrack inconnu', raw + ' (la commande reste « ' + o.status + ' » : mettez-la à jour à la main si besoin)');
@@ -613,8 +726,14 @@ function syncEcotrackStatuses_() {
       }
     });
   });
-  clearEcotrackError_();
+  markSynced_();
   return summary;
+}
+
+function markSynced_() {
+  var p = PropertiesService.getScriptProperties();
+  p.setProperty(ECO.PROP_LAST_SYNC, new Date().toISOString());
+  clearEcotrackError_();
 }
 
 /** Point d'entrée du déclencheur automatique (toutes les 30 minutes). */
@@ -636,15 +755,9 @@ function syncEcotrackStatuses() {
 /* Fonctions appelées par l'interface                                 */
 /* ------------------------------------------------------------------ */
 
-/** Test de connexion : lit la liste des wilayas. */
-function ecotrackTest_() {
-  var list = listOf_(ecotrackGet_('/api/v1/get/wilayas'), ['data', 'wilayas']);
-  return { ok: true, wilayas: list.length };
-}
-
 function api_ecotrackTest() {
   var r = ecotrackTest_();
-  return { ok: true, message: 'Connexion réussie : ' + r.wilayas + ' wilayas desservies.' };
+  return { ok: true, message: 'Connexion réussie : jeton valide, ' + r.wilayas + ' wilayas desservies.' };
 }
 
 function api_ecotrackSyncFees() {
@@ -664,49 +777,57 @@ function api_ecotrackSyncStatuses() {
   return { summary: s, message: message };
 }
 
-/** Données de la page Expéditions : commandes à expédier (avec leurs problèmes) et colis en cours. */
+/** Données de la page Expéditions : commandes à expédier, et colis créés qui attendent votre validation. */
 function api_shippingList() {
   var cfg = ecotrackConfig_();
+  var settings = getSettings_();
   var ctx = readOrders_();
+  var now = new Date();
   var catalog = null;
   var catalogError = '';
   if (cfg.configured) {
     try { catalog = ecotrackCatalog_(false); } catch (e) { catalogError = String(e && e.message ? e.message : e); }
   }
   var toShip = [];
-  var inTransit = [];
+  var created = [];
   ctx.orders.forEach(function (o) {
+    var base = {
+      id: String(o.id), client: String(o.client), wilaya: String(o.wilaya), commune: String(o.commune),
+      mode: String(o.mode), total: toNumber_(o.total), product: String(o.product), date: iso_(o.date)
+    };
     if (o.status === STATUS.CONFIRMED && isBlank_(o.tracking)) {
-      toShip.push({
-        o: o,
-        item: {
-          id: String(o.id), client: String(o.client), wilaya: String(o.wilaya), commune: String(o.commune),
-          mode: String(o.mode), total: toNumber_(o.total), product: String(o.product), carrier: String(o.carrier),
-          date: iso_(o.date), problems: ecotrackProblems_(o, catalog)
-        }
-      });
-    } else if (isEcotrackInTransit_(o)) {
-      inTransit.push({
-        id: String(o.id), client: String(o.client), wilaya: String(o.wilaya), tracking: String(o.tracking),
-        carrierStatus: String(o.carrierStatus), status: o.status, updated: iso_(o.updated)
-      });
+      base.problems = ecotrackProblems_(o, catalog);
+      toShip.push({ o: o, item: base });
+    } else if (o.status === STATUS.CONFIRMED && String(o.carrier) === ECO.NAME && !isBlank_(o.tracking)) {
+      var since = toDate_(o.carrierMoved) || toDate_(o.updated) || toDate_(o.date);
+      base.tracking = String(o.tracking);
+      base.carrierStatus = String(o.carrierStatus);
+      base.carrierLabel = ecotrackLabel_(o.carrierStatus) || ecotrackLabel_('prete_a_expedier');
+      base.since = iso_(since);
+      base.ageHours = since ? Math.floor((now.getTime() - since.getTime()) / 3600000) : 0;
+      base.late = base.ageHours >= settings.SUIVI_ALERTE_HEURES;
+      created.push({ o: o, item: base });
     }
   });
-  toShip.sort(function (a, b) {
+  var oldestFirst = function (a, b) {
     var da = toDate_(a.o.date);
     var db = toDate_(b.o.date);
     return (da ? da.getTime() : 0) - (db ? db.getTime() : 0);
-  });
-  inTransit.sort(function (a, b) { return String(b.updated).localeCompare(String(a.updated)); });
+  };
+  toShip.sort(oldestFirst);
+  created.sort(oldestFirst);
+  var items = function (list) { return list.map(function (x) { return x.item; }); };
   return {
     configured: cfg.configured,
     host: cfg.url.replace(/^https?:\/\//, ''),
     catalogError: catalogError,
-    toShip: toShip.map(function (x) { return x.item; }),
-    inTransit: inTransit
+    alertHours: settings.SUIVI_ALERTE_HEURES,
+    toShip: items(toShip),
+    created: items(created)
   };
 }
 
+/** Crée les colis chez Ecotrack (la validation se fait dans l'interface d'Ecotrack). */
 function api_shipEcotrack(ids) {
   return shipToEcotrack_(ids, currentUser_());
 }
@@ -727,7 +848,7 @@ function menuEcotrackSetup() {
   try {
     saveEcotrackConfig_(first.getResponseText(), second.getResponseText());
     var r = ecotrackTest_();
-    ui.alert('Ecotrack', 'Connexion réussie : ' + r.wilayas + ' wilayas desservies.\n\nÉtape suivante : DZ Smart Shop › Ecotrack › Récupérer les tarifs.', ui.ButtonSet.OK);
+    ui.alert('Ecotrack', 'Connexion réussie : jeton valide, ' + r.wilayas + ' wilayas desservies.\n\nÉtape suivante : DZ Smart Shop › Ecotrack › Récupérer les tarifs.', ui.ButtonSet.OK);
   } catch (e) {
     ui.alert('Ecotrack : échec', String(e && e.message ? e.message : e), ui.ButtonSet.OK);
   }

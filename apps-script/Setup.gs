@@ -135,7 +135,7 @@ function setupOrdersSheet_(ss) {
   });
 
   // Formats
-  ['date', 'callback', 'updated'].forEach(function (k) { range(k).setNumberFormat('dd/MM/yyyy HH:mm'); });
+  ['date', 'callback', 'updated', 'carrierMoved', 'followUp'].forEach(function (k) { range(k).setNumberFormat('dd/MM/yyyy HH:mm'); });
   TEXT_KEYS_.forEach(function (k) { range(k).setNumberFormat('@'); });
   ['price', 'shipping', 'total'].forEach(function (k) { range(k).setNumberFormat('#,##0 "DA"'); });
   ['qty', 'attempts'].forEach(function (k) { range(k).setNumberFormat('0'); });

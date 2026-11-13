@@ -460,8 +460,12 @@ test('Ecotrack : test de connexion et messages d’erreur clairs', function () {
   assert.strictEqual(FAKE.lastCall('/api/v1/get/wilayas').headers.Authorization, 'Bearer ' + FAKE.token);
   assert.strictEqual(FAKE.lastCall('/api/v1/get/wilayas').options.followRedirects, false);
 
+  assert.ok(FAKE.lastCall('/api/v1/validate/token').query.api_token === FAKE.token, 'le jeton est vérifié avec validate/token');
+  FAKE.apiDisabled = true;
+  assert.throws(function () { api_ecotrackTest(); }, /accès à l’API est désactivé pour ce compte/);
+  FAKE.apiDisabled = false;
   saveEcotrackConfig_(FAKE.host, 'AUTRE-JETON-1234567890');
-  assert.throws(function () { api_ecotrackTest(); }, /refusé le jeton \(erreur 401\)/);
+  assert.throws(function () { api_ecotrackTest(); }, /refusé le jeton \(jeton invalide\)/);
   saveEcotrackConfig_('autre.ecotrack.dz', FAKE.token);
   assert.throws(function () { api_ecotrackTest(); }, /Impossible de joindre Ecotrack/);
   saveEcotrackConfig_(FAKE.host, FAKE.token);
@@ -513,7 +517,7 @@ test('Ecotrack : vérifications avant envoi', function () {
   assert.deepStrictEqual(with_({ carrier: 'Ecotrack' }), []);
 });
 
-test('Ecotrack : envoi réussi, n° de suivi et statut écrits dans le classeur', function () {
+test('Ecotrack : création du colis, n° de suivi écrit, la commande attend votre validation', function () {
   ecoSetup();
   addConfirmed('#E1', { 'Quantité': 2, 'Total': 6450, 'Notes': 'Sonner 2 fois' });
   addConfirmed('#E2', { 'Livraison': 'Stop desk', 'Wilaya': '31 - Oran', 'Commune': 'Bir El Djir', 'Total': 3400 });
@@ -536,19 +540,31 @@ test('Ecotrack : envoi réussi, n° de suivi et statut écrits dans le classeur'
   assert.strictEqual(p2.montant, 3400);
 
   var o1 = order('#E1');
-  assert.strictEqual(o1.status, 'Expédiée');
+  assert.strictEqual(o1.status, 'Confirmée', 'pas « Expédiée » : vous validez dans Ecotrack');
   assert.strictEqual(o1.carrier, 'Ecotrack');
   assert.strictEqual(o1.tracking, out['#E1'].tracking);
+  assert.ok(o1.carrierMoved, 'date de création du colis gardée pour signaler un colis jamais validé');
   assert.strictEqual(o1.total, 6450, 'le total annoncé au client ne change pas');
   var journal = sheet('Journal').getRange(2, 3, sheet('Journal').getLastRow() - 1, 3).getValues();
-  assert.ok(journal.some(function (r) { return r[0] === '#E1' && r[1] === 'Envoyée à Ecotrack' && r[2].indexOf(o1.tracking) >= 0; }));
+  assert.ok(journal.some(function (r) { return r[0] === '#E1' && r[1] === 'Colis créé chez Ecotrack' && r[2].indexOf(o1.tracking) >= 0; }));
   assert.ok(!__mock.state.cache['ship:#E1'], 'réservation libérée');
+  assert.strictEqual(FAKE.count('/api/v1/valid/order'), 0, 'l’outil ne valide jamais l’expédition');
 
   // Une 2e tentative ne doit rien renvoyer.
   var again = results(ship(['#E1']));
-  assert.ok(!again['#E1'].ok && /seules les commandes confirmées|Déjà envoyée/.test(again['#E1'].message));
+  assert.ok(!again['#E1'].ok && /Déjà envoyée/.test(again['#E1'].message));
   assert.strictEqual(FAKE.count('/api/v1/create/orders'), 1);
   assert.strictEqual(FAKE.orders.length, 2);
+
+  // Vous validez dans Ecotrack : l'outil le voit et la commande passe « Expédiée ».
+  FAKE.validate(out['#E1'].tracking);
+  var s = syncEcotrackStatuses_();
+  assert.strictEqual(s.checked, 2);
+  assert.strictEqual(s.updated, 1);
+  assert.strictEqual(order('#E1').status, 'Expédiée');
+  assert.strictEqual(order('#E1').carrierStatus, 'en_ramassage');
+  assert.strictEqual(order('#E2').status, 'Confirmée', 'l’autre colis n’est pas encore validé');
+  assert.strictEqual(order('#E2').carrierStatus, 'prete_a_expedier');
 });
 
 test('Ecotrack : refus par commande (commune mal écrite) sans bloquer les autres', function () {
@@ -563,7 +579,8 @@ test('Ecotrack : refus par commande (commune mal écrite) sans bloquer les autre
   assert.ok(/Téléphone invalide/.test(out['#R3'].message));
   assert.ok(/seules les commandes confirmées/.test(out['#R4'].message));
   assert.ok(/introuvable/.test(out['#nope'].message));
-  assert.strictEqual(order('#R1').status, 'Expédiée');
+  assert.strictEqual(order('#R1').status, 'Confirmée');
+  assert.ok(order('#R1').tracking, 'colis créé : le n° de suivi est écrit');
   assert.strictEqual(order('#R2').status, 'Confirmée');
   assert.strictEqual(order('#R2').tracking, '');
   assert.strictEqual(FAKE.orders.length, 1);
@@ -580,7 +597,7 @@ test('Ecotrack : plus de 100 commandes = plusieurs requêtes', function () {
   assert.strictEqual(FAKE.count('/api/v1/create/orders'), 2);
   assert.strictEqual(Object.keys(FAKE.calls.filter(function (c) { return c.path === '/api/v1/create/orders'; })[0].body.orders).length, 100);
   assert.strictEqual(FAKE.orders.length, 120);
-  assert.strictEqual(order('#B120').status, 'Expédiée');
+  assert.ok(/^ECT/.test(order('#B120').tracking));
   var tooMany = [];
   for (var k = 0; k < 201; k++) tooMany.push('#X' + k);
   assert.throws(function () { ship(tooMany); }, /200 commandes/);
@@ -593,7 +610,7 @@ test('Ecotrack : connexion coupée après la création : le colis est retrouvé,
   var out = results(ship(['#T1']));
   assert.ok(out['#T1'].ok, out['#T1'].message);
   assert.strictEqual(order('#T1').tracking, FAKE.orders[0].tracking);
-  assert.strictEqual(order('#T1').status, 'Expédiée');
+  assert.strictEqual(order('#T1').status, 'Confirmée');
   assert.strictEqual(FAKE.orders.length, 1);
 });
 
@@ -662,71 +679,101 @@ test('Ecotrack : une commande déjà en cours d’envoi n’est pas envoyée deu
   assert.strictEqual(FAKE.count('/api/v1/create/orders'), 0);
 });
 
-test('Ecotrack : correspondance des statuts', function () {
+test('Ecotrack : correspondance des 19 statuts de la documentation', function () {
   var m = mapEcotrackStatus_;
-  assert.strictEqual(m('prete_a_expedier'), 'Expédiée');
-  assert.strictEqual(m('en_attente'), 'Expédiée');
-  assert.strictEqual(m('en_transit'), 'En livraison');
-  assert.strictEqual(m('sorti_en_livraison'), 'En livraison');
-  assert.strictEqual(m('tentative_echouee'), 'En livraison');
-  assert.strictEqual(m('livre_non_encaisse'), 'Livrée');
-  assert.strictEqual(m('livré'), 'Livrée');
-  assert.strictEqual(m('payé_et_archivé'), 'Livrée');
-  assert.strictEqual(m('encaissé'), 'Livrée');
-  assert.strictEqual(m('retour_en_cours'), 'Retour');
-  assert.strictEqual(m('retourné'), 'Retour');
-  assert.strictEqual(m('refusé_par_le_client'), 'Retour');
-  assert.strictEqual(m('non_livre'), 'En livraison');
-  assert.strictEqual(m('statut_bizarre'), null);
+  var expected = {
+    prete_a_expedier: '', en_ramassage: 'Expédiée', en_preparation_stock: 'Expédiée', vers_hub: 'Expédiée', en_hub: 'Expédiée',
+    vers_wilaya: 'Expédiée', en_preparation: 'Expédiée', en_livraison: 'En livraison', suspendu: 'En livraison',
+    livre_non_encaisse: 'Livrée', encaisse_non_paye: 'Livrée', paiements_prets: 'Livrée', paye_et_archive: 'Livrée',
+    retour_chez_livreur: 'Retour', retour_transit_entrepot: 'Retour', retour_en_traitement: 'Retour', retour_recu: 'Retour',
+    retour_archive: 'Retour', annule: 'Annulée'
+  };
+  assert.strictEqual(Object.keys(expected).length, 19);
+  Object.keys(expected).forEach(function (slug) {
+    assert.strictEqual(m(slug), expected[slug], slug);
+    assert.ok(ecotrackLabel_(slug), 'libellé pour ' + slug);
+  });
+  assert.strictEqual(m('payé_et_archivé'), 'Livrée', 'écriture avec accents de l’exemple de la documentation');
+  assert.strictEqual(m('PAYE_ET_ARCHIVE'), 'Livrée');
+  assert.strictEqual(m('retour_inconnu_mais_retour'), 'Retour', 'variante proche d’un statut connu');
+  assert.strictEqual(m('statut_bizarre'), null, 'statut inconnu');
   assert.strictEqual(m(''), null);
   assert.strictEqual(m(null), null);
+  assert.strictEqual(ecotrackStatusInfo_('prete_a_expedier').group, 'draft');
+  assert.strictEqual(ecotrackStatusInfo_('suspendu').group, 'suspended');
+  assert.strictEqual(ecotrackStatusInfo_('statut_bizarre').group, 'unknown');
+  assert.strictEqual(ecotrackLabel_('statut_bizarre'), 'statut_bizarre');
 });
 
-test('Ecotrack : suivi des statuts, statut inconnu signalé une seule fois', function () {
+test('Ecotrack : suivi des statuts en lecture groupée, statut inconnu signalé une seule fois', function () {
   ecoSetup();
-  ['#M1', '#M2', '#M3', '#M4'].forEach(function (id) { addConfirmed(id); });
-  var shipped = results(ship(['#M1', '#M2', '#M3', '#M4']));
-  FAKE.setStatus(shipped['#M1'].tracking, 'payé_et_archivé');
+  ['#M1', '#M2', '#M3', '#M4', '#M5'].forEach(function (id) { addConfirmed(id); });
+  var shipped = results(ship(['#M1', '#M2', '#M3', '#M4', '#M5']));
+  FAKE.setStatus(shipped['#M1'].tracking, 'paye_et_archive'); // archivé : absent de get/orders, présent dans get/orders/status
+  FAKE.setPayment(shipped['#M1'].tracking, 312);
   FAKE.setStatus(shipped['#M2'].tracking, 'en_livraison');
-  FAKE.setStatus(shipped['#M3'].tracking, 'retour_en_cours');
+  FAKE.setStatus(shipped['#M3'].tracking, 'retour_en_traitement');
   FAKE.setStatus(shipped['#M4'].tracking, 'statut_bizarre');
+  // #M5 : jamais validé, reste « prete_a_expedier ».
 
-  var calls = FAKE.count('/api/v1/get/orders');
+  var bulk = FAKE.count('/api/v1/get/orders/status');
+  var single = FAKE.count('/api/v1/get/orders');
   var s = syncEcotrackStatuses_();
-  assert.deepStrictEqual([s.checked, s.updated, s.unknown, s.missing], [4, 3, 1, 0]);
-  assert.strictEqual(FAKE.count('/api/v1/get/orders') - calls, 4, 'un appel par colis (peu de colis)');
+  assert.deepStrictEqual([s.checked, s.updated, s.unknown, s.missing], [5, 3, 1, 0]);
+  assert.strictEqual(FAKE.count('/api/v1/get/orders/status') - bulk, 1, 'une seule requête pour les 5 colis');
+  assert.strictEqual(FAKE.count('/api/v1/get/orders') - single, 0, 'pas de lecture colis par colis');
+  var q = FAKE.lastCall('/api/v1/get/orders/status');
+  assert.strictEqual(q.query.api_token, FAKE.token);
+  assert.strictEqual(q.query.status, 'all');
+  assert.strictEqual(q.query.trackings.split(',').length, 5);
+
   assert.strictEqual(order('#M1').status, 'Livrée');
+  assert.strictEqual(order('#M1').paymentId, '312');
   assert.strictEqual(order('#M2').status, 'En livraison');
   assert.strictEqual(order('#M3').status, 'Retour');
-  assert.strictEqual(order('#M4').status, 'Expédiée');
-  assert.strictEqual(order('#M1').carrierStatus, 'payé_et_archivé');
+  assert.strictEqual(order('#M4').status, 'Confirmée', 'statut inconnu : rien ne change');
   assert.strictEqual(order('#M4').carrierStatus, 'statut_bizarre');
+  assert.strictEqual(order('#M5').status, 'Confirmée', 'pas encore validé');
+  assert.strictEqual(order('#M5').carrierStatus, 'prete_a_expedier');
+  assert.strictEqual(order('#M1').carrierLabel, 'Payé');
 
-  var unknownLogs = function () {
-    var s = sheet('Journal');
-    return s.getRange(2, 4, s.getLastRow() - 1, 2).getValues().filter(function (r) { return r[0] === 'Statut Ecotrack inconnu'; }).length;
+  var logCount = function (action) {
+    var j = sheet('Journal');
+    return j.getRange(2, 4, j.getLastRow() - 1, 1).getValues().filter(function (r) { return r[0] === action; }).length;
   };
-  assert.strictEqual(unknownLogs(), 1);
+  assert.strictEqual(logCount('Statut Ecotrack inconnu'), 1);
   syncEcotrackStatuses_();
-  assert.strictEqual(unknownLogs(), 1, 'pas de répétition');
+  assert.strictEqual(logCount('Statut Ecotrack inconnu'), 1, 'pas de répétition');
 
   // Un statut ne revient jamais en arrière : « En livraison » ne redevient pas « Expédiée ».
   FAKE.setStatus(shipped['#M2'].tracking, 'prete_a_expedier');
   syncEcotrackStatuses_();
   assert.strictEqual(order('#M2').status, 'En livraison');
-  // Les commandes terminées (livrée, retour) ne sont plus interrogées : il reste 2 colis en cours.
-  calls = FAKE.count('/api/v1/get/orders');
+  // Les colis terminés (livré, retour) ne sont plus interrogés : il en reste 3 à suivre.
   syncEcotrackStatuses_();
-  assert.strictEqual(FAKE.count('/api/v1/get/orders') - calls, 2);
+  assert.strictEqual(FAKE.lastCall('/api/v1/get/orders/status').query.trackings.split(',').length, 3);
+  assert.ok(PropertiesService.getScriptProperties().getProperty(ECO.PROP_LAST_SYNC), 'heure de la dernière lecture gardée');
 });
 
-test('Ecotrack : suivi de nombreux colis par pages, colis disparu signalé', function () {
+test('Ecotrack : statut annulé chez Ecotrack = commande annulée', function () {
+  ecoSetup();
+  addConfirmed('#X1');
+  var t = results(ship(['#X1']))['#X1'].tracking;
+  FAKE.setStatus(t, 'annule');
+  syncEcotrackStatuses_();
+  assert.strictEqual(order('#X1').status, 'Annulée');
+  assert.strictEqual(order('#X1').cancelReason, 'Annulée chez Ecotrack');
+});
+
+test('Ecotrack : si la lecture groupée ne marche pas, secours par pages puis colis par colis', function () {
   ecoSetup();
   var ids = [];
   for (var i = 1; i <= 20; i++) { ids.push('#N' + i); addConfirmed('#N' + i); }
   var shipped = results(ship(ids));
-  FAKE.setStatus(shipped['#N1'].tracking, 'livre');
-  FAKE.remove(shipped['#N2'].tracking); // archivé chez Ecotrack
+  FAKE.setStatus(shipped['#N1'].tracking, 'livre_non_encaisse');
+  FAKE.remove(shipped['#N2'].tracking); // le colis n'existe plus chez Ecotrack
+
+  FAKE.statusEndpoint = 'missing'; // get/orders/status en erreur 404
   var calls = FAKE.count('/api/v1/get/orders');
   var s = syncEcotrackStatuses_();
   assert.strictEqual(s.checked, 20);
@@ -735,11 +782,22 @@ test('Ecotrack : suivi de nombreux colis par pages, colis disparu signalé', fun
   // 1 page pour les 19 colis, plus 1 recherche individuelle pour le colis manquant.
   assert.strictEqual(FAKE.count('/api/v1/get/orders') - calls, 2);
   assert.strictEqual(order('#N1').status, 'Livrée');
-  assert.strictEqual(order('#N2').status, 'Expédiée', 'statut inchangé quand le colis est introuvable');
+  assert.strictEqual(order('#N2').status, 'Confirmée', 'statut inchangé quand le colis est introuvable');
   assert.strictEqual(order('#N2').carrierStatus, 'Introuvable chez Ecotrack');
   syncEcotrackStatuses_();
   var journal = sheet('Journal').getRange(2, 4, sheet('Journal').getLastRow() - 1, 1).getValues();
   assert.strictEqual(journal.filter(function (r) { return r[0] === 'Colis introuvable'; }).length, 1);
+
+  // Réponse de forme inconnue : même secours.
+  FAKE.statusEndpoint = 'weird';
+  FAKE.setStatus(shipped['#N3'].tracking, 'livre_non_encaisse');
+  syncEcotrackStatuses_();
+  assert.strictEqual(order('#N3').status, 'Livrée');
+
+  // Jeton refusé : pas de secours, une vraie erreur.
+  saveEcotrackConfig_(FAKE.host, 'JETON-PERIME-1234567890');
+  FAKE.statusEndpoint = 'ok';
+  assert.throws(function () { syncEcotrackStatuses_(); }, /refusé le jeton/);
 });
 
 test('Ecotrack : le déclencheur automatique ne plante pas et n’écrit l’erreur qu’une fois', function () {
@@ -756,7 +814,7 @@ test('Ecotrack : le déclencheur automatique ne plante pas et n’écrit l’err
   assert.strictEqual(errors.length, 1);
   assert.ok(/refusé le jeton/.test(errors[0][1]));
   saveEcotrackConfig_(FAKE.host, FAKE.token);
-  FAKE.setStatus(shipped['#Q1'].tracking, 'livre');
+  FAKE.setStatus(shipped['#Q1'].tracking, 'livre_non_encaisse');
   assert.strictEqual(syncEcotrackStatuses().updated, 1);
   assert.strictEqual(order('#Q1').status, 'Livrée');
 });
@@ -790,9 +848,210 @@ test('Ecotrack : données de la page Expéditions', function () {
   assert.ok(sent['#V1'].ok);
   var d2 = api_shippingList();
   assert.strictEqual(d2.toShip.length, 4);
-  assert.strictEqual(d2.inTransit.length, 1);
-  assert.strictEqual(d2.inTransit[0].tracking, sent['#V1'].tracking);
-  assert.strictEqual(d2.inTransit[0].status, 'Expédiée');
+  assert.strictEqual(d2.created.length, 1, 'colis créé, en attente de votre validation chez Ecotrack');
+  assert.strictEqual(d2.created[0].tracking, sent['#V1'].tracking);
+  assert.strictEqual(d2.created[0].carrierLabel, 'Créé, à valider chez Ecotrack');
+  assert.strictEqual(d2.created[0].late, false);
+  assert.strictEqual(d2.alertHours, 26);
+  assertSerializable(d2, 'api_shippingList');
+});
+
+/* ---------------- Suivi des colis ---------------- */
+
+function hoursAgo(h) { return new Date(Date.now() - h * 3600000); }
+/** Ajoute un colis Ecotrack déjà dans l'état voulu (sans passer par l'API). */
+function addParcel(id, fields) {
+  phoneSeq++;
+  var base = {
+    'N°': id, 'Date': hoursAgo(100), 'Client': 'Client ' + id, 'Téléphone': '0551' + ('000000' + phoneSeq).slice(-6),
+    'Wilaya': '16 - Alger', 'Commune': 'Kouba', 'Adresse': 'Rue 1', 'Total': 1000, 'Statut': 'Expédiée',
+    'Société': 'Ecotrack', 'N° de suivi': 'ECT' + String(id).replace(/\W/g, '')
+  };
+  Object.keys(fields || {}).forEach(function (k) { base[k] = fields[k]; });
+  addRaw(base);
+}
+function setSetting(key, value) {
+  var s = sheet('Paramètres');
+  var keys = s.getRange(2, 1, s.getLastRow() - 1, 1).getValues();
+  for (var i = 0; i < keys.length; i++) if (keys[i][0] === key) { s.getRange(i + 2, 2).setValue(value); return; }
+  throw new Error('Réglage absent : ' + key);
+}
+function alertsOf(res) {
+  var by = {};
+  res.alerts.forEach(function (a) { by[a.id] = a; });
+  return by;
+}
+
+test('Suivi : alertes (suspendu, retour, sans mouvement 26 h, jamais validé, introuvable, statut inconnu)', function () {
+  setup();
+  addParcel('A1', { 'Statut': 'En livraison', 'Statut société': 'suspendu', 'Dernier mouvement colis': hoursAgo(2) });
+  addParcel('A2', { 'Statut': 'Retour', 'Statut société': 'retour_chez_livreur', 'Dernier mouvement colis': hoursAgo(5) });
+  addParcel('A3', { 'Statut société': 'en_hub', 'Dernier mouvement colis': hoursAgo(27) });
+  addParcel('A3b', { 'Statut société': 'en_hub', 'Dernier mouvement colis': hoursAgo(25) });
+  addParcel('A4', { 'Statut': 'Confirmée', 'Statut société': 'prete_a_expedier', 'Dernier mouvement colis': hoursAgo(30) });
+  addParcel('A4b', { 'Statut': 'Confirmée', 'Statut société': 'prete_a_expedier', 'Dernier mouvement colis': hoursAgo(10) });
+  addParcel('A5', { 'Statut société': 'Introuvable chez Ecotrack', 'Dernier mouvement colis': hoursAgo(3) });
+  addParcel('A6', { 'Statut société': 'statut_bizarre', 'Dernier mouvement colis': hoursAgo(3) });
+  addParcel('A7', { 'Statut': 'Livrée', 'Statut société': 'paye_et_archive', 'Dernier mouvement colis': hoursAgo(90) });
+  addParcel('A8', { 'Statut': 'Retour', 'Statut société': 'retour_recu', 'Dernier mouvement colis': hoursAgo(90) });
+  addParcel('A9', { 'Société': 'Yalidine', 'Statut société': 'suspendu', 'Dernier mouvement colis': hoursAgo(90) });
+
+  var res = api_trackingOverview(30);
+  assertSerializable(res, 'api_trackingOverview');
+  var by = alertsOf(res);
+  assert.deepStrictEqual(Object.keys(by).sort(), ['A1', 'A2', 'A3', 'A4', 'A5', 'A6']);
+  assert.strictEqual(by.A1.level, 'urgent');
+  assert.strictEqual(by.A1.kind, 'suspended');
+  assert.ok(/appelez le client/.test(by.A1.detail));
+  assert.strictEqual(by.A2.level, 'urgent');
+  assert.ok(/rappelez le client/.test(by.A2.detail));
+  assert.strictEqual(by.A3.kind, 'stale');
+  assert.ok(/27 h/.test(by.A3.detail), by.A3.detail);
+  assert.strictEqual(by.A4.kind, 'draft');
+  assert.ok(/pas encore validé/.test(by.A4.detail));
+  assert.strictEqual(by.A5.kind, 'missing');
+  assert.strictEqual(by.A6.level, 'info');
+  assert.deepStrictEqual(res.alerts.map(function (a) { return a.level; }), ['urgent', 'urgent', 'warn', 'warn', 'warn', 'info'], 'urgentes d’abord');
+  assert.strictEqual(res.alerts[0].id, 'A2', 'à niveau égal, la plus ancienne d’abord');
+  assert.strictEqual(res.alertHours, 26);
+
+  // Pastille du menu et tableau de bord : urgentes et à surveiller, pas les infos.
+  assert.strictEqual(api_counts().alerts, 5);
+  assert.strictEqual(api_dashboard('7').todo.parcelAlerts, 5);
+
+  // Un colis marqué « traité » disparaît : alerte liée à un événement, jusqu'au prochain changement.
+  api_markFollowUp('A1');
+  assert.ok(!alertsOf(api_trackingOverview(30)).A1, 'alerte traitée');
+  var ctx = readOrders_();
+  writeFields_(ctx, findOrder_(ctx, 'A1'), { carrierMoved: new Date(Date.now() + 60000) });
+  assert.ok(alertsOf(api_trackingOverview(30)).A1, 'le colis a bougé : l’alerte revient');
+  // Alerte liée au temps : masquée pendant 26 h après le traitement.
+  api_markFollowUp('A3');
+  assert.ok(!alertsOf(api_trackingOverview(30)).A3);
+  assert.throws(function () { api_markFollowUp('#nope'); }, /introuvable/);
+
+  // Le délai se règle dans l'onglet Paramètres.
+  setSetting('SUIVI_ALERTE_HEURES', 48);
+  var by48 = alertsOf(api_trackingOverview(30));
+  assert.ok(!by48.A4, '30 h < 48 h : plus signalé');
+  assert.ok(by48.A1 && by48.A5, 'les alertes liées à un événement restent');
+  setSetting('SUIVI_ALERTE_HEURES', 12);
+  assert.ok(alertsOf(api_trackingOverview(30)).A3b, '25 h > 12 h : signalé');
+});
+
+test('Suivi : la date de création du colis n’est pas remise à zéro par la première lecture du statut', function () {
+  ecoSetup();
+  addConfirmed('#Z1');
+  var t = results(ship(['#Z1']))['#Z1'].tracking;
+  var ctx = readOrders_();
+  writeFields_(ctx, findOrder_(ctx, '#Z1'), { carrierMoved: hoursAgo(30) }); // créé il y a 30 h
+  syncEcotrackStatuses_();
+  assert.strictEqual(order('#Z1').carrierStatus, 'prete_a_expedier');
+  assert.ok(Date.now() - new Date(order('#Z1').carrierMoved).getTime() > 29 * 3600000, 'horloge de création conservée');
+  assert.strictEqual(alertsOf(api_trackingOverview(30))['#Z1'].kind, 'draft', 'jamais validé depuis 30 h');
+
+  FAKE.validate(t); // vous validez dans Ecotrack
+  syncEcotrackStatuses_();
+  assert.strictEqual(order('#Z1').status, 'Expédiée');
+  assert.ok(Date.now() - new Date(order('#Z1').carrierMoved).getTime() < 60000, 'le mouvement est daté de la validation');
+  assert.ok(!alertsOf(api_trackingOverview(30))['#Z1'], 'plus d’alerte');
+});
+
+test('Suivi : argent chez le livreur, à encaisser, à verser, payé, versements', function () {
+  setup();
+  addParcel('G1', { 'Statut': 'En livraison', 'Statut société': 'en_livraison', 'Total': 1000 });
+  addParcel('G2', { 'Statut société': 'vers_hub', 'Total': 2000 });
+  addParcel('G3', { 'Statut': 'Confirmée', 'Statut société': 'prete_a_expedier', 'Total': 9999 }); // pas encore parti : ignoré
+  addParcel('G4', { 'Statut': 'Livrée', 'Statut société': 'livre_non_encaisse', 'Total': 1500 });
+  addParcel('G5', { 'Statut': 'Livrée', 'Statut société': 'encaisse_non_paye', 'Total': 2500 });
+  addParcel('G6', { 'Statut': 'Livrée', 'Statut société': 'paiements_prets', 'Total': 3000 });
+  addParcel('G7', { 'Statut': 'Livrée', 'Statut société': 'paye_et_archive', 'Total': 1000, 'N° de versement': '312', 'Dernier mouvement colis': hoursAgo(48) });
+  addParcel('G8', { 'Statut': 'Livrée', 'Statut société': 'paye_et_archive', 'Total': 2000, 'N° de versement': '312', 'Dernier mouvement colis': hoursAgo(40) });
+  addParcel('G9', { 'Statut': 'Livrée', 'Statut société': 'paye_et_archive', 'Total': 700, 'N° de versement': '200', 'Dernier mouvement colis': hoursAgo(24 * 40) });
+  addParcel('G10', { 'Société': 'Yalidine', 'Statut': 'Livrée', 'Statut société': 'encaisse_non_paye', 'Total': 5555 });
+
+  var r = api_trackingOverview(30);
+  assert.deepStrictEqual(r.money.enRoute, { count: 2, amount: 3000 });
+  assert.deepStrictEqual(r.money.delivered, { count: 1, amount: 1500 });
+  assert.deepStrictEqual(r.money.cashed, { count: 1, amount: 2500 });
+  assert.deepStrictEqual(r.money.ready, { count: 1, amount: 3000 });
+  assert.deepStrictEqual(r.money.paid, { count: 2, amount: 3000 }, 'payés sur 30 jours');
+  assert.deepStrictEqual(r.payments.map(function (p) { return [p.id, p.count, p.amount, p.paid]; }), [['312', 2, 3000, true]]);
+  var r90 = api_trackingOverview(90);
+  assert.deepStrictEqual(r90.money.paid, { count: 3, amount: 3700 });
+  assert.deepStrictEqual(r90.payments.map(function (p) { return p.id; }), ['312', '200'], 'versement le plus récent d’abord');
+  assert.strictEqual(api_trackingOverview(12).days, 30, 'période inconnue : 30 jours');
+});
+
+test('Suivi : liste des colis en cours', function () {
+  setup();
+  addParcel('L1', { 'Statut': 'En livraison', 'Statut société': 'en_livraison', 'Dernier mouvement colis': hoursAgo(3) });
+  addParcel('L2', { 'Statut société': 'en_hub', 'Dernier mouvement colis': hoursAgo(40) });
+  addParcel('L3', { 'Statut': 'Confirmée', 'Statut société': 'prete_a_expedier', 'Dernier mouvement colis': hoursAgo(2) });
+  addParcel('L4', { 'Statut': 'Retour', 'Statut société': 'retour_en_traitement', 'Dernier mouvement colis': hoursAgo(6) });
+  addParcel('L5', { 'Statut': 'Livrée', 'Statut société': 'paye_et_archive' });
+  addParcel('L6', { 'Statut': 'Retour', 'Statut société': 'retour_recu' });
+  var r = api_trackingOverview(30);
+  assert.deepStrictEqual(r.parcels.map(function (p) { return p.id; }), ['L2', 'L4', 'L1', 'L3'], 'le plus ancien mouvement d’abord');
+  var by = {};
+  r.parcels.forEach(function (p) { by[p.id] = p; });
+  assert.strictEqual(by.L2.stale, true);
+  assert.strictEqual(by.L1.stale, false);
+  assert.strictEqual(by.L1.carrierLabel, 'En livraison');
+  assert.strictEqual(by.L3.carrierLabel, 'Créé, à valider chez Ecotrack');
+  assert.strictEqual(by.L4.group, 'returning');
+  assert.ok(by.L2.ageHours >= 40);
+});
+
+test('Suivi : chronologie d’un colis (get/tracking/info)', function () {
+  ecoSetup();
+  addConfirmed('#H1');
+  var t = results(ship(['#H1']))['#H1'].tracking;
+  FAKE.history[t] = [
+    { activity: 'picked', date: '2026-11-12 10:00:00' },
+    { activity: 'order_information_received_by_carrier', date: '2026-11-12 09:00:00', content: 'validé par vous' },
+    { activity: 'attempt_delivery', created_at: '2026-11-12 14:00:00', remarque: 'Client absent' },
+    { activity: 'etape_inconnue', date: '2026-11-12 15:00:00' }
+  ];
+  var h = api_parcelHistory('#H1');
+  assertSerializable(h, 'api_parcelHistory');
+  assert.strictEqual(h.tracking, t);
+  assert.deepStrictEqual(h.events.map(function (e) { return e.label; }), [
+    'Commande enregistrée et validée par le vendeur', 'Colis récupéré par le transporteur', 'Tentative de livraison', 'etape_inconnue'
+  ], 'ordre chronologique, libellés français, étape inconnue gardée telle quelle');
+  assert.strictEqual(h.events[0].note, 'validé par vous');
+  assert.strictEqual(h.events[2].note, 'Client absent');
+  assert.ok(h.events[0].date && h.events[0].date < h.events[1].date);
+  assert.strictEqual(h.raw, '');
+
+  // Réponse de forme inconnue : on la renvoie telle quelle plutôt que de rien afficher.
+  FAKE.historyShape = 'weird';
+  var weird = api_parcelHistory('#H1');
+  assert.strictEqual(weird.events.length, 0);
+  assert.ok(/numero/.test(weird.raw));
+
+  assert.throws(function () { api_parcelHistory('#nope'); }, /introuvable/);
+  addConfirmed('#H2');
+  assert.throws(function () { api_parcelHistory('#H2'); }, /pas de n° de suivi/);
+  var ctx = readOrders_();
+  writeFields_(ctx, findOrder_(ctx, '#H2'), { tracking: 'ECT-INCONNU-123' });
+  assert.throws(function () { api_parcelHistory('#H2'); }, /refusé la demande \(erreur 422\)/);
+
+  // Autres présentations possibles de la liste.
+  assert.deepStrictEqual(parseTrackingInfo_(['picked', 'livred']).map(function (e) { return e.label; }), ['Colis récupéré par le transporteur', 'Colis livré']);
+  assert.deepStrictEqual(parseTrackingInfo_({ data: [{ status: 'Return_received' }] }).map(function (e) { return e.label; }), ['Retour réceptionné par le vendeur']);
+  assert.deepStrictEqual(parseTrackingInfo_(null), []);
+});
+
+test('Suivi : « traité » sans la colonne dans le classeur = message clair', function () {
+  setup();
+  addParcel('K1', { 'Statut société': 'suspendu', 'Dernier mouvement colis': hoursAgo(1) });
+  // Classeur ancien : la colonne « Suivi traité le » n'existe pas encore.
+  var s = sheet('Commandes');
+  var header = s.getRange(1, 1, 1, s.getLastColumn()).getValues()[0];
+  var col = header.indexOf('Suivi traité le') + 1;
+  s.getRange(1, col).setValue('Autre colonne');
+  assert.throws(function () { api_markFollowUp('K1'); }, /Colonne « Suivi traité le » absente/);
 });
 
 test('fichier unique dist/Code.gs : à jour et fonctionnel', function () {

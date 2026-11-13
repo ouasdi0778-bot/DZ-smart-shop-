@@ -13,11 +13,48 @@ function seedEcotrack_(list) {
   var sent = shipToEcotrack_(list.map(function (x) { return x.id; }), { name: 'Imane' });
   var tracking = {};
   sent.forEach(function (r) { if (r.ok) tracking[r.id] = r.tracking; });
-  var slug = { 'Livrée': 'payé_et_archivé', 'Retour': 'retour_en_cours', 'En livraison': 'sorti_en_livraison' };
-  list.forEach(function (x) {
-    if (tracking[x.id]) __fakeEcotrack.setStatus(tracking[x.id], slug[x.status] || 'prete_a_expedier');
+
+  // Vous validez dans l'interface d'Ecotrack, puis les colis avancent chez Ecotrack.
+  var cycle = ['paye_et_archive', 'en_livraison', 'suspendu', 'en_hub', 'livre_non_encaisse',
+    'retour_en_traitement', 'encaisse_non_paye', 'retour_recu', 'en_livraison', 'paiements_prets'];
+  var moved = {};
+  list.forEach(function (x, idx) {
+    var t = tracking[x.id];
+    if (!t) return;
+    __fakeEcotrack.validate(t);
+    var at = function (hoursBack) {
+      var d = new Date(Date.now() - hoursBack * 3600000);
+      return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2) + ' ' +
+        ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) + ':00';
+    };
+    __fakeEcotrack.history[t] = [
+      { activity: 'order_information_received_by_carrier', date: at(60), content: 'Validé par le vendeur' },
+      { activity: 'picked', date: at(50) },
+      { activity: 'accepted_by_carrier', date: at(36) },
+      { activity: 'dispatched_to_driver', date: at(20) },
+      { activity: 'attempt_delivery', date: at(18), remarque: 'Client absent, nouvelle tentative demain' }
+    ];
+    var s = cycle[idx % cycle.length];
+    __fakeEcotrack.setStatus(t, s);
+    if (s === 'paye_et_archive') __fakeEcotrack.setPayment(t, idx % 2 ? 312 : 318);
+    if (s === 'suspendu') moved[x.id] = 3;
+    if (s === 'en_hub') moved[x.id] = 40;              // sans mouvement depuis plus de 26 h
+    if (s === 'retour_en_traitement') moved[x.id] = 6;
   });
   syncEcotrackStatuses_();
+
+  // Deux colis créés mais jamais validés : l'un depuis longtemps.
+  var ready = api_shippingList().toShip.filter(function (o) { return !o.problems.length; }).slice(0, 2);
+  var created = ready.length ? shipToEcotrack_(ready.map(function (o) { return o.id; }), { name: 'Imane' }) : [];
+  if (created[0] && created[0].ok) moved[created[0].id] = 30;
+  syncEcotrackStatuses_();
+
+  // Dates de dernier mouvement réalistes pour la page Suivi.
+  var ctx = readOrders_();
+  Object.keys(moved).forEach(function (id) {
+    var o = findOrder_(ctx, id);
+    if (o) writeFields_(ctx, o, { carrierMoved: new Date(Date.now() - moved[id] * 3600000) });
+  });
 }
 
 /**

@@ -186,7 +186,8 @@ function api_dashboard(period) {
       toConfirm: dueQueue,
       callbacksToday: callbacksToday,
       toShip: ctx.orders.filter(has([STATUS.CONFIRMED])).length,
-      unreachable: ctx.orders.filter(has([STATUS.UNREACHABLE])).length
+      unreachable: ctx.orders.filter(has([STATUS.UNREACHABLE])).length,
+      parcelAlerts: trackingAlerts_(ctx.orders, getSettings_(), now).filter(function (a) { return a.level !== 'info'; }).length
     },
     byWilaya: group(function (o) { return o.wilaya; }, has(SHIPPED_STATUSES)).slice(0, 10),
     byAgent: group(function (o) { return o.agent; }, function (o) {

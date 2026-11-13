@@ -163,6 +163,12 @@
   .result-row:first-of-type { border-top: 0; }
   .result-row .grow { flex: 1 1 240px; min-width: 0; }
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  .timeline { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
+  .timeline li { display: flex; gap: 14px; padding: 10px 0 10px 22px; position: relative; border-top: 1px solid #EEF0F3; }
+  .timeline li:first-child { border-top: 0; }
+  .timeline li::before { content: ""; position: absolute; left: 2px; top: 16px; width: 10px; height: 10px; border-radius: 999px; background: var(--brand); }
+  .timeline .t-date { flex: 0 0 110px; color: var(--muted); font-size: 13px; }
+  .timeline .t-body { flex: 1 1 auto; min-width: 0; }
 
   /* Fenêtre (modale) */
   .modal-backdrop { position: fixed; inset: 0; background: rgba(16, 24, 28, .45); display: flex; align-items: flex-start; justify-content: center; padding: 32px 16px; overflow: auto; z-index: 50; }
@@ -186,10 +192,12 @@
     .content { padding: 16px 14px 96px; }
     h1 { font-size: 22px; }
     .bottom-nav {
-      display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
       background: var(--side); padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
     }
-    .bottom-nav a { min-height: 52px; display: flex; align-items: center; justify-content: center; gap: 4px; color: var(--side-ink); text-decoration: none; font-size: 12px; font-weight: 600; border-radius: 10px; padding: 0 2px; }
+    .bottom-nav a { min-height: 52px; display: flex; align-items: center; justify-content: center; gap: 4px; color: var(--side-ink); text-decoration: none; font-size: 11.5px; font-weight: 600; border-radius: 10px; padding: 0 1px; }
+    .bottom-nav .badge { font-size: 11px; padding: 0 6px; }
+    .timeline .t-date { flex-basis: 84px; }
     .bottom-nav a.active { background: var(--side-active); color: #FFFFFF; }
     #toast { bottom: 84px; }
     .queue { max-height: none; }

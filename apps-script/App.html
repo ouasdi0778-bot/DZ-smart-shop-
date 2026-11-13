@@ -17,7 +17,8 @@
     busy: false,
     token: 0,
     detailToken: 0,
-    ship: { data: null, tab: 'toship', selected: {}, busy: false, results: null }
+    ship: { data: null, tab: 'toship', selected: {}, busy: false, results: null },
+    track: { data: null, days: 30, filter: 'all' }
   };
   var TZ = 'Africa/Algiers';
   var ALERT = {
@@ -132,7 +133,7 @@
   /* Navigation                                                       */
   /* ================================================================ */
 
-  var ROUTES = ['tableau', 'commandes', 'confirmation', 'expeditions'];
+  var ROUTES = ['tableau', 'commandes', 'confirmation', 'expeditions', 'suivi'];
 
   function go() {
     var r = (location.hash || '').replace(/^#\/?/, '');
@@ -147,6 +148,7 @@
     if (r === 'tableau') pageDashboard();
     else if (r === 'commandes') pageOrders();
     else if (r === 'expeditions') pageShipping();
+    else if (r === 'suivi') pageTracking();
     else pageConfirm();
     view.focus({ preventScroll: true });
     window.scrollTo(0, 0);
@@ -160,8 +162,11 @@
   function setQueueCount(n) {
     $all('[data-queue-count]').forEach(function (el) { el.textContent = n; el.hidden = !n; });
   }
+  function setAlertCount(n) {
+    $all('[data-alert-count]').forEach(function (el) { el.textContent = n; el.hidden = !n; });
+  }
   function refreshCount() {
-    call('api_queue').then(function (q) { setQueueCount(q.stats.due); }).catch(function () {});
+    call('api_counts').then(function (c) { setQueueCount(c.queue); setAlertCount(c.alerts); }).catch(function () {});
   }
 
   /* ================================================================ */
@@ -205,7 +210,8 @@
       [d.todo.toConfirm, 'à appeler maintenant', 'confirmation', '', 'Confirmer', st['À confirmer']],
       [d.todo.callbacksToday, 'rappels prévus plus tard aujourd’hui', 'confirmation', '', 'Voir', st['Rappeler']],
       [d.todo.toShip, 'commandes confirmées à expédier', 'expeditions', '', 'Expédier', st['Confirmée']],
-      [d.todo.unreachable, 'clients injoignables', 'commandes', 'Injoignable', 'Voir', st['Injoignable']]
+      [d.todo.unreachable, 'clients injoignables', 'commandes', 'Injoignable', 'Voir', st['Injoignable']],
+      [d.todo.parcelAlerts, 'colis à traiter (suspendus, retours, sans mouvement…)', 'suivi', '', 'Suivi', st['Retour']]
     ];
 
     var html = '<div class="stack">';
@@ -387,6 +393,11 @@
     showModal(
       modalHead('Commande ' + h(o.id), meta) +
       '<p class="small">' + h(histText) + '</p>' +
+      (o.tracking ?
+        '<div class="history" style="background:#F4F5F7;margin-bottom:0"><span class="strong">Colis Ecotrack</span><span class="mono">' + h(o.tracking) + '</span>' +
+        '<span>' + (o.carrierLabel ? h(o.carrierLabel) : 'statut pas encore lu') + (o.carrierMoved ? ' · mouvement ' + h(ago(o.carrierMoved)) : '') + '</span>' +
+        '<button type="button" class="btn" style="min-height:36px;margin-left:auto" data-act="track-history" data-id="' + h(o.id) + '">Voir la chronologie</button></div>' +
+        '<div id="parcel-history"></div>' : '') +
       '<div id="order-form" data-id="' + h(o.id) + '">' +
         '<div class="form-grid">' +
           field('Statut', '<select name="status" data-role="status">' + options(b.statuses, o.status) + '</select>') +
@@ -425,6 +436,7 @@
     if (S.route === 'commandes') loadOrders();
     else if (S.route === 'tableau') pageDashboard();
     else if (S.route === 'expeditions') loadShipping();
+    else if (S.route === 'suivi') loadTracking();
     refreshCount();
   }
 
@@ -752,6 +764,10 @@
       html += '<section class="card"><div class="detail-head"><div><h2>Résultat de l’envoi</h2><p class="muted">' +
         plural(okCount, 'colis créé', 'colis créés') + (sh.results.length - okCount ? ' · ' + plural(sh.results.length - okCount, 'refusé', 'refusés') : '') +
         '</p></div><button type="button" class="btn" data-act="ship-dismiss">Fermer</button></div>';
+      if (okCount) {
+        html += '<p style="margin-bottom:8px">Ces colis sont <strong>créés</strong> chez Ecotrack mais <strong>pas encore expédiés</strong> : validez-les dans l’interface d’Ecotrack. ' +
+          'L’outil détecte la validation tout seul (au plus tard 30 minutes plus tard).</p>';
+      }
       html += sh.results.map(function (r) {
         return '<div class="result-row"><span class="pill" style="background:' + (r.ok ? '#DDF0E4;color:#146C2E' : '#FBE7E7;color:#A12626') + '">' + (r.ok ? 'Créé' : 'Refusé') + '</span>' +
           '<span class="grow"><strong>' + h(r.id) + '</strong>' + (r.client ? ' · ' + h(r.client) : '') +
@@ -764,10 +780,10 @@
     // Onglets
     html += '<div class="chips" role="group" aria-label="Vue">' +
       '<button type="button" class="chip" data-act="ship-tab" data-tab="toship" aria-pressed="' + (sh.tab === 'toship') + '">À expédier · ' + d.toShip.length + '</button>' +
-      '<button type="button" class="chip" data-act="ship-tab" data-tab="transit" aria-pressed="' + (sh.tab === 'transit') + '">En cours · ' + d.inTransit.length + '</button></div>';
+      '<button type="button" class="chip" data-act="ship-tab" data-tab="created" aria-pressed="' + (sh.tab === 'created') + '">Créés, à valider chez Ecotrack · ' + d.created.length + '</button></div>';
 
     if (sh.tab === 'toship') html += renderToShip(d, ready, picked);
-    else html += renderInTransit(d);
+    else html += renderCreated(d);
     html += '</div>';
     box.innerHTML = html;
   }
@@ -780,7 +796,7 @@
       '<label style="display:flex;align-items:center;gap:10px;min-height:44px"><input type="checkbox" class="check" data-ship-all' + (allPicked ? ' checked' : '') + (ready.length ? '' : ' disabled') + '> ' +
       'Tout sélectionner (' + ready.length + ' prêtes)</label>' +
       '<button type="button" class="btn primary" data-act="ship-ask"' + ((!picked || !d.configured || sh.busy) ? ' disabled' : '') + '>' +
-      (sh.busy ? 'Envoi en cours…' : 'Envoyer ' + plural(picked, 'colis', 'colis') + ' à Ecotrack') + '</button></div>';
+      (sh.busy ? 'Création en cours…' : 'Envoyer ' + plural(picked, 'colis', 'colis') + ' à Ecotrack') + '</button></div>';
     html += '<div class="table-wrap"><table class="data cards"><thead><tr>' +
       ['', 'Commande', 'Destination', 'Livraison', 'Total', 'État', ''].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>';
     d.toShip.forEach(function (o) {
@@ -799,20 +815,29 @@
       '<p class="small">Les colis partent chez Ecotrack avec le total affiché (livraison comprise). La commune doit être écrite comme chez Ecotrack : sinon le colis est refusé et vous en êtes prévenu ici.</p>';
   }
 
-  function renderInTransit(d) {
-    if (!d.inTransit.length) return '<div class="card"><p class="empty">Aucun colis en cours chez Ecotrack.</p></div>';
-    var html = '<div class="table-wrap"><table class="data cards"><thead><tr>' +
-      ['Commande', 'Wilaya', 'N° de suivi', 'Statut Ecotrack', 'Statut', 'Mise à jour'].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>';
-    d.inTransit.forEach(function (o) {
+  function renderCreated(d) {
+    if (!d.created.length) return '<div class="card"><p class="empty">Aucun colis en attente de validation chez Ecotrack.</p></div>';
+    var html = '<p class="small">Ces colis existent chez Ecotrack mais ne partent pas tant que vous ne les avez pas validés dans l’interface d’Ecotrack. ' +
+      'Une fois validés, la commande passe « Expédiée » toute seule. Un colis non validé depuis plus de ' + d.alertHours + ' h est signalé.</p>';
+    html += '<div class="table-wrap"><table class="data cards"><thead><tr>' +
+      ['Commande', 'Destination', 'N° de suivi', 'Statut Ecotrack', 'Créé depuis', 'Total'].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>';
+    d.created.forEach(function (o) {
       html += '<tr>' +
-        '<td data-label="Commande" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button><div class="small">' + h(o.client) + '</div></td>' +
-        '<td data-label="Wilaya">' + h(o.wilaya) + '</td>' +
+        '<td data-label="Commande" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button> · ' + h(o.client) + '</td>' +
+        '<td data-label="Destination" class="multi">' + h(o.wilaya) + '<div class="small">' + h(o.commune) + '</div></td>' +
         '<td data-label="N° de suivi" class="mono">' + h(o.tracking) + '</td>' +
-        '<td data-label="Statut Ecotrack">' + (o.carrierStatus ? h(o.carrierStatus) : '<span class="muted">pas encore lu</span>') + '</td>' +
-        '<td data-label="Statut">' + pill(o.status) + '</td>' +
-        '<td data-label="Mise à jour" class="small">' + (o.updated ? fmtDate(o.updated) : '—') + '</td></tr>';
+        '<td data-label="Statut Ecotrack">' + h(o.carrierLabel) + '</td>' +
+        '<td data-label="Créé depuis">' + h(hoursText(o.ageHours)) + (o.late ? ' <span class="pill" style="background:#FFF3DC;color:#8A5200">à valider</span>' : '') + '</td>' +
+        '<td data-label="Total" class="num strong">' + money(o.total) + '</td></tr>';
     });
-    return html + '</tbody></table></div><p class="small">Les statuts sont relus automatiquement toutes les 30 minutes. Un statut qu’Ecotrack envoie et que l’outil ne connaît pas reste affiché ici et dans l’onglet Journal.</p>';
+    return html + '</tbody></table></div>';
+  }
+
+  /** « 5 h », « 2 j » à partir d'un nombre d'heures. */
+  function hoursText(hours) {
+    var n = Math.max(Number(hours) || 0, 0);
+    if (n < 1) return 'moins d’1 h';
+    return n < 48 ? n + ' h' : Math.floor(n / 24) + ' j';
   }
 
   function confirmModal(title, text, okAct, okLabel) {
@@ -824,9 +849,9 @@
   function askShip() {
     var n = Object.keys(S.ship.selected).length;
     if (!n || S.ship.busy) return;
-    confirmModal('Envoyer à Ecotrack ?', plural(n, 'colis va être créé', 'colis vont être créés') +
-      ' chez Ecotrack, avec le total affiché comme montant à encaisser. Vous ne pourrez les modifier ou les annuler que chez Ecotrack, tant qu’ils ne sont pas validés.',
-      'ship-confirm', 'Envoyer');
+    confirmModal('Créer les colis chez Ecotrack ?', plural(n, 'colis va être créé', 'colis vont être créés') +
+      ' chez Ecotrack, avec le total affiché comme montant à encaisser. Ils ne seront pas expédiés : vous les validez ensuite dans l’interface d’Ecotrack.',
+      'ship-confirm', 'Créer les colis');
   }
 
   function doShip() {
@@ -841,7 +866,7 @@
       S.ship.selected = {};
       S.ship.results = res;
       var ok = res.filter(function (r) { return r.ok; }).length;
-      toast(plural(ok, 'colis créé', 'colis créés') + (res.length - ok ? ', ' + (res.length - ok) + ' refusé(s)' : ''), ok === 0);
+      toast(plural(ok, 'colis créé', 'colis créés') + (res.length - ok ? ', ' + (res.length - ok) + ' refusé(s)' : '') + (ok ? '. À valider dans Ecotrack.' : ''), ok === 0);
       loadShipping();
       refreshCount();
     }).catch(function (e) {
@@ -857,6 +882,169 @@
       toast(r.message);
       if (fn === 'api_ecotrackSyncStatuses') loadShipping();
     }).catch(function (e) { toast(errText(e), true); });
+  }
+
+  /* ================================================================ */
+  /* Suivi des colis                                                  */
+  /* ================================================================ */
+
+  var LEVELS = {
+    urgent: { label: 'Urgent', bg: '#FBE7E7', fg: '#A12626' },
+    warn: { label: 'À surveiller', bg: '#FFF3DC', fg: '#8A5200' },
+    info: { label: 'Info', bg: '#E6EEFB', fg: '#1E4FA8' }
+  };
+  var GROUPS = [
+    ['all', 'Tous'], ['draft', 'À valider'], ['transit', 'En route'], ['delivery', 'En livraison'],
+    ['suspended', 'Suspendus'], ['returning', 'Retours']
+  ];
+
+  function waLink(phone) {
+    var p = String(phone || '').replace(/\D/g, '');
+    return /^0[567]\d{8}$/.test(p) ? 'https://wa.me/213' + p.slice(1) : '';
+  }
+
+  function pageTracking() {
+    view.innerHTML = '<div id="track"><p class="loading">Chargement…</p></div>';
+    loadTracking();
+  }
+
+  function loadTracking() {
+    var t = ++S.token;
+    return call('api_trackingOverview', S.track.days).then(function (d) {
+      if (t !== S.token || S.route !== 'suivi') return;
+      S.track.data = d;
+      setAlertCount(d.alerts.filter(function (a) { return a.level !== 'info'; }).length);
+      renderTracking();
+    }).catch(function (e) {
+      if (t === S.token && S.route === 'suivi') $('#track').innerHTML = errorBox(e);
+    });
+  }
+
+  function renderTracking() {
+    var d = S.track.data;
+    var box = $('#track');
+    if (!d || !box) return;
+    var m = d.money;
+    var toReceive = m.delivered.amount + m.cashed.amount + m.ready.amount;
+    var html = '<div class="page-head"><div><h1>Suivi des colis</h1><p class="sub">' +
+      (d.lastSync ? 'Statuts relus ' + h(ago(d.lastSync)) + ' · automatiquement toutes les 30 minutes' : 'Statuts pas encore relus') + '</p></div>' +
+      '<button type="button" class="btn primary" data-act="track-sync">Actualiser les statuts</button></div>';
+    html += '<div class="stack">';
+    if (!d.configured) {
+      html += '<div class="card"><h2>Ecotrack n’est pas encore configuré</h2><p class="sub">Enregistrez l’adresse et le jeton dans le classeur (menu DZ Smart Shop › Ecotrack), puis créez vos premiers colis dans la page Expéditions.</p></div>';
+    }
+    if (d.lastError) html += errorBox(d.lastError);
+
+    // Argent
+    var periods = [[7, '7 jours'], [30, '30 jours'], [90, '90 jours']];
+    html += '<section class="card"><div class="detail-head"><div><h2>Où est l’argent</h2><p class="muted">Montants à encaisser, avant déduction des frais d’Ecotrack. À recevoir : <strong>' + money(toReceive) + '</strong></p></div>' +
+      '<div class="seg" role="group" aria-label="Période des paiements reçus">' + periods.map(function (p) {
+        return '<button type="button" data-act="track-days" data-days="' + p[0] + '" aria-pressed="' + (d.days === p[0]) + '">' + p[1] + '</button>';
+      }).join('') + '</div></div>' +
+      '<div class="grid-kpi">' + [
+        ['Chez le livreur', m.enRoute, 'Colis pas encore livrés'],
+        ['Livrés, pas encaissés', m.delivered, 'Le livreur n’a pas encore remis l’argent'],
+        ['Encaissés, pas payés', m.cashed, 'Ecotrack a l’argent, pas encore versé'],
+        ['Prêts à être versés', m.ready, 'Paiement prêt chez Ecotrack'],
+        ['Payés (' + d.days + ' jours)', m.paid, 'Argent reçu']
+      ].map(function (k) {
+        return '<div class="kpi" style="padding:4px 0"><span class="label">' + h(k[0]) + '</span><span class="value">' + money(k[1].amount) + '</span><span class="note">' + plural(k[1].count, 'colis', 'colis') + ' · ' + h(k[2]) + '</span></div>';
+      }).join('') + '</div></section>';
+
+    // Alertes
+    html += '<section class="card"><h2>À traiter · ' + d.alerts.length + '</h2>';
+    if (!d.alerts.length) {
+      html += '<p class="empty" style="padding:18px 0">Rien à traiter : vos colis avancent normalement (alerte après ' + d.alertHours + ' h sans mouvement).</p>';
+    } else {
+      html += d.alerts.map(function (a) {
+        var lv = LEVELS[a.level] || LEVELS.info;
+        var wa = waLink(a.phone);
+        return '<div class="result-row"><span class="pill" style="min-width:96px;text-align:center;background:' + lv.bg + ';color:' + lv.fg + '">' + lv.label + '</span>' +
+          '<span class="grow"><strong>' + h(a.title) + '</strong> · <button type="button" class="link-btn" data-act="open-order" data-id="' + h(a.id) + '">' + h(a.id) + '</button> · ' + h(a.client) + ' · ' + h(wilayaName(a.wilaya)) +
+          '<br><span class="small" style="color:var(--ink-2)">' + h(a.detail) + '</span>' +
+          '<br><span class="small mono">' + h(a.tracking) + ' · ' + h(a.carrierLabel || 'statut pas encore lu') + ' · depuis ' + h(ago(a.since).replace(/^il y a /, '')) + '</span></span>' +
+          '<span class="quick">' +
+            (/^0\d{8,9}$/.test(String(a.phone).replace(/\D/g, '')) ? '<a class="btn" style="min-height:40px" href="tel:' + h(a.phone) + '" target="_top">Appeler</a>' : '') +
+            (wa ? '<a class="btn" style="min-height:40px" href="' + h(wa) + '" target="_blank" rel="noopener">WhatsApp</a>' : '') +
+            '<button type="button" class="btn" style="min-height:40px" data-act="track-history" data-id="' + h(a.id) + '">Chronologie</button>' +
+            '<button type="button" class="btn" style="min-height:40px" data-act="track-done" data-id="' + h(a.id) + '">Marquer comme traité</button></span></div>';
+      }).join('');
+    }
+    html += '</section>';
+
+    // Colis en cours
+    var f = S.track.filter;
+    var shown = d.parcels.filter(function (p) { return f === 'all' || p.group === f; });
+    html += '<section class="card"><h2>Colis en cours · ' + d.parcels.length + '</h2><div class="chips" role="group" aria-label="Filtrer les colis" style="margin-bottom:12px">' +
+      GROUPS.map(function (g) {
+        var n = g[0] === 'all' ? d.parcels.length : d.parcels.filter(function (p) { return p.group === g[0]; }).length;
+        return '<button type="button" class="chip" data-act="track-filter" data-group="' + g[0] + '" aria-pressed="' + (f === g[0]) + '">' + g[1] + ' · ' + n + '</button>';
+      }).join('') + '</div>';
+    if (!shown.length) {
+      html += '<p class="empty" style="padding:18px 0">Aucun colis dans cette catégorie.</p>';
+    } else {
+      html += '<div class="table-wrap" style="border:0"><table class="data cards"><thead><tr>' +
+        ['Commande', 'Wilaya', 'N° de suivi', 'Statut Ecotrack', 'Depuis', 'Total', ''].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        shown.map(function (p) {
+          return '<tr><td data-label="Commande" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(p.id) + '">' + h(p.id) + '</button><div class="small">' + h(p.client) + '</div></td>' +
+            '<td data-label="Wilaya">' + h(wilayaName(p.wilaya)) + '</td>' +
+            '<td data-label="N° de suivi" class="mono">' + h(p.tracking) + '</td>' +
+            '<td data-label="Statut Ecotrack">' + h(p.carrierLabel || '—') + (p.stale ? ' <span class="pill" style="background:#FFF3DC;color:#8A5200">' + (p.group === 'draft' ? 'à valider' : 'sans mouvement') + '</span>' : '') + '</td>' +
+            '<td data-label="Depuis">' + h(hoursText(p.ageHours)) + '</td>' +
+            '<td data-label="Total" class="num strong">' + money(p.total) + '</td>' +
+            '<td data-label=""><button type="button" class="btn" style="min-height:36px" data-act="track-history" data-id="' + h(p.id) + '">Chronologie</button></td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+    html += '</section>';
+
+    // Versements
+    html += '<section class="card"><h2>Versements d’Ecotrack (' + d.days + ' jours)</h2>';
+    if (!d.payments.length) {
+      html += '<p class="empty" style="padding:18px 0">Aucun versement sur la période. Le n° de versement s’affiche dès qu’Ecotrack le fournit.</p>';
+    } else {
+      html += '<div class="table-wrap" style="border:0"><table class="data cards"><thead><tr>' +
+        ['Versement', 'Colis', 'Montant', 'État', 'Dernier mouvement'].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        d.payments.map(function (p) {
+          return '<tr><td data-label="Versement" class="mono">n° ' + h(p.id) + '</td><td data-label="Colis">' + p.count + '</td>' +
+            '<td data-label="Montant" class="num strong">' + money(p.amount) + '</td>' +
+            '<td data-label="État"><span class="pill" style="background:' + (p.paid ? '#DDF0E4;color:#146C2E' : '#FFF3DC;color:#8A5200') + '">' + (p.paid ? 'Payé' : 'En cours') + '</span></td>' +
+            '<td data-label="Dernier mouvement" class="small">' + fmtDate(p.last) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+    html += '</section></div>';
+    box.innerHTML = html;
+  }
+
+  /* Chronologie d'un colis : dans la fiche de la commande si elle est ouverte, sinon dans une fenêtre. */
+  function historyHtml(d) {
+    var html = '<div style="margin-top:12px"><p class="small">Colis <span class="mono">' + h(d.tracking) + '</span>' + (d.carrierLabel ? ' · ' + h(d.carrierLabel) : '') + '</p>';
+    if (!d.events.length) {
+      html += '<p>Ecotrack n’a renvoyé aucune étape que l’outil sache lire.</p>' +
+        (d.raw ? '<details><summary class="small">Réponse brute d’Ecotrack (à m’envoyer si besoin)</summary><pre class="mono" style="white-space:pre-wrap;font-size:12px;overflow:auto">' + h(d.raw) + '</pre></details>' : '');
+    } else {
+      html += '<ol class="timeline">' + d.events.map(function (e) {
+        return '<li><span class="t-date">' + (e.date ? fmtDate(e.date) : h(e.dateText || '—')) + '</span><span class="t-body"><strong>' + h(e.label) + '</strong>' +
+          (e.note ? '<br><span class="small">' + h(e.note) + '</span>' : '') + '</span></li>';
+      }).join('') + '</ol>';
+    }
+    return html + '</div>';
+  }
+
+  function openHistory(id) {
+    var inOrder = !!$('#parcel-history') && !!$('#order-form');
+    if (inOrder) {
+      $('#parcel-history').innerHTML = '<p class="loading" style="padding:12px 0">Chargement…</p>';
+    } else {
+      showModal(modalHead('Chronologie · ' + h(id)) + '<div id="history-body"><p class="loading">Chargement…</p></div>' +
+        '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Fermer</button></div>');
+    }
+    call('api_parcelHistory', id).then(function (d) {
+      var el = inOrder ? $('#parcel-history') : $('#history-body');
+      if (el) el.innerHTML = historyHtml(d);
+    }).catch(function (e) {
+      var el = inOrder ? $('#parcel-history') : $('#history-body');
+      if (el) el.innerHTML = '<div style="margin-top:12px">' + errorBox(e) + '</div>';
+    });
   }
 
   /* ================================================================ */
@@ -905,7 +1093,23 @@
         'Les colonnes « Ecotrack domicile » et « Ecotrack stop desk » de l’onglet Tarifs seront remplacées par les prix d’Ecotrack. Les prix Yalidine ne changent pas.',
         'eco-fees', 'Récupérer');
     },
-    'eco-fees': function () { closeModal(); ecoAction('api_ecotrackSyncFees', 'Récupération des tarifs…'); }
+    'eco-fees': function () { closeModal(); ecoAction('api_ecotrackSyncFees', 'Récupération des tarifs…'); },
+    'track-sync': function () {
+      toast('Lecture des statuts chez Ecotrack…');
+      call('api_ecotrackSyncStatuses').then(function (r) { toast(r.message); loadTracking(); refreshCount(); })
+        .catch(function (e) { toast(errText(e), true); });
+    },
+    'track-days': function (el) { S.track.days = Number(el.getAttribute('data-days')); loadTracking(); },
+    'track-filter': function (el) { S.track.filter = el.getAttribute('data-group'); renderTracking(); },
+    'track-history': function (el) { openHistory(el.getAttribute('data-id')); },
+    'track-done': function (el) {
+      el.disabled = true;
+      call('api_markFollowUp', el.getAttribute('data-id')).then(function () {
+        toast('Alerte marquée comme traitée');
+        loadTracking();
+        refreshCount();
+      }).catch(function (e) { el.disabled = false; toast(errText(e), true); });
+    }
   };
 
   document.addEventListener('click', function (e) {
@@ -954,7 +1158,9 @@
 
   function tick() {
     if (document.visibilityState !== 'visible' || S.busy || modalOpen()) return;
-    if (S.route === 'confirmation') loadQueue(false); else refreshCount();
+    if (S.route === 'confirmation') loadQueue(false);
+    else if (S.route === 'suivi') loadTracking();
+    else refreshCount();
   }
 
   /* ================================================================ */

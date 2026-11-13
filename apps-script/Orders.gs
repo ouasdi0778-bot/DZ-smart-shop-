@@ -61,7 +61,7 @@ function findOrder_(ctx, id) {
 }
 
 /** Colonnes à garder en texte (sinon le tableur enlève le 0 du téléphone). */
-var TEXT_KEYS_ = ['id', 'phone', 'tracking'];
+var TEXT_KEYS_ = ['id', 'phone', 'tracking', 'paymentId'];
 
 /** Écrit seulement les cases modifiées d'une commande. */
 function writeFields_(ctx, order, fields) {
@@ -126,6 +126,10 @@ function serializeOrder_(o) {
     carrier: String(o.carrier),
     tracking: String(o.tracking),
     carrierStatus: String(o.carrierStatus),
+    carrierLabel: ecotrackLabel_(o.carrierStatus),
+    carrierMoved: iso_(o.carrierMoved),
+    paymentId: String(o.paymentId),
+    followUp: iso_(o.followUp),
     alert: String(o.alert),
     alertLevel: alertLevel_(o.alert),
     notes: String(o.notes),
