@@ -191,16 +191,20 @@ function removeEmptyDefaultSheet_(ss) {
 }
 
 /**
- * Traitement automatique des nouvelles lignes toutes les 5 minutes, et
- * suivi des colis Ecotrack toutes les 30 minutes (sans effet tant
- * qu'Ecotrack n'est pas configuré).
+ * Déclencheurs automatiques :
+ *  - transfert des commandes de l'onglet RELEASIT chaque minute (si l'onglet existe) ;
+ *  - importation Shopify toutes les 5 minutes (seulement si Shopify est configuré) ;
+ *  - traitement des nouvelles lignes toutes les 5 minutes ;
+ *  - suivi des colis Ecotrack toutes les 30 minutes (sans effet tant qu'Ecotrack n'est pas configuré).
+ * Google limite le temps de calcul quotidien : rien n'est lancé inutilement.
  */
 function installTriggers_() {
-  var handlers = ['processNewRows', 'syncEcotrackStatuses', 'importShopifyOrders'];
+  var handlers = ['processNewRows', 'syncEcotrackStatuses', 'importShopifyOrders', 'transferReleasitOrders'];
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (handlers.indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('importShopifyOrders').timeBased().everyMinutes(5).create();
+  if (ss_().getSheetByName(RELEASIT.SHEET)) ScriptApp.newTrigger('transferReleasitOrders').timeBased().everyMinutes(1).create();
+  if (shopifyConfig_().configured) ScriptApp.newTrigger('importShopifyOrders').timeBased().everyMinutes(5).create();
   ScriptApp.newTrigger('processNewRows').timeBased().everyMinutes(5).create();
   ScriptApp.newTrigger('syncEcotrackStatuses').timeBased().everyMinutes(30).create();
 }

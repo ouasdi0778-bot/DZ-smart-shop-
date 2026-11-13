@@ -1,6 +1,10 @@
 /**
  * Shopify.gs : importation automatique des commandes Shopify (Releasit COD).
  *
+ * Une autre voie, sans accès Shopify : Releasit COD écrit lui-même les commandes
+ * dans l'onglet RELEASIT (voir Releasit.gs). Les deux peuvent tourner ensemble :
+ * le n° de commande (#1038) évite les doublons.
+ *
  * Toutes les 5 minutes, les nouvelles commandes de la boutique sont ajoutées à
  * l'onglet Commandes (statut vide), puis préparées comme n'importe quelle autre
  * ligne (téléphone, wilaya, alertes… voir processNewRows). Les commandes déjà
@@ -533,6 +537,7 @@ function menuShopifySetup() {
   }
   try {
     saveShopifyConfig_(first.getResponseText(), key, secret);
+    installTriggers_(); // l'importation automatique ne tourne que si Shopify est configuré
     ui.alert('Shopify', api_shopifyTest().message + '\n\nL’importation automatique se fait toutes les 5 minutes. Pour importer tout de suite : DZ Smart Shop › Shopify › Importer les commandes maintenant.', ui.ButtonSet.OK);
   } catch (e) {
     ui.alert('Shopify : échec', String(e && e.message ? e.message : e), ui.ButtonSet.OK);

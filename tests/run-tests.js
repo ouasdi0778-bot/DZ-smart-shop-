@@ -110,7 +110,7 @@ test('setup : crée les onglets, en-têtes, réglages et le déclencheur', funct
   assert.strictEqual(sheet('Tarifs').getLastRow(), 59);
   assert.strictEqual(sheet('Paramètres').getLastRow(), DEFAULT_SETTINGS.length + 1);
   assert.deepStrictEqual(__mock.state.triggers.map(function (t) { return t.fn + '/' + t.minutes; }),
-    ['importShopifyOrders/5', 'processNewRows/5', 'syncEcotrackStatuses/30']);
+    ['processNewRows/5', 'syncEcotrackStatuses/30'], 'ni Releasit ni Shopify : rien d’inutile');
   var statusCol = header.indexOf('Statut') + 1;
   assert.ok(sheet('Commandes')._validations.some(function (v) { return v.col === statusCol; }));
   assert.strictEqual(sheet('Commandes')._cf.length, STATUS_LIST.length + 7);
@@ -125,7 +125,7 @@ test('setup : relancé deux fois, ne duplique rien', function () {
   assert.strictEqual(sheet('Paramètres').getRange(3, 2).getValue(), 5);
   assert.strictEqual(sheet('Tarifs').getLastRow(), 59);
   assert.strictEqual(sheet('Équipe').getLastRow(), 2);
-  assert.strictEqual(__mock.state.triggers.length, 3);
+  assert.strictEqual(__mock.state.triggers.length, 2);
   assert.strictEqual(sheet('Commandes')._cf.length, STATUS_LIST.length + 7);
 });
 
@@ -1402,6 +1402,264 @@ test('Shopify : une commande importée se confirme puis se prépare pour Ecotrac
   assert.strictEqual(payload.code_wilaya, 25);
   assert.strictEqual(payload.produit, 'cover iPhone — iphone 13 PRO MAX');
   assert.strictEqual(payload.stop_desk, 0);
+});
+
+/* ---------------- Releasit (onglet RELEASIT) ---------------- */
+
+/** Les titres exacts de l'onglet RELEASIT du classeur (espaces en trop compris). */
+var RELEASIT_HEADER = ['Order ID', 'Date', 'Client', 'Wilaya', 'Commune', 'Adresse', 'Téléphone', 'Produit et variant', 'Quantité',
+  'prix de produit ', 'sous total ', 'prix de livraison  ', 'prix total ', 'type de livraison '];
+function pad2(n) { return (n < 10 ? '0' : '') + n; }
+/** « 2026-11-13 18:01:14 », heure locale : le format écrit par Releasit. */
+function localStamp(d) {
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' +
+    pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+}
+function releasitTab(header) {
+  var s = sheet('RELEASIT') || __mock.ss().insertSheet('RELEASIT');
+  var h = header || RELEASIT_HEADER;
+  s.getRange(1, 1, 1, h.length).setValues([h]);
+  return s;
+}
+/** Une ligne comme Releasit l'écrit (des textes), données inventées. */
+function releasitAdd(o) {
+  var line = o.line === undefined ? 1800 * (o.qty || 1) : o.line;
+  var ship = o.ship === undefined ? 450 : o.ship;
+  sheet('RELEASIT').appendRow([
+    o.id, o.date || localStamp(new Date(Date.now() - 60000)), o.client || 'Client Test', o.wilaya || 'bejaia',
+    o.commune === undefined ? 'البلدية وادغير' : o.commune, o.address || 'Village test', o.phone || '+2130550123456',
+    o.product || 'cover iPhone  - iphone 15 PRO MAX', String(o.qty || 1), String(line), String(o.sub === undefined ? line : o.sub),
+    String(ship), String(o.total === undefined ? line + ship : o.total), o.mode === undefined ? 'توصيل للمكتب ' : o.mode
+  ]);
+}
+function releasitSetup() {
+  baseSetup();
+  releasitTab();
+}
+function releasitSnapshot() { return JSON.stringify(sheet('RELEASIT').data); }
+
+test('Releasit : colonnes reconnues par leur titre (titres réels de l’onglet)', function () {
+  var col = releasitColumns_(RELEASIT_HEADER);
+  assert.deepStrictEqual(col, { id: 0, date: 1, client: 2, wilaya: 3, commune: 4, address: 5, phone: 6, product: 7, qty: 8,
+    linePrice: 9, subtotal: 10, shipping: 11, total: 12, mode: 13 });
+  // Ordre différent, autres écritures : reconnu quand même.
+  var other = releasitColumns_(['Téléphone', 'N° de commande', 'Prix total', 'Type de livraison', 'Nom complet', 'UTM campaign']);
+  assert.deepStrictEqual(other, { phone: 0, id: 1, total: 2, mode: 3, client: 4, campaign: 5 });
+
+  setup();
+  assert.strictEqual(releasitColumnsReport_().found, false);
+  releasitTab(['Order ID', 'Date', 'Client', 'Wilaya', 'Commune', 'Adresse', 'Téléphone', 'Produit et variant', 'Quantité', 'prix de produit ', 'prix de livraison  ', 'prix total ']);
+  var r = releasitColumnsReport_();
+  assert.deepStrictEqual(r.missing, ['Livraison'], 'le type de livraison manquait dans le premier essai');
+  assert.ok(r.recognized.some(function (c) { return c.title === 'Order ID' && c.target === 'N°'; }));
+  releasitTab();
+  assert.deepStrictEqual(releasitColumnsReport_().missing, []);
+});
+
+test('Releasit : une ligne devient une commande prête à confirmer (onglet RELEASIT jamais modifié)', function () {
+  releasitSetup();
+  releasitAdd({ id: '#1038', date: '2026-11-13 18:01:14', client: 'Client  Test', qty: 3, line: 5400, sub: 5400, ship: 450, total: 5850 });
+  var before = releasitSnapshot();
+  var s = transferReleasitOrders_();
+  assert.deepStrictEqual([s.found, s.read, s.added, s.skipped, s.ignored], [true, 1, 1, 0, 0]);
+  assert.strictEqual(releasitSnapshot(), before, 'RELEASIT est seulement lu');
+
+  var o = order('#1038');
+  assert.strictEqual(o.status, 'À confirmer');
+  assert.strictEqual(o.source, 'Releasit');
+  assert.strictEqual(o.client, 'Client Test');
+  assert.strictEqual(o.phone, '0550123456', '+213 suivi du 0 : remis au format 05…');
+  assert.strictEqual(o.wilaya, '06 - Béjaïa');
+  assert.strictEqual(o.commune, 'وادغير', 'le mot « البلدية » est retiré');
+  assert.strictEqual(o.address, 'Village test');
+  assert.strictEqual(o.product, 'cover iPhone - iphone 15 PRO MAX');
+  assert.strictEqual(o.qty, 3);
+  assert.strictEqual(o.price, 5400, 'prix des 3 articles');
+  assert.strictEqual(o.shipping, 450, 'frais payés par le client, pas ceux de l’onglet Tarifs');
+  assert.strictEqual(o.total, 5850);
+  assert.strictEqual(o.mode, 'Stop desk');
+  assert.strictEqual(o.attempts, 0);
+  assert.strictEqual(o.date, new Date(2026, 10, 13, 18, 1, 14).toISOString(), 'heure d’Algérie, à la seconde');
+  assert.ok(logActions().indexOf('Transfert Releasit') >= 0);
+  assert.strictEqual(api_queue().due[0].id, '#1038', 'directement dans la file de confirmation');
+});
+
+test('Releasit : pas de doublon, lecture rapide si rien n’a changé, nouvelles lignes au passage suivant', function () {
+  releasitSetup();
+  addRaw({ 'N°': '#1040', 'Client': 'Saisie à la main', 'Téléphone': '0550000001', 'Wilaya': 'Alger', 'Prix': 1000, 'Statut': 'Confirmée' });
+  releasitAdd({ id: '#1039', phone: '+2130661457890' });
+  releasitAdd({ id: '#1040', client: 'Depuis Releasit', phone: '+2130770981122' });
+  var first = transferReleasitOrders_();
+  assert.deepStrictEqual([first.added, first.skipped], [1, 1]);
+  assert.strictEqual(order('#1040').client, 'Saisie à la main', 'une commande déjà là n’est pas touchée');
+
+  var quick = transferReleasitOrders_();
+  assert.deepStrictEqual([quick.quick, quick.added], [true, 0], 'rien de nouveau : une seule case lue');
+
+  releasitAdd({ id: '#1041', phone: '+2130672063914' });
+  var next = transferReleasitOrders_();
+  assert.deepStrictEqual([next.quick, next.read, next.added], [false, 1, 1], 'seule la nouvelle ligne est lue');
+  assert.deepStrictEqual(orderRowIds().sort(), ['#1039', '#1040', '#1041']);
+
+  var forced = api_releasitTransfer();
+  assert.strictEqual(forced.summary.added, 0);
+  assert.ok(/0 nouvelle\(s\) commande\(s\) transférée\(s\)/.test(forced.message), forced.message);
+
+  // L'import Shopify (s'il est activé un jour) ne recrée pas une commande déjà venue de Releasit.
+  saveShopifyConfig_(SHOP_DOMAIN, SHOPIFY.token, '');
+  SHOPIFY.add({ name: '#1041', createdAt: hoursBack(1) });
+  assert.strictEqual(importShopifyOrders_().imported, 0);
+  assert.strictEqual(orderRowIds().length, 3);
+});
+
+test('Releasit : une commande sur plusieurs lignes (un produit par ligne) devient une seule commande', function () {
+  releasitSetup();
+  // Total de la commande répété sur chaque ligne.
+  releasitAdd({ id: '#2001', product: 'Coque A', qty: 2, line: 3600, sub: 5100, ship: 450, total: 5550 });
+  releasitAdd({ id: '#2001', product: 'Coque B', qty: 1, line: 1500, sub: 5100, ship: 450, total: 5550 });
+  // Total par ligne (produit + livraison) : on additionne les produits.
+  releasitAdd({ id: '#2002', product: 'Coque A', line: 1800, sub: 1800, ship: 450, total: 2250, phone: '+2130661457890' });
+  releasitAdd({ id: '#2002', product: 'Coque B', line: 1500, sub: 1500, ship: 450, total: 1950, phone: '+2130661457890' });
+  var s = transferReleasitOrders_();
+  assert.strictEqual(s.added, 2);
+  var a = order('#2001');
+  assert.deepStrictEqual([a.product, a.qty, a.price, a.shipping, a.total], ['Coque A ×2 + Coque B', 1, 5100, 450, 5550]);
+  var b = order('#2002');
+  assert.deepStrictEqual([b.product, b.price, b.shipping, b.total], ['Coque A + Coque B', 3300, 450, 3750]);
+});
+
+test('Releasit : type de livraison deviné d’après les tarifs, sinon signalé à la confirmatrice', function () {
+  releasitSetup();
+  releasitAdd({ id: '#3001', wilaya: 'Oran', mode: 'التوصيل للمنزل', ship: 900 });
+  releasitAdd({ id: '#3002', wilaya: 'Oran', mode: 'التوصيل', ship: 650, phone: '+2130661457890' });
+  releasitAdd({ id: '#3003', wilaya: 'وهران', mode: '', ship: 450, phone: '+2130770981122' });
+  releasitAdd({ id: '#3004', wilaya: 'Oran', mode: 'التوصيل', ship: 999, phone: '+2130672063914' });
+  releasitAdd({ id: '#3005', wilaya: 'Oran', mode: 'Free shipping', ship: 0, phone: '+2130555123456' });
+  transferReleasitOrders_();
+  assert.strictEqual(order('#3001').mode, 'Domicile');
+  assert.strictEqual(order('#3001').shipping, 900, 'les frais annoncés au client sont gardés');
+  assert.strictEqual(order('#3002').mode, 'Domicile', '650 = tarif domicile d’Oran');
+  assert.strictEqual(order('#3003').mode, 'Stop desk', '450 = tarif stop desk d’Oran');
+  assert.strictEqual(order('#3003').wilaya, '31 - Oran');
+  assert.strictEqual(order('#3002').notes, '');
+  assert.strictEqual(order('#3004').notes, 'Type de livraison à vérifier (Releasit : « التوصيل »)');
+  assert.strictEqual(order('#3005').notes, 'Type de livraison à vérifier (Releasit : « Free shipping »)');
+  assert.deepStrictEqual([order('#3005').shipping, order('#3005').total], [0, 1800], 'livraison gratuite');
+});
+
+test('Releasit : onglet nettoyé (repère perdu) : seules les lignes récentes sont relues, sans doublon', function () {
+  releasitSetup();
+  releasitAdd({ id: '#4001' });
+  releasitAdd({ id: '#4002', phone: '+2130661457890' });
+  assert.strictEqual(transferReleasitOrders_().added, 2);
+  var data = sheet('RELEASIT').data;
+  data.splice(2, 1); // la ligne #4002 (le repère) est supprimée par l'utilisateur
+  releasitAdd({ id: '#3990', date: localStamp(new Date(Date.now() - 10 * 86400000)), phone: '+2130770981122' });
+  releasitAdd({ id: '#4003', phone: '+2130672063914' });
+  var s = transferReleasitOrders_();
+  assert.deepStrictEqual([s.added, s.skipped], [1, 1], '#4003 ajoutée, #4001 déjà là, #3990 trop ancienne');
+  assert.deepStrictEqual(orderRowIds().sort(), ['#4001', '#4002', '#4003']);
+});
+
+test('Releasit : première fois : les lignes de plus de 7 jours sont ignorées', function () {
+  releasitSetup();
+  releasitAdd({ id: '#900', date: localStamp(new Date(Date.now() - 10 * 86400000)) });
+  releasitAdd({ id: '#901', date: localStamp(new Date(Date.now() - 2 * 86400000)), phone: '+2130661457890' });
+  assert.strictEqual(transferReleasitOrders_().added, 1);
+  assert.deepStrictEqual(orderRowIds(), ['#901']);
+});
+
+test('Releasit : lignes inutilisables ignorées et signalées ; colonne n° absente = erreur claire, écrite une fois', function () {
+  releasitSetup();
+  releasitAdd({ id: '' });
+  sheet('RELEASIT').appendRow(['#5002', localStamp(new Date()), '', 'Alger', '', '', '', 'Coque']);
+  releasitAdd({ id: '#5003' });
+  var s = transferReleasitOrders_();
+  assert.deepStrictEqual([s.added, s.ignored], [1, 2]);
+  assert.ok(/2 ligne\(s\) ignorée\(s\)/.test(releasitMessage_(s)));
+
+  var tab = releasitTab(['Numero', 'Date', 'Client']);
+  tab.appendRow(['#5004', localStamp(new Date()), 'X']);
+  assert.strictEqual(transferReleasitOrders(), null);
+  assert.strictEqual(transferReleasitOrders(), null);
+  assert.strictEqual(logActions().filter(function (a) { return a === 'Erreur Releasit'; }).length, 1);
+  var st = api_importStatus().releasit;
+  assert.ok(/colonne « Order ID »/.test(st.lastError), st.lastError);
+  assert.ok(st.missing.indexOf('N°') >= 0);
+  assert.throws(function () { api_releasitTransfer(); }, /colonne « Order ID »/);
+  assert.deepStrictEqual(api_releasitSync(), { found: true, added: 0, error: true });
+
+  releasitTab();
+  assert.strictEqual(transferReleasitOrders_({ force: true }).found, true);
+  assert.strictEqual(api_importStatus().releasit.lastError, '', 'erreur effacée dès que ça remarche');
+});
+
+test('Releasit : dates et nombres tels que Google Sheets peut les renvoyer', function () {
+  var d = new Date(2026, 10, 13, 18, 1, 14);
+  assert.strictEqual(releasitDate_(d), d);
+  assert.strictEqual(releasitDate_('2026-11-13 18:01:14').getTime(), d.getTime());
+  assert.strictEqual(releasitDate_('13/11/2026 18:01:14').getTime(), d.getTime());
+  assert.strictEqual(releasitDate_('2026-11-13T17:01:14Z').toISOString(), '2026-11-13T17:01:14.000Z');
+  assert.strictEqual(releasitDate_('٢٠٢٦-١١-١٣ 18:01:14').getTime(), d.getTime());
+  assert.strictEqual(releasitDate_(''), null);
+  assert.strictEqual(releasitDate_('hier'), null);
+
+  releasitSetup();
+  sheet('RELEASIT').appendRow(['#6001', d, 'Client', 'Alger', 'Bab Ezzouar', 'Rue 1', 2130550123456, 'Coque', 2, 3600, 3600, 400, 4000, 'توصيل للمكتب']);
+  transferReleasitOrders_();
+  var o = order('#6001');
+  assert.deepStrictEqual([o.phone, o.wilaya, o.qty, o.price, o.shipping, o.total, o.mode, o.commune],
+    ['0550123456', '16 - Alger', 2, 3600, 400, 4000, 'Stop desk', 'Bab Ezzouar']);
+});
+
+test('Releasit : déclencheur chaque minute, état affiché, menu, vérification à l’ouverture des pages', function () {
+  setup();
+  assert.strictEqual(api_importStatus().releasit.found, false);
+  assert.deepStrictEqual(api_releasitSync(), { found: false, added: 0, message: releasitMessage_({ found: false }) });
+  assert.strictEqual(transferReleasitOrders().found, false, 'sans onglet RELEASIT : sans effet');
+
+  releasitTab();
+  saveShopifyConfig_(SHOP_DOMAIN, SHOPIFY.token, '');
+  setup();
+  assert.deepStrictEqual(__mock.state.triggers.map(function (t) { return t.fn + '/' + t.minutes; }),
+    ['transferReleasitOrders/1', 'importShopifyOrders/5', 'processNewRows/5', 'syncEcotrackStatuses/30']);
+
+  var st = api_importStatus();
+  assert.deepStrictEqual([st.releasit.found, st.releasit.missing, st.releasit.lastError, st.shopify.configured], [true, [], '', true]);
+  assertSerializable(st, 'api_importStatus');
+
+  releasitAdd({ id: '#7001' });
+  var sync = api_releasitSync();
+  assert.deepStrictEqual([sync.found, sync.added], [true, 1]);
+  assertSerializable(sync, 'api_releasitSync');
+  assert.ok(api_importStatus().releasit.lastRun);
+
+  onOpen();
+  menuReleasitCheck();
+  menuReleasitTransfer();
+  var texts = __mock.state.alerts.map(function (a) { return a.join(' | '); }).join('\n');
+  assert.ok(/Order ID → N°/.test(texts), texts);
+  assert.ok(/Transfert automatique : actif/.test(texts), texts);
+  assert.ok(/0 nouvelle\(s\) commande\(s\) transférée\(s\)/.test(texts), texts);
+});
+
+test('Releasit : une commande transférée se confirme puis part chez Ecotrack avec le bon montant', function () {
+  releasitSetup();
+  saveEcotrackConfig_(FAKE.host, FAKE.token);
+  releasitAdd({ id: '#8001', wilaya: 'الجزائر', commune: 'البلدية باب الزوار', qty: 3, line: 5400, ship: 450, total: 5850 });
+  transferReleasitOrders_();
+  assert.strictEqual(order('#8001').commune, 'باب الزوار');
+  api_recordCall('#8001', 'confirm', {});
+  api_updateOrder('#8001', { commune: 'Bab Ezzouar' }); // la confirmatrice l'écrit comme chez Ecotrack
+  var item = api_shippingList().toShip.filter(function (x) { return x.id === '#8001'; })[0];
+  assert.deepStrictEqual(item.problems, []);
+  var out = results(ship(['#8001']));
+  assert.ok(out['#8001'].ok, out['#8001'].message);
+  var payload = FAKE.lastCall('/api/v1/create/orders').body.orders['0'];
+  assert.strictEqual(payload.montant, 5850, 'le client paie le total annoncé par Releasit');
+  assert.strictEqual(payload.code_wilaya, 16);
+  assert.strictEqual(payload.stop_desk, 1);
+  assert.strictEqual(payload.commune, 'Bab Ezzouar');
 });
 
 test('fichier unique dist/Code.gs : à jour et fonctionnel', function () {

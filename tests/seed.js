@@ -11,6 +11,26 @@ function seedShopify_() {
   importShopifyOrders_();
 }
 
+/**
+ * Onglet RELEASIT tel que Releasit COD le remplit (aperçu uniquement, noms inventés).
+ * Une ligne est déjà transférée ; les deux suivantes arrivent à l'ouverture de la page Commandes.
+ */
+function seedReleasit_() {
+  var sh = ss_().getSheetByName('RELEASIT') || ss_().insertSheet('RELEASIT');
+  var header = ['Order ID', 'Date', 'Client', 'Wilaya', 'Commune', 'Adresse', 'Téléphone', 'Produit et variant', 'Quantité',
+    'prix de produit ', 'sous total ', 'prix de livraison  ', 'prix total ', 'type de livraison '];
+  sh.getRange(1, 1, 1, header.length).setValues([header]);
+  var stamp = function (m) {
+    var d = new Date(Date.now() - m * 60000);
+    var p = function (n) { return ('0' + n).slice(-2); };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  };
+  sh.appendRow(['#2004', stamp(25), 'Nadir B.', 'bejaia', 'البلدية أقبو', 'Cité 100 logements', '+2130551234567', 'cover iPhone  - iphone 15 PRO MAX', '3', '5400', '5400', '450', '5850', 'توصيل للمكتب ']);
+  transferReleasitOrders_();
+  sh.appendRow(['#2005', stamp(4), 'Lina K.', 'Oran', 'البلدية بئر الجير', 'Hai Khemisti', '+2130662345678', 'cover iPhone  - iphone 13', '1', '1800', '1800', '650', '2450', 'التوصيل للمنزل']);
+  sh.appendRow(['#2006', stamp(1), 'Walid M.', 'الجزائر', 'البلدية باب الزوار', 'Rue des frères', '+2130773456789', 'chargeur moto', '2', '2400', '2400', '400', '2800', 'توصيل للمكتب ']);
+}
+
 /** Connecte l'outil au faux Ecotrack (aperçu et tests uniquement). */
 function seedEcotrackConnection_() {
   saveEcotrackConfig_(__fakeEcotrack.host, __fakeEcotrack.token);
@@ -217,5 +237,6 @@ function seedDemo_() {
   __mock.setUser('imane@example.com');
   api_setBlacklist('0555001199', true, 'Refus répétés');
   seedShopify_();
+  seedReleasit_();
   recalcAlerts();
 }

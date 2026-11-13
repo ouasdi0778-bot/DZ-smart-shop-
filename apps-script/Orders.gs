@@ -77,19 +77,30 @@ function writeFields_(ctx, order, fields) {
 
 /** Ajoute une commande en bas de l'onglet. */
 function appendOrder_(ctx, order) {
-  var row = [];
-  for (var i = 0; i < ctx.width; i++) row.push('');
-  Object.keys(ctx.map).forEach(function (key) {
-    if (!isBlank_(order[key])) row[ctx.map[key]] = order[key];
+  return appendOrders_(ctx, [order])[0];
+}
+
+/** Ajoute plusieurs commandes en bas de l'onglet, en une seule écriture. */
+function appendOrders_(ctx, list) {
+  if (!list.length) return list;
+  var rows = list.map(function (order) {
+    var row = [];
+    for (var i = 0; i < ctx.width; i++) row.push('');
+    Object.keys(ctx.map).forEach(function (key) {
+      if (!isBlank_(order[key])) row[ctx.map[key]] = order[key];
+    });
+    return row;
   });
   var r = ctx.sheet.getLastRow() + 1;
   TEXT_KEYS_.forEach(function (key) {
-    if (ctx.map[key] !== undefined) ctx.sheet.getRange(r, ctx.map[key] + 1).setNumberFormat('@');
+    if (ctx.map[key] !== undefined) ctx.sheet.getRange(r, ctx.map[key] + 1, list.length, 1).setNumberFormat('@');
   });
-  ctx.sheet.getRange(r, 1, 1, ctx.width).setValues([row]);
-  order._row = r;
-  ctx.orders.push(order);
-  return order;
+  ctx.sheet.getRange(r, 1, list.length, ctx.width).setValues(rows);
+  list.forEach(function (order, i) {
+    order._row = r + i;
+    ctx.orders.push(order);
+  });
+  return list;
 }
 
 /** Prochain numéro pour une commande saisie à la main : M0001, M0002… */

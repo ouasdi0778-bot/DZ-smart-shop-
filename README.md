@@ -18,6 +18,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 
 Ce qui se passe tout seul :
 
+- **Chaque minute**, les nouvelles commandes écrites par Releasit COD dans l'onglet RELEASIT sont recopiées dans Commandes (voir plus bas).
 - **Toutes les 5 minutes**, chaque nouvelle ligne de l'onglet Commandes (statut vide) est préparée :
   - le téléphone est remis au format `0550123456` ;
   - la wilaya est écrite comme dans la liste (`16 - Alger`) ;
@@ -135,7 +136,43 @@ La page **Suivi** réunit :
 - Choisir un bureau précis pour le stop desk : l'API ne demande que « domicile » ou « stop desk ».
 - Remarques au livreur (`add/maj`), demande de retour, bordereaux PDF, et Yalidine.
 
+## Commandes Releasit COD : arrivée automatique (onglet RELEASIT)
+
+C'est la voie la plus simple, **sans accès Shopify** : Releasit COD écrit lui-même chaque nouvelle commande dans l'onglet **RELEASIT** du classeur (intégration Google Sheets de Releasit). **Chaque minute**, l'outil recopie les nouvelles lignes dans l'onglet Commandes, puis les prépare comme les autres (téléphone, wilaya, alertes, statut « À confirmer »). Elles arrivent donc directement dans le centre de confirmation. L'outil vérifie aussi l'onglet dès qu'on ouvre les pages **Commandes** ou **Confirmation**.
+
+### Configuration (une seule fois)
+
+1. Dans le classeur, créez un onglet vide nommé **RELEASIT**.
+2. Dans Shopify : **Releasit COD Form › Intégrations › Google Sheets**. Connectez le compte Google du classeur, choisissez le classeur et l'onglet **RELEASIT**, et cochez au moins : n° de commande, date, nom, téléphone, wilaya, commune, adresse, produit et variante, quantité, prix, sous-total, frais de livraison, total, **type de livraison**.
+3. Collez la nouvelle version du code, puis **DZ Smart Shop › Installer / réparer le classeur** : le transfert automatique (chaque minute) s'active seulement si l'onglet RELEASIT existe.
+4. **DZ Smart Shop › Releasit › Vérifier les colonnes de l'onglet RELEASIT** : montre les colonnes reconnues, celles qui manquent, et si le transfert automatique est actif.
+
+### Ce qui est repris
+
+| Onglet RELEASIT | Dans Commandes |
+|---|---|
+| Order ID (`#1038`) | N° : le même que dans Shopify, donc **jamais de doublon**, même si l'import Shopify tourne aussi |
+| Date (`2026-11-13 18:01:14`, heure d'Algérie) | Date |
+| Client, Adresse | Client, Adresse |
+| Téléphone (`+2130550…`) | Téléphone, remis au format `0550123456` |
+| Wilaya (`bejaia`, `الجزائر`, `16`…) | Wilaya, par exemple `06 - Béjaïa` |
+| Commune (`البلدية …`) | Commune, sans le mot « البلدية » (elle reste en arabe : la confirmatrice l'écrit comme chez Ecotrack) |
+| Produit et variant, Quantité | Produit, Quantité |
+| prix total, prix de livraison | Total (le montant qu'Ecotrack encaissera), Frais livraison (ceux payés par le client) |
+| prix total − prix de livraison | Prix (le sous-total, remise comprise) |
+| type de livraison (`توصيل للمكتب` / `التوصيل للمنزل`) | Livraison : Stop desk / Domicile |
+| UTM campaign (si ajoutée) | Campagne |
+
+- **Type de livraison absent ou flou** (« التوصيل », « Free shipping ») : l'outil compare les frais payés avec l'onglet Tarifs ; s'il ne peut pas trancher, il met Domicile et écrit « Type de livraison à vérifier » dans les notes.
+- **Plusieurs lignes avec le même n°** (une par produit) : une seule commande, par exemple « Coque A ×2 + Coque B ».
+- **L'onglet RELEASIT n'est jamais modifié** : l'outil le lit seulement. Il retient la dernière ligne lue et ne transfère que les suivantes. Vous pouvez supprimer d'anciennes lignes ; si la dernière ligne lue disparaît, l'outil relit les lignes des 7 derniers jours (sans doublon).
+- **Ne renommez pas les titres** de la première ligne de RELEASIT (sinon une erreur claire s'affiche dans la page Commandes). Une nouvelle colonne s'ajoute **à la fin**.
+- **Pour retirer une commande, annulez-la** dans l'application plutôt que de supprimer sa ligne de Commandes : une ligne supprimée revient tant qu'elle est encore dans les dernières lignes de RELEASIT.
+- Lignes sans n° de commande, ou sans nom ni téléphone : ignorées et signalées dans le Journal.
+
 ## Importer les commandes Shopify (Releasit COD)
+
+Autre voie, si vous préférez que l'outil lise Shopify directement (il faut alors créer une application Shopify). L'importation automatique ne tourne que lorsque Shopify est configuré.
 
 Toutes les **5 minutes**, les nouvelles commandes de la boutique sont ajoutées à l'onglet Commandes, puis préparées comme les autres (téléphone, wilaya, alertes, statut « À confirmer »). Elles arrivent donc directement dans le centre de confirmation. Une commande déjà présente n'est jamais ajoutée deux fois (le n° de commande Shopify sert de clé). **L'accès est en lecture seule** : rien n'est modifié dans Shopify.
 
@@ -144,9 +181,9 @@ Toutes les **5 minutes**, les nouvelles commandes de la boutique sont ajoutées 
 L'outil lit Shopify avec une « application » que vous créez pour votre boutique. Il lui faut la seule permission **`read_orders`**.
 
 1. Créez l'application et installez-la sur la boutique (voir les étapes dans la conversation, ou la documentation de Shopify : *Dev Dashboard*, ou *Paramètres › Applications › Développer des applications* si votre boutique le permet encore).
-2. Relancez **DZ Smart Shop › Installer / réparer le classeur** : colonnes **Campagne** et **ID Shopify**, réglages `SHOPIFY_*`, et déclencheur d'importation.
+2. Relancez **DZ Smart Shop › Installer / réparer le classeur** : colonnes **Campagne** et **ID Shopify**, et réglages `SHOPIFY_*`.
 3. **DZ Smart Shop › Shopify › Enregistrer la boutique et l'accès** : adresse de la boutique (`xxxx.myshopify.com`), puis le **jeton d'accès** (`shpat_…`) **ou** l'**identifiant client** suivi de son **secret** (l'outil demande alors lui-même un jeton à Shopify et le renouvelle). Ils sont gardés dans les propriétés du script, jamais dans le classeur. Un test vérifie la connexion, la permission, et **signale une boutique qui n'est pas en dinars algériens**.
-4. **Shopify › Importer les commandes maintenant** pour la première importation.
+4. **Shopify › Importer les commandes maintenant** pour la première importation. L'enregistrement de l'accès active l'importation automatique (toutes les 5 minutes).
 
 ### Ce qui est importé
 
@@ -175,7 +212,7 @@ Toute autre application ou automatisation qui **ajoute une ligne** dans l'onglet
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 58 tests du code serveur (dont Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 69 tests du code serveur (dont Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
@@ -192,6 +229,7 @@ apps-script/
   Ecotrack.gs   création des colis, tarifs, statuts Ecotrack
   Tracking.gs   page Suivi : alertes, argent, versements, chronologie
   Shopify.gs    importation des commandes Shopify (Releasit COD), wilayas en arabe
+  Releasit.gs   transfert des commandes de l'onglet RELEASIT (écrites par Releasit COD)
   Api.gs        application web, menu du classeur, fonctions appelées par l'interface
   Setup.gs      création/réparation du classeur et du traitement automatique
   Index.html    page de l'application
