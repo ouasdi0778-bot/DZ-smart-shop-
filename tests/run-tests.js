@@ -35,12 +35,18 @@ function assertSerializable(value, where) {
 }
 
 function sheet(name) { return __mock.ss().getSheetByName(name); }
+/** Ce que fait Google quand quelqu'un modifie un onglet à la main : il lance onEdit. */
+function userEdit(name) { onEdit({ range: sheet(name).getRange(1, 1) }); }
+/** Déclencheurs installés : « fonction/minutes », ou « fonction/heureh » pour ceux de chaque nuit. */
+function triggerList() {
+  return __mock.state.triggers.map(function (t) { return t.fn + '/' + (t.minutes || (t.hour + 'h')); });
+}
 function headerOf(name) { var s = sheet(name); return s.getRange(1, 1, 1, s.getLastColumn()).getValues()[0]; }
 function setRate(wilaya, values) {
   var s = sheet('Tarifs');
   var rows = s.getRange(2, 1, s.getLastRow() - 1, 1).getValues();
   for (var i = 0; i < rows.length; i++) {
-    if (rows[i][0] === wilaya) { s.getRange(i + 2, 2, 1, 4).setValues([values]); return; }
+    if (rows[i][0] === wilaya) { s.getRange(i + 2, 2, 1, 4).setValues([values]); userEdit('Tarifs'); return; }
   }
   throw new Error('Wilaya absente : ' + wilaya);
 }
@@ -109,8 +115,8 @@ test('setup : crée les onglets, en-têtes, réglages et le déclencheur', funct
   assert.deepStrictEqual(header, ORDER_COLUMNS.map(function (c) { return c.title; }));
   assert.strictEqual(sheet('Tarifs').getLastRow(), 59);
   assert.strictEqual(sheet('Paramètres').getLastRow(), DEFAULT_SETTINGS.length + 1);
-  assert.deepStrictEqual(__mock.state.triggers.map(function (t) { return t.fn + '/' + t.minutes; }),
-    ['processNewRows/5', 'syncEcotrackStatuses/30'], 'ni Releasit ni Shopify : rien d’inutile');
+  assert.deepStrictEqual(triggerList(),
+    ['processNewRows/5', 'syncEcotrackStatuses/30', 'nightlyMaintenance/3h'], 'ni Releasit ni Shopify : rien d’inutile');
   var statusCol = header.indexOf('Statut') + 1;
   assert.ok(sheet('Commandes')._validations.some(function (v) { return v.col === statusCol; }));
   assert.strictEqual(sheet('Commandes')._cf.length, STATUS_LIST.length + 7);
@@ -119,13 +125,14 @@ test('setup : crée les onglets, en-têtes, réglages et le déclencheur', funct
 test('setup : relancé deux fois, ne duplique rien', function () {
   setup();
   sheet('Paramètres').getRange(3, 2).setValue(5); // MAX_TENTATIVES modifié par l'utilisateur
+  userEdit('Paramètres');
   setup();
   assert.deepStrictEqual(headerOf('Commandes'), ORDER_COLUMNS.map(function (c) { return c.title; }));
   assert.strictEqual(sheet('Paramètres').getLastRow(), DEFAULT_SETTINGS.length + 1);
   assert.strictEqual(sheet('Paramètres').getRange(3, 2).getValue(), 5);
   assert.strictEqual(sheet('Tarifs').getLastRow(), 59);
   assert.strictEqual(sheet('Équipe').getLastRow(), 2);
-  assert.strictEqual(__mock.state.triggers.length, 2);
+  assert.strictEqual(__mock.state.triggers.length, 3);
   assert.strictEqual(sheet('Commandes')._cf.length, STATUS_LIST.length + 7);
 });
 
@@ -230,6 +237,7 @@ test('file d’appels : ordre, rappels, confirmation avec modifications', functi
 
   __mock.setUser('imane@example.com');
   sheet('Équipe').appendRow(['imane@example.com', 'Imane', 'Confirmatrice']);
+  userEdit('Équipe');
   api_recordCall('#4003', 'callback', { callback: new Date(now + 3600000).toISOString() });
 
   var q = api_queue();
@@ -877,7 +885,7 @@ function addParcel(id, fields) {
 function setSetting(key, value) {
   var s = sheet('Paramètres');
   var keys = s.getRange(2, 1, s.getLastRow() - 1, 1).getValues();
-  for (var i = 0; i < keys.length; i++) if (keys[i][0] === key) { s.getRange(i + 2, 2).setValue(value); return; }
+  for (var i = 0; i < keys.length; i++) if (keys[i][0] === key) { s.getRange(i + 2, 2).setValue(value); userEdit('Paramètres'); return; }
   throw new Error('Réglage absent : ' + key);
 }
 function alertsOf(res) {
@@ -1624,8 +1632,8 @@ test('Releasit : déclencheur chaque minute, état affiché, menu, vérification
   releasitTab();
   saveShopifyConfig_(SHOP_DOMAIN, SHOPIFY.token, '');
   setup();
-  assert.deepStrictEqual(__mock.state.triggers.map(function (t) { return t.fn + '/' + t.minutes; }),
-    ['transferReleasitOrders/1', 'importShopifyOrders/5', 'processNewRows/5', 'syncEcotrackStatuses/30']);
+  assert.deepStrictEqual(triggerList(),
+    ['transferReleasitOrders/1', 'importShopifyOrders/5', 'processNewRows/5', 'syncEcotrackStatuses/30', 'nightlyMaintenance/3h']);
 
   var st = api_importStatus();
   assert.deepStrictEqual([st.releasit.found, st.releasit.missing, st.releasit.lastError, st.shopify.configured], [true, [], '', true]);
@@ -1672,6 +1680,7 @@ var AGENT = { name: 'Imane', role: 'Confirmatrice' };
 function asAgent() {
   __mock.setUser('imane@example.com');
   sheet('Équipe').appendRow(['imane@example.com', 'Imane', 'Confirmatrice']);
+  userEdit('Équipe');
 }
 function trackingOf(id) { return order(id).tracking; }
 
@@ -1842,6 +1851,229 @@ test('Corbeille : une commande envoyée ne se supprime pas ; les n° manuels ne 
   api_deleteOrder('M0001');
   var b = api_createOrder({ client: 'Manuel 2', phone: '0550000062', wilaya: '16 - Alger', product: 'X', price: 1000 });
   assert.strictEqual(b.id, 'M0002', 'M0001 est à la corbeille : le n° n’est pas réutilisé');
+});
+
+/* ---------------- Vitesse ---------------- */
+
+/** Compte les lectures et écritures faites sur chaque onglet pendant fn(). */
+function countSheetCalls(fn) {
+  var proto = Object.getPrototypeOf(sheet('Commandes').getRange(1, 1));
+  var calls = {};
+  var names = ['getValues', 'getValue', 'setValues', 'setValue'];
+  var saved = {};
+  names.forEach(function (m) {
+    saved[m] = proto[m];
+    proto[m] = function () {
+      var k = this.sheet.name + ':' + m;
+      calls[k] = (calls[k] || 0) + 1;
+      return saved[m].apply(this, arguments);
+    };
+  });
+  try { fn(); } finally { names.forEach(function (m) { proto[m] = saved[m]; }); }
+  return calls;
+}
+function locksDuring(fn) {
+  var real = LockService.getScriptLock;
+  var n = 0;
+  LockService.getScriptLock = function () { n++; return real.apply(LockService, arguments); };
+  try { fn(); } finally { LockService.getScriptLock = real; }
+  return n;
+}
+
+test('Vitesse : une confirmation écrit la commande en 2 blocs, sans case par case', function () {
+  baseSetup();
+  addRaw({ 'N°': '#S1', 'Client': 'Rapide', 'Téléphone': '0550000071', 'Wilaya': 'Alger', 'Prix': 1000 });
+  processNewRows();
+  var calls = countSheetCalls(function () { api_recordCall('#S1', 'confirm', {}); });
+  assert.strictEqual(calls['Commandes:setValue'] || 0, 0, 'aucune écriture case par case');
+  assert.ok((calls['Commandes:setValues'] || 0) <= 2, JSON.stringify(calls));
+  assert.strictEqual(calls['Journal:setValues'], 1, 'une ligne de Journal, écrite en une fois');
+  var o = order('#S1');
+  assert.deepStrictEqual([o.status, o.attempts, o.agent], ['Confirmée', 1, 'Admin']);
+  // processNewRows : le Journal de plusieurs commandes est écrit en une seule fois.
+  for (var i = 0; i < 5; i++) addRaw({ 'N°': '#S' + (10 + i), 'Client': 'Lot', 'Téléphone': '055000008' + i, 'Wilaya': 'Alger', 'Prix': 500 });
+  var batch = countSheetCalls(function () { assert.strictEqual(processNewRows(), 5); });
+  assert.strictEqual(batch['Journal:setValues'], 1);
+});
+
+test('Vitesse : réglages, tarifs, équipe et liste noire gardés en mémoire, vidés dès qu’on les modifie', function () {
+  baseSetup();
+  getSettings_(); getWilayaList_(); readRates_(getWilayaList_()); readClients_(); readTeam_();
+  var again = countSheetCalls(function () {
+    getSettings_(); readRates_(getWilayaList_()); readClients_(); currentUser_();
+    api_bootstrap();
+  });
+  ['Paramètres', 'Tarifs', 'Clients', 'Équipe', 'Produits'].forEach(function (n) {
+    assert.ok(!again[n + ':getValues'], n + ' relu alors qu’il est en mémoire : ' + JSON.stringify(again));
+  });
+  // Modification à la main (onEdit) : vu tout de suite.
+  setSetting('MAX_TENTATIVES', 7);
+  assert.strictEqual(getSettings_().MAX_TENTATIVES, 7);
+  setRate('16 - Alger', [610, 410, 700, 350]);
+  assert.strictEqual(readRates_(getWilayaList_())[16].Yalidine.Domicile, 610);
+  // Changements faits par l'outil lui-même : mémoire vidée aussi.
+  addRaw({ 'N°': '#S2', 'Client': 'Noir', 'Téléphone': '0550000099', 'Wilaya': 'Alger', 'Prix': 1000 });
+  processNewRows();
+  api_setBlacklist('0550000099', true);
+  assert.strictEqual(order('#S2').alert, 'Liste noire');
+  assert.ok(readBlacklist_()['0550000099']);
+  // Un autre onglet modifié à la main ne vide rien.
+  getSettings_();
+  userEdit('Commandes');
+  assert.ok(__mock.state.cache['cfg:settings'], 'la mémoire des réglages reste');
+});
+
+test('Vitesse : sans nouvelle ligne, le traitement automatique ne lit que 3 colonnes et ne bloque rien', function () {
+  baseSetup();
+  addRaw({ 'N°': '#S3', 'Client': 'A', 'Téléphone': '0550000073', 'Wilaya': 'Alger', 'Prix': 1000 });
+  assert.strictEqual(processNewRows(), 1);
+  var locks = locksDuring(function () { assert.strictEqual(processNewRows(), 0); });
+  assert.strictEqual(locks, 0, 'pas de verrou quand il n’y a rien');
+  var calls = countSheetCalls(function () { processNewRows(); });
+  assert.ok((calls['Commandes:getValues'] || 0) <= 4, JSON.stringify(calls));
+  addRaw({ 'N°': '#S4', 'Client': 'Sans téléphone', 'Wilaya': 'Alger', 'Prix': 1000 });
+  assert.strictEqual(processNewRows(), 1, 'une ligne avec seulement un nom est traitée');
+});
+
+test('Vitesse : confirmer renvoie la commande suivante, la file et les compteurs en un seul aller-retour', function () {
+  baseSetup();
+  ['#Q1', '#Q2', '#Q3'].forEach(function (id, i) {
+    addRaw({ 'N°': id, 'Date': new Date(Date.now() - (5 - i) * 3600000), 'Client': 'C' + i, 'Téléphone': '055000010' + i, 'Wilaya': 'Alger', 'Prix': 1000 });
+  });
+  processNewRows();
+  var res = api_recordCall('#Q1', 'confirm', {}, { next: '#Q2', queue: true });
+  assert.strictEqual(res.status, 'Confirmée');
+  assert.strictEqual(res.next.order.id, '#Q2');
+  assert.ok(res.next.rules && res.next.history);
+  assert.deepStrictEqual(res.queue.due.map(function (x) { return x.id; }), ['#Q2', '#Q3']);
+  assert.deepStrictEqual(res.counts, { queue: 2, alerts: 0 });
+  assertSerializable(res, 'api_recordCall');
+  // Commande suivante déjà traitée par quelqu'un d'autre : pas de fiche jointe.
+  api_recordCall('#Q2', 'cancel', { reason: 'Doublon' });
+  assert.strictEqual(api_recordCall('#Q3', 'confirm', {}, { next: '#Q2' }).next, undefined);
+  // Les autres modifications renvoient aussi les compteurs.
+  assert.deepStrictEqual(api_updateOrder('#Q3', { notes: 'ok' }).counts, { queue: 0, alerts: 0 });
+});
+
+test('Vitesse : la première page arrive avec le démarrage (un seul aller-retour)', function () {
+  releasitSetup();
+  addRaw({ 'N°': '#B1', 'Date': new Date(Date.now() - 3600000), 'Client': 'Boot', 'Téléphone': '0550000111', 'Wilaya': 'Alger', 'Prix': 1000 });
+  processNewRows();
+  releasitAdd({ id: '#B2', phone: '+2130661457890' });
+  var key = 'api_queue|[{"sync":true,"first":true}]';
+  var b = api_bootstrap({ fn: 'api_queue', args: [{ sync: true, first: true }], key: key });
+  assert.strictEqual(b.preload.key, key);
+  assert.strictEqual(b.preload.data.arrived, 1, 'RELEASIT vérifié avant');
+  assert.deepStrictEqual(b.preload.data.due.map(function (x) { return x.id; }), ['#B1', '#B2']);
+  assert.strictEqual(b.preload.data.firstDetail.order.id, '#B1');
+  assert.deepStrictEqual(b.counts, { queue: 2, alerts: 0 });
+  assertSerializable(b, 'api_bootstrap');
+
+  var list = api_bootstrap({ fn: 'api_listOrders', args: [{ status: 'all', period: 'all', sync: true, withStatus: true }], key: 'k' });
+  assert.strictEqual(list.preload.data.rows.length, 2);
+  assert.strictEqual(list.preload.data.importStatus.releasit.found, true);
+  assert.ok(api_bootstrap({ fn: 'api_dashboard', args: ['7'], key: 'd' }).preload.data.received >= 2);
+  assert.strictEqual(api_bootstrap({ fn: 'api_setBlacklist', args: ['0550000111', true], key: 'x' }).preload, null, 'seules les pages sont permises');
+  assert.strictEqual(api_bootstrap().preload, null);
+  assert.strictEqual(readBlacklist_()['0550000111'], undefined);
+
+  var q = api_queue({ sync: true, first: true });
+  assert.strictEqual(q.firstDetail.order.id, '#B1');
+  var l = api_listOrders({ status: 'all', period: 'all', sync: true, withStatus: true });
+  assert.ok(l.importStatus && l.arrived === 0 && l.menuCounts === undefined);
+});
+
+test('Vitesse : onglet plein : agrandi tout seul, listes déroulantes et couleurs comprises', function () {
+  releasitSetup();
+  var cmd = sheet('Commandes');
+  cmd.maxRows = 3;
+  addRaw({ 'N°': '#F1', 'Client': 'A', 'Téléphone': '0550000121', 'Wilaya': 'Alger', 'Prix': 1000 });
+  addRaw({ 'N°': '#F2', 'Client': 'B', 'Téléphone': '0550000122', 'Wilaya': 'Alger', 'Prix': 1000 });
+  processNewRows();
+  var rulesBefore = cmd._validations.length;
+  releasitAdd({ id: '#F3' });
+  releasitAdd({ id: '#F4', phone: '+2130661457890' });
+  assert.strictEqual(transferReleasitOrders_().added, 2, 'pas d’erreur « hors de l’onglet »');
+  assert.ok(cmd.getMaxRows() >= 205, 'lignes ajoutées : ' + cmd.getMaxRows());
+  assert.ok(cmd._validations.length > rulesBefore, 'listes déroulantes étendues aux nouvelles lignes');
+  assert.strictEqual(order('#F4').status, 'À confirmer');
+  var j = sheet('Journal');
+  j.maxRows = j.getLastRow();
+  log_({ name: 'Test' }, '', 'Journal plein', 'ok');
+  assert.strictEqual(j.getRange(j.getLastRow(), 4).getValue(), 'Journal plein');
+});
+
+/** Ajoute une commande terminée, avec ses dates. */
+function addFinished(id, fields, daysAgo) {
+  var d = new Date(Date.now() - daysAgo * 86400000);
+  var base = { 'N°': id, 'Date': d, 'Client': 'Client ' + id, 'Téléphone': '0550000200', 'Wilaya': '16 - Alger', 'Produit': 'Sac', 'Prix': 1000,
+    'Total': 1450, 'Livraison': 'Domicile', 'Frais livraison': 450, 'Tentatives': 1, 'Alerte client': 'Nouveau client', 'Source': 'Test', 'Mis à jour': d };
+  Object.keys(fields).forEach(function (k) { base[k] = fields[k]; });
+  addRaw(base);
+}
+
+test('Archive : commandes terminées depuis longtemps archivées, argent et retours en attente gardés, bilan client conservé', function () {
+  baseSetup();
+  addFinished('#A1', { 'Statut': 'Livrée', 'Société': 'Yalidine' }, 120);
+  addFinished('#A2', { 'Statut': 'Livrée', 'Société': 'Ecotrack', 'N° de suivi': 'EC1', 'Statut société': 'paye_et_archive', 'Dernier mouvement colis': new Date(Date.now() - 110 * 86400000) }, 130);
+  addFinished('#A3', { 'Statut': 'Livrée', 'Société': 'Ecotrack', 'N° de suivi': 'EC2', 'Statut société': 'encaisse_non_paye' }, 130);
+  addFinished('#A4', { 'Statut': 'Retour', 'Société': 'Ecotrack', 'N° de suivi': 'EC3', 'Statut société': 'retour_en_traitement' }, 130);
+  addFinished('#A5', { 'Statut': 'Retour', 'Société': 'Ecotrack', 'N° de suivi': 'EC4', 'Statut société': 'retour_recu', 'Téléphone': '0550000201' }, 130);
+  addFinished('#A6', { 'Statut': 'Annulée', 'Motif annulation': 'Doublon', 'Téléphone': '0550000201' }, 150);
+  addFinished('#A7', { 'Statut': 'Annulée' }, 20);
+  addFinished('#A8', { 'Statut': 'Confirmée' }, 200);
+  var before = api_dashboard('all').received;
+
+  var r = archiveOldOrders_();
+  assert.strictEqual(r.archived, 4);
+  assert.deepStrictEqual(orderRowIds().sort(), ['#A3', '#A4', '#A7', '#A8'], 'argent pas versé, retour en cours, récente, pas terminée');
+  var arch = sheet('Archive');
+  var header = headerOf('Archive');
+  assert.strictEqual(header[header.length - 1], 'Archivée le');
+  var ids = arch.getRange(2, header.indexOf('N°') + 1, arch.getLastRow() - 1, 1).getValues().map(function (x) { return x[0]; }).sort();
+  assert.deepStrictEqual(ids, ['#A1', '#A2', '#A5', '#A6']);
+  assert.strictEqual(arch.getRange(2, header.indexOf('Téléphone') + 1).getValue(), '0550000200', 'téléphone gardé en texte');
+
+  // Bilan des clients (onglet Clients) : les alertes restent justes.
+  var clients = readClients_().archived;
+  assert.deepStrictEqual(clients['0550000200'], [2, 0, 0]);
+  assert.deepStrictEqual(clients['0550000201'], [0, 1, 1]);
+  addRaw({ 'N°': '#A9', 'Client': 'Revient', 'Téléphone': '0550000200', 'Wilaya': 'Alger', 'Prix': 1000 });
+  processNewRows();
+  // Même numéro : 2 livrées archivées + #A3 livrée et #A4 retour encore dans Commandes.
+  assert.strictEqual(order('#A9').alert, 'Fiable · 3/4 livrées');
+  var h = api_getOrder('#A9').history;
+  assert.deepStrictEqual([h.orders, h.delivered, h.returned], [6, 3, 1], '2 archivées + #A3, #A4, #A7, #A8');
+  assert.strictEqual(api_dashboard('all').received, before + 1, 'le tableau de bord « Tout » compte les archives');
+  assert.ok(logActions().indexOf('Archivage') >= 0);
+
+  // Deuxième archivage : le bilan s'additionne, sans doublon de client.
+  setSetting('ARCHIVE_JOURS', 10);
+  assert.strictEqual(getSettings_().ARCHIVE_JOURS, 30, 'au moins 30 jours');
+  setSetting('ARCHIVE_JOURS', 0);
+  assert.strictEqual(archiveOldOrders_().archived, 0, '0 = jamais');
+});
+
+test('Maintenance de nuit : Journal raccourci, onglets allégés, RELEASIT jamais touché', function () {
+  releasitSetup();
+  var j = sheet('Journal');
+  for (var i = 0; i < 5; i++) j.appendRow([new Date(Date.now() - (120 - i) * 86400000), 'Ancien', '', 'Test', '']);
+  j.appendRow([new Date(), 'Récent', '', 'Test', '']);
+  var rel = sheet('RELEASIT');
+  var relRows = rel.getMaxRows();
+  var out = nightlyMaintenance();
+  assert.deepStrictEqual(out.errors, []);
+  assert.strictEqual(out.journal, 5);
+  assert.strictEqual(j.getRange(2, 2).getValue(), 'Récent');
+  assert.strictEqual(j.getMaxRows(), j.getLastRow() + 100);
+  assert.strictEqual(j.getMaxColumns(), 5);
+  var cmd = sheet('Commandes');
+  assert.strictEqual(cmd.getMaxRows(), Math.max(cmd.getLastRow(), 1) + 300);
+  assert.strictEqual(rel.getMaxRows(), relRows);
+  assert.ok(out.rows > 0);
+  onOpen();
+  menuMaintenance();
+  assert.ok(__mock.state.alerts.some(function (a) { return /commande\(s\) archivée\(s\)/.test(a.join(' ')); }));
 });
 
 test('fichier unique dist/Code.gs : à jour et fonctionnel', function () {

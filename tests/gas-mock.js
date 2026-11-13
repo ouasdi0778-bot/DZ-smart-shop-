@@ -10,6 +10,9 @@
 
   function Range(sheet, row, col, nr, nc) {
     if (row < 1 || col < 1) throw new Error('Plage invalide : ligne ' + row + ', colonne ' + col);
+    if (row + (nr || 1) - 1 > sheet.maxRows) {
+      throw new Error('The coordinates of the range are outside the dimensions of the sheet (ligne ' + (row + (nr || 1) - 1) + ' > ' + sheet.maxRows + ')');
+    }
     this.sheet = sheet; this.row = row; this.col = col; this.nr = nr || 1; this.nc = nc || 1;
   }
   Range.prototype.getValues = function () {
@@ -35,6 +38,7 @@
     return this;
   };
   Range.prototype.getRow = function () { return this.row; };
+  Range.prototype.getSheet = function () { return this.sheet; };
   Range.prototype.getColumn = function () { return this.col; };
   Range.prototype.getNumRows = function () { return this.nr; };
   Range.prototype.getNumColumns = function () { return this.nc; };
@@ -94,7 +98,18 @@
     values.forEach(function (v, i) { self._set(r, i + 1, v); });
     return this;
   };
-  Sheet.prototype.deleteRow = function (r) { this.data.splice(r - 1, 1); return this; };
+  Sheet.prototype.deleteRow = function (r) { this.data.splice(r - 1, 1); this.maxRows = Math.max(this.maxRows - 1, 1); return this; };
+  Sheet.prototype.deleteRows = function (r, n) { this.data.splice(r - 1, n); this.maxRows = Math.max(this.maxRows - n, 1); return this; };
+  Sheet.prototype.insertRowsAfter = function (r, n) {
+    if (r < this.data.length) { var args = [r, 0]; for (var i = 0; i < n; i++) args.push([]); this.data.splice.apply(this.data, args); }
+    this.maxRows += n;
+    return this;
+  };
+  Sheet.prototype.deleteColumns = function (c, n) {
+    this.data.forEach(function (row) { row.splice(c - 1, n); });
+    this.maxCols = Math.max(this.maxCols - n, 1);
+    return this;
+  };
   Sheet.prototype.setFrozenRows = function (n) { this.frozen = n; return this; };
   Sheet.prototype.setColumnWidth = function () { return this; };
   Sheet.prototype.getConditionalFormatRules = function () { return this._cf.slice(); };
@@ -224,7 +239,8 @@
       return {
         get: function (k) { return Object.prototype.hasOwnProperty.call(state.cache, k) ? state.cache[k] : null; },
         put: function (k, v) { state.cache[k] = String(v); },
-        remove: function (k) { delete state.cache[k]; }
+        remove: function (k) { delete state.cache[k]; },
+        removeAll: function (keys) { keys.forEach(function (k) { delete state.cache[k]; }); }
       };
     }
   };
@@ -237,6 +253,8 @@
       var chain = {
         timeBased: function () { return chain; },
         everyMinutes: function (n) { t.minutes = n; return chain; },
+        everyDays: function (n) { t.days = n; return chain; },
+        atHour: function (h) { t.hour = h; return chain; },
         create: function () { state.triggers.push(t); return t; }
       };
       return chain;

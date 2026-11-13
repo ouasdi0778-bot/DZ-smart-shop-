@@ -100,14 +100,18 @@ function withLock_(fn) {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(20000)) throw new Error('Le classeur est occupé, réessayez dans quelques secondes.');
   try {
-    return fn();
+    return withLogBatch_(fn);
   } finally {
     lock.releaseLock();
   }
 }
 
-/** Réglages de l'onglet Paramètres, complétés par les valeurs par défaut. */
+/** Réglages de l'onglet Paramètres, complétés par les valeurs par défaut (gardés en mémoire). */
 function getSettings_() {
+  return cached_('cfg:settings', readSettings_);
+}
+
+function readSettings_() {
   var s = {};
   DEFAULT_SETTINGS.forEach(function (d) { s[d[0]] = d[1]; });
   var sh = ss_().getSheetByName(SHEET.SETTINGS);
@@ -126,6 +130,10 @@ function getSettings_() {
   s.NOM_BOUTIQUE = String(s.NOM_BOUTIQUE || APP_NAME).trim();
   s.MESSAGE_WHATSAPP = String(s.MESSAGE_WHATSAPP || '');
   s.SUIVI_ALERTE_HEURES = Math.max(1, toNumber_(s.SUIVI_ALERTE_HEURES) || 26);
+  // 0 = jamais ; sinon au moins 30 jours, pour ne rien archiver ou effacer par erreur.
+  var days = function (v) { var n = Math.round(toNumber_(v)); return n <= 0 ? 0 : Math.max(n, 30); };
+  s.ARCHIVE_JOURS = days(s.ARCHIVE_JOURS);
+  s.JOURNAL_JOURS = days(s.JOURNAL_JOURS);
   s.SHOPIFY_TAG = String(s.SHOPIFY_TAG == null ? '' : s.SHOPIFY_TAG).trim();
   s.SHOPIFY_JOURS_INITIAL = Math.min(Math.max(toNumber_(s.SHOPIFY_JOURS_INITIAL) || 3, 1), 60);
   s.SHOPIFY_API_VERSION = /^\d{4}-\d{2}$/.test(String(s.SHOPIFY_API_VERSION || '').trim()) ? String(s.SHOPIFY_API_VERSION).trim() : '2026-04';
@@ -142,24 +150,119 @@ function currentUser_() {
   try { email = String(Session.getActiveUser().getEmail() || ''); } catch (e) { email = ''; }
   var name = '';
   var role = '';
-  var sh = ss_().getSheetByName(SHEET.TEAM);
-  if (sh && sh.getLastRow() > 1 && email) {
-    var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues();
-    for (var i = 0; i < rows.length; i++) {
-      if (String(rows[i][0]).trim().toLowerCase() === email.toLowerCase()) {
-        name = String(rows[i][1]).trim();
-        role = String(rows[i][2]).trim();
-        break;
-      }
+  var rows = email ? readTeam_() : [];
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i][0] === email.toLowerCase()) {
+      name = rows[i][1];
+      role = rows[i][2];
+      break;
     }
   }
   if (!name) name = email ? email.split('@')[0] : 'Utilisateur';
   return { email: email, name: name, role: role };
 }
 
+/* ------------------------------------------------------------------ */
+/* Journal                                                            */
+/* ------------------------------------------------------------------ */
+
+/** Lignes du Journal en attente : écrites en une seule fois (voir withLogBatch_). */
+var LOG_BATCH_ = null;
+
+/** Lignes de l'onglet Équipe : [email en minuscules, nom, rôle] (gardées en mémoire). */
+function readTeam_() {
+  return cached_('cfg:team', function () {
+    var sh = ss_().getSheetByName(SHEET.TEAM);
+    if (!sh || sh.getLastRow() < 2) return [];
+    return sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().map(function (r) {
+      return [String(r[0]).trim().toLowerCase(), String(r[1]).trim(), String(r[2]).trim()];
+    }).filter(function (r) { return r[0]; });
+  });
+}
+
 /** Ajoute une ligne dans l'onglet Journal (qui a fait quoi, quand). */
 function log_(user, orderId, action, detail) {
+  var row = [new Date(), user ? String(user.name || '') : '', orderId ? String(orderId) : '', action, detail || ''];
+  if (LOG_BATCH_) { LOG_BATCH_.push(row); return; }
+  writeLogRows_([row]);
+}
+
+function writeLogRows_(rows) {
+  if (!rows.length) return;
   var sh = ss_().getSheetByName(SHEET.LOG);
   if (!sh) return;
-  sh.appendRow([new Date(), user ? user.name : '', orderId ? String(orderId) : '', action, detail || '']);
+  var r = sh.getLastRow() + 1;
+  ensureRows_(sh, r + rows.length - 1);
+  sh.getRange(r, 1, rows.length, 5).setValues(rows);
+}
+
+/** Exécute fn ; les lignes du Journal qu'il ajoute sont écrites ensemble, à la fin. */
+function withLogBatch_(fn) {
+  if (LOG_BATCH_) return fn();
+  LOG_BATCH_ = [];
+  try {
+    return fn();
+  } finally {
+    var rows = LOG_BATCH_;
+    LOG_BATCH_ = null;
+    writeLogRows_(rows);
+  }
+}
+
+/**
+ * Agrandit l'onglet si la ligne `lastNeeded` dépasse sa taille (écrire au-delà
+ * provoque une erreur). Renvoie true si des lignes ont été ajoutées.
+ */
+function ensureRows_(sh, lastNeeded) {
+  var max = sh.getMaxRows();
+  if (lastNeeded <= max) return false;
+  sh.insertRowsAfter(max, lastNeeded - max + 200);
+  return true;
+}
+
+/* ------------------------------------------------------------------ */
+/* Mémoire des onglets de réglages (Paramètres, Tarifs, Équipe…)      */
+/* ------------------------------------------------------------------ */
+
+var CONFIG_TTL_ = 600; // 10 minutes au plus ; vidée dès qu'un de ces onglets est modifié
+
+/** Clés de mémoire à vider quand un onglet change. */
+function configKeysFor_(sheetName) {
+  var map = {};
+  map[SHEET.SETTINGS] = ['cfg:settings'];
+  map[SHEET.RATES] = ['cfg:wilayas', 'cfg:rates'];
+  map[SHEET.CLIENTS] = ['cfg:clients'];
+  map[SHEET.TEAM] = ['cfg:team'];
+  map[SHEET.PRODUCTS] = ['cfg:products'];
+  return map[sheetName] || [];
+}
+
+function allConfigKeys_() {
+  return ['cfg:settings', 'cfg:wilayas', 'cfg:rates', 'cfg:clients', 'cfg:team', 'cfg:products'];
+}
+
+/** Valeur gardée en mémoire (CacheService) ; calculée par compute() si absente. */
+function cached_(key, compute) {
+  var cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (e) { cache = null; }
+  if (cache) {
+    var hit = null;
+    try { hit = cache.get(key); } catch (e) { hit = null; }
+    if (hit !== null && hit !== undefined) {
+      try { return JSON.parse(hit); } catch (e) { /* valeur abîmée : on relit l'onglet */ }
+    }
+  }
+  var value = compute();
+  if (cache) {
+    try {
+      var text = JSON.stringify(value);
+      if (text.length < 90000) cache.put(key, text, CONFIG_TTL_);
+    } catch (e) { /* trop gros ou mémoire indisponible : sans importance */ }
+  }
+  return value;
+}
+
+/** Vide la mémoire (toute, ou seulement certaines clés). */
+function clearConfigCache_(keys) {
+  try { CacheService.getScriptCache().removeAll(keys || allConfigKeys_()); } catch (e) { /* sans importance */ }
 }

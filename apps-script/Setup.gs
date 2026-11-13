@@ -10,6 +10,7 @@ var HEADER_BG_ = { 'in': '#EEF0F3', 'list': '#DCE7FA', 'auto': '#D3EDE2' };
 function setup() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', ss.getId());
+  clearConfigCache_();
 
   setupSettingsSheet_(ss);
   setupTeamSheet_(ss);
@@ -19,6 +20,7 @@ function setup() {
   setupSimpleSheet_(ss, SHEET.LOG, ['Date', 'Utilisateur', 'Commande', 'Action', 'Détail'], [140, 130, 90, 160, 420]);
   setupOrdersSheet_(ss);
   removeEmptyDefaultSheet_(ss);
+  clearConfigCache_();
   installTriggers_();
 
   ss.setActiveSheet(ss.getSheetByName(SHEET.ORDERS));
@@ -101,7 +103,7 @@ function setupRatesSheet_(ss) {
 }
 
 function setupClientsSheet_(ss) {
-  var sh = setupSimpleSheet_(ss, SHEET.CLIENTS, ['Téléphone', 'Nom', 'Liste noire', 'Note'], [130, 180, 100, 320]);
+  var sh = setupSimpleSheet_(ss, SHEET.CLIENTS, CLIENT_TITLES_, [130, 180, 100, 320, 120, 120, 120]);
   sh.getRange(2, 1, dataRows_(sh), 1).setNumberFormat('@');
   sh.getRange(2, 3, dataRows_(sh), 1).setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
 }
@@ -123,16 +125,25 @@ function setupOrdersSheet_(ss) {
   header = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
   map = headerMap_(header);
   sh.setFrozenRows(1);
+  ORDER_COLUMNS.forEach(function (c) {
+    var cell = sh.getRange(1, map[c.key] + 1);
+    cell.setFontWeight('bold').setFontColor('#15181E').setBackground(HEADER_BG_[c.kind] || '#EEF0F3');
+    sh.setColumnWidth(map[c.key] + 1, c.width || 120);
+  });
+  applyOrdersRules_(sh);
+  return sh;
+}
 
+/**
+ * Formats, listes déroulantes et couleurs de l'onglet Commandes, sur toutes
+ * ses lignes. Relancé quand l'onglet est agrandi (voir appendOrders_).
+ */
+function applyOrdersRules_(sh) {
+  var ss = sh.getParent();
+  var map = headerMap_(sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]);
   var n = dataRows_(sh);
   var col = function (key) { return map[key] + 1; };
   var range = function (key) { return sh.getRange(2, col(key), n, 1); };
-
-  ORDER_COLUMNS.forEach(function (c) {
-    var cell = sh.getRange(1, col(c.key));
-    cell.setFontWeight('bold').setFontColor('#15181E').setBackground(HEADER_BG_[c.kind] || '#EEF0F3');
-    sh.setColumnWidth(col(c.key), c.width || 120);
-  });
 
   // Formats
   ['date', 'callback', 'updated', 'carrierMoved', 'followUp'].forEach(function (k) { range(k).setNumberFormat('dd/MM/yyyy HH:mm'); });
@@ -180,7 +191,6 @@ function setupOrdersSheet_(ss) {
       .setBackground(a[1]).setFontColor(a[2]).setRanges([range('alert')]).build());
   });
   sh.setConditionalFormatRules(kept.concat(rules));
-  return sh;
 }
 
 function removeEmptyDefaultSheet_(ss) {
@@ -195,11 +205,12 @@ function removeEmptyDefaultSheet_(ss) {
  *  - transfert des commandes de l'onglet RELEASIT chaque minute (si l'onglet existe) ;
  *  - importation Shopify toutes les 5 minutes (seulement si Shopify est configuré) ;
  *  - traitement des nouvelles lignes toutes les 5 minutes ;
- *  - suivi des colis Ecotrack toutes les 30 minutes (sans effet tant qu'Ecotrack n'est pas configuré).
+ *  - suivi des colis Ecotrack toutes les 30 minutes (sans effet tant qu'Ecotrack n'est pas configuré) ;
+ *  - maintenance chaque nuit vers 3 h : archivage, Journal raccourci, onglets allégés (Maintenance.gs).
  * Google limite le temps de calcul quotidien : rien n'est lancé inutilement.
  */
 function installTriggers_() {
-  var handlers = ['processNewRows', 'syncEcotrackStatuses', 'importShopifyOrders', 'transferReleasitOrders'];
+  var handlers = ['processNewRows', 'syncEcotrackStatuses', 'importShopifyOrders', 'transferReleasitOrders', 'nightlyMaintenance'];
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (handlers.indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t);
   });
@@ -207,4 +218,5 @@ function installTriggers_() {
   if (shopifyConfig_().configured) ScriptApp.newTrigger('importShopifyOrders').timeBased().everyMinutes(5).create();
   ScriptApp.newTrigger('processNewRows').timeBased().everyMinutes(5).create();
   ScriptApp.newTrigger('syncEcotrackStatuses').timeBased().everyMinutes(30).create();
+  ScriptApp.newTrigger('nightlyMaintenance').timeBased().everyDays(1).atHour(3).create();
 }

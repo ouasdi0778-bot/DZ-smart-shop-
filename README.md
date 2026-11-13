@@ -225,12 +225,40 @@ L'outil lit Shopify avec une « application » que vous créez pour votre boutiq
 
 Toute autre application ou automatisation qui **ajoute une ligne** dans l'onglet Commandes (statut vide) fonctionne toujours : les colonnes sont retrouvées par leur titre, avec plusieurs variantes (`Order ID`, `Phone`, `Province`…, voir `ORDER_COLUMNS` dans `Config.gs`).
 
+## Vitesse et entretien du classeur
+
+Ce que fait l'outil pour rester rapide :
+
+- **Une seule écriture par action** : une commande confirmée ou modifiée est écrite en un ou deux blocs, et le Journal en une ligne. Plus d'écriture case par case.
+- **Réglages gardés en mémoire** : Paramètres, Tarifs, Équipe, Clients (liste noire) et Produits ne sont plus relus à chaque clic. Dès que vous modifiez un de ces onglets, la mémoire est vidée et l'application voit le changement tout de suite. Si un autre programme les modifie, le changement est vu au plus tard après 10 minutes.
+- **Un seul aller-retour** :
+  - l'ouverture de l'application apporte déjà la première page ;
+  - l'onglet RELEASIT est vérifié en même temps que la liste ou la file ;
+  - « Confirmer » renvoie la file et les compteurs ;
+  - une commande enregistrée met à jour sa ligne sans recharger toute la liste.
+- **Centre de confirmation** : la commande suivante est préparée à l'avance. Après « Confirmer », elle s'affiche tout de suite pendant que l'enregistrement se termine. Si l'enregistrement échoue, un message le dit et la commande revient dans la file. Un double clic ne traite jamais deux commandes.
+- **Tâches automatiques légères** : sans nouvelle ligne, le traitement automatique lit trois colonnes et ne bloque rien. La lecture des statuts Ecotrack ne bloque pas les clics pendant qu'elle attend Ecotrack.
+- **Onglet plein** : quand Commandes (ou le Journal) n'a plus de lignes libres, l'outil en ajoute, avec les listes déroulantes et les couleurs.
+
+**Chaque nuit vers 3 h** (et à la demande : menu **DZ Smart Shop › Archiver et alléger le classeur maintenant**) :
+
+| Quoi | Règle | Réglage |
+|---|---|---|
+| **Archivage** | Les commandes terminées (livrées, retournées, annulées) sans mouvement depuis 100 jours partent dans l'onglet **Archive**. Restent dans Commandes : une commande livrée dont l'argent n'est **pas encore versé** par Ecotrack, et un retour **pas encore reçu**. | `ARCHIVE_JOURS` (0 = jamais, minimum 30) |
+| **Bilan des clients** | Pour chaque numéro, les commandes archivées sont comptées dans l'onglet Clients (colonnes *Livrées archivées*, *Retours archivés*, *Annulées archivées*) : les alertes « Fiable » et « Risque » restent justes. | |
+| **Journal** | Les lignes de plus de 90 jours sont effacées. | `JOURNAL_JOURS` (0 = tout garder, minimum 30) |
+| **Onglets allégés** | Lignes et colonnes vides en trop supprimées. L'onglet RELEASIT n'est jamais touché. | |
+
+- Le seuil de 100 jours dépasse la plus longue période affichée (90 jours dans Suivi) : rien ne disparaît des écrans.
+- Le **tableau de bord sur « Tout »** compte aussi les commandes archivées.
+- La liste Commandes, elle, ne montre pas les archives. Pour retrouver une vieille commande, cherchez-la dans l'onglet Archive du classeur (Ctrl + F).
+
 ## Tester sans Google (pour les développeurs)
 
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 75 tests du code serveur (dont Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 83 tests du code serveur (dont Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
@@ -249,6 +277,7 @@ apps-script/
   Shopify.gs    importation des commandes Shopify (Releasit COD), wilayas en arabe
   Releasit.gs   transfert des commandes de l'onglet RELEASIT (écrites par Releasit COD)
   Rules.gs      verrouillage selon l'étape, annulation d'un colis Ecotrack, corbeille
+  Maintenance.gs  archivage de nuit, Journal raccourci, onglets allégés
   Api.gs        application web, menu du classeur, fonctions appelées par l'interface
   Setup.gs      création/réparation du classeur et du traitement automatique
   Index.html    page de l'application
@@ -268,6 +297,6 @@ tests/          imitation de Google Apps Script, tests, données d'exemple, aper
 
 ## Limites connues
 
-- Chaque action prend 1 à 2 secondes : Apps Script est plus lent qu'une application classique.
-- Au-delà de quelques dizaines de milliers de lignes, le classeur ralentit. Il faudra alors archiver les anciennes commandes, par exemple dans un classeur par année.
+- Chaque action enregistrée prend environ 1 seconde : c'est la limite d'Apps Script, plus lent qu'une application classique.
+- L'onglet Archive grossit avec le temps. Au-delà de quelques dizaines de milliers de lignes, déplacez les plus anciennes dans un autre classeur, par exemple un classeur par année.
 - La liste des wilayas est celle des 58 wilayas. Si le découpage change, ajoutez les nouvelles lignes dans l'onglet Tarifs : l'application utilise cette liste.

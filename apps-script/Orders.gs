@@ -63,16 +63,31 @@ function findOrder_(ctx, id) {
 /** Colonnes à garder en texte (sinon le tableur enlève le 0 du téléphone). */
 var TEXT_KEYS_ = ['id', 'phone', 'tracking', 'paymentId', 'shopifyId'];
 
-/** Écrit seulement les cases modifiées d'une commande. */
+/**
+ * Écrit seulement les cases modifiées d'une commande, en regroupant les
+ * cases voisines : une seule écriture par groupe au lieu d'une par case.
+ */
 function writeFields_(ctx, order, fields) {
+  var cells = [];
   Object.keys(fields).forEach(function (key) {
-    var idx = ctx.map[key];
     order[key] = fields[key];
-    if (idx === undefined) return;
-    var cell = ctx.sheet.getRange(order._row, idx + 1);
-    if (TEXT_KEYS_.indexOf(key) >= 0) cell.setNumberFormat('@');
-    cell.setValue(fields[key]);
+    var idx = ctx.map[key];
+    if (idx !== undefined) cells.push({ col: idx, key: key, value: fields[key] });
   });
+  if (!cells.length) return;
+  cells.sort(function (a, b) { return a.col - b.col; });
+  var write = function (run) {
+    run.forEach(function (c) {
+      if (TEXT_KEYS_.indexOf(c.key) >= 0) ctx.sheet.getRange(order._row, c.col + 1).setNumberFormat('@');
+    });
+    ctx.sheet.getRange(order._row, run[0].col + 1, 1, run.length).setValues([run.map(function (c) { return c.value; })]);
+  };
+  var run = [cells[0]];
+  for (var i = 1; i < cells.length; i++) {
+    if (cells[i].col === run[run.length - 1].col + 1) run.push(cells[i]);
+    else { write(run); run = [cells[i]]; }
+  }
+  write(run);
 }
 
 /** Ajoute une commande en bas de l'onglet. */
@@ -92,6 +107,8 @@ function appendOrders_(ctx, list) {
     return row;
   });
   var r = ctx.sheet.getLastRow() + 1;
+  // Onglet plein : on ajoute des lignes vides, avec les listes et les couleurs.
+  if (ensureRows_(ctx.sheet, r + list.length - 1)) applyOrdersRules_(ctx.sheet);
   TEXT_KEYS_.forEach(function (key) {
     if (ctx.map[key] !== undefined) ctx.sheet.getRange(r, ctx.map[key] + 1, list.length, 1).setNumberFormat('@');
   });
@@ -158,8 +175,12 @@ function serializeOrder_(o) {
 /* Wilayas et tarifs                                                  */
 /* ------------------------------------------------------------------ */
 
-/** Liste des wilayas : celle de l'onglet Tarifs, sinon les 58 par défaut. */
+/** Liste des wilayas : celle de l'onglet Tarifs, sinon les 58 par défaut (gardée en mémoire). */
 function getWilayaList_() {
+  return cached_('cfg:wilayas', readWilayaList_);
+}
+
+function readWilayaList_() {
   var sh = ss_().getSheetByName(SHEET.RATES);
   if (sh && sh.getLastRow() > 1) {
     var list = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues()
@@ -207,6 +228,10 @@ function matchWilaya_(value, list) {
  * Les colonnes sont reconnues par leur titre : « Yalidine domicile », « Ecotrack stop desk »…
  */
 function readRates_(wilayas) {
+  return cached_('cfg:rates', function () { return readRatesFromSheet_(wilayas); });
+}
+
+function readRatesFromSheet_(wilayas) {
   var rates = {};
   var sh = ss_().getSheetByName(SHEET.RATES);
   if (!sh || sh.getLastRow() < 2) return rates;
@@ -249,18 +274,43 @@ function shippingFee_(env, wilaya, carrier, mode) {
 /* Clients : historique, liste noire, alertes                         */
 /* ------------------------------------------------------------------ */
 
+/** Titres des colonnes de l'onglet Clients (les 3 dernières sont remplies par l'archivage). */
+var CLIENT_TITLES_ = ['Téléphone', 'Nom', 'Liste noire', 'Note', 'Livrées archivées', 'Retours archivés', 'Annulées archivées'];
+
+/**
+ * Onglet Clients, gardé en mémoire : numéros en liste noire (case cochée), et
+ * résultats des commandes archivées par numéro { '0550…': [livrées, retours, annulées] }.
+ */
+function readClients_() {
+  return cached_('cfg:clients', function () {
+    var out = { blacklist: {}, archived: {} };
+    var sh = ss_().getSheetByName(SHEET.CLIENTS);
+    if (!sh || sh.getLastRow() < 2) return out;
+    var lastCol = Math.max(sh.getLastColumn(), 3);
+    var values = sh.getRange(1, 1, sh.getLastRow(), lastCol).getValues();
+    var idx = {};
+    values[0].forEach(function (t, i) { var k = normalizeText_(t); if (k && idx[k] === undefined) idx[k] = i; });
+    var col = function (title, fallback) { var i = idx[normalizeText_(title)]; return i === undefined ? fallback : i; };
+    var cPhone = col('Téléphone', 0);
+    var cBlack = col('Liste noire', 2);
+    var cDel = col('Livrées archivées', -1);
+    var cRet = col('Retours archivés', -1);
+    var cCan = col('Annulées archivées', -1);
+    for (var r = 1; r < values.length; r++) {
+      var p = normalizePhone(values[r][cPhone]).phone;
+      if (!p) continue;
+      var b = values[r][cBlack];
+      if (b === true || /^(vrai|true|oui)$/i.test(String(b))) out.blacklist[p] = true;
+      var counts = [cDel, cRet, cCan].map(function (c) { return c < 0 ? 0 : toNumber_(values[r][c]); });
+      if (counts[0] || counts[1] || counts[2]) out.archived[p] = counts;
+    }
+    return out;
+  });
+}
+
 /** Numéros en liste noire (onglet Clients, case « Liste noire » cochée). */
 function readBlacklist_() {
-  var set = {};
-  var sh = ss_().getSheetByName(SHEET.CLIENTS);
-  if (!sh || sh.getLastRow() < 2) return set;
-  sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach(function (r) {
-    if (r[2] === true || String(r[2]).toLowerCase() === 'vrai' || String(r[2]).toLowerCase() === 'true') {
-      var p = normalizePhone(r[0]);
-      if (p.phone) set[p.phone] = true;
-    }
-  });
-  return set;
+  return readClients_().blacklist;
 }
 
 /** Index téléphone → commandes, pour retrouver vite l'historique d'un client. */
@@ -274,12 +324,14 @@ function phoneIndex_(orders) {
   return index;
 }
 
-/** Historique d'un numéro (sans la commande en cours). */
-function clientHistory_(phone, index, excludeId) {
-  var list = (index[normalizePhone(phone).phone] || []).filter(function (o) {
+/** Historique d'un numéro (sans la commande en cours), commandes archivées comprises. */
+function clientHistory_(phone, index, excludeId, archived) {
+  var p = normalizePhone(phone).phone;
+  var list = (index[p] || []).filter(function (o) {
     return String(o.id) !== String(excludeId);
   });
-  var h = { orders: list.length, delivered: 0, returned: 0, cancelled: 0, list: list };
+  var old = (archived && archived[p]) || [0, 0, 0];
+  var h = { orders: list.length + old[0] + old[1] + old[2], delivered: old[0], returned: old[1], cancelled: old[2], list: list };
   list.forEach(function (o) {
     if (o.status === STATUS.DELIVERED) h.delivered++;
     else if (o.status === STATUS.RETURNED) h.returned++;
@@ -293,7 +345,7 @@ function computeAlert_(order, env) {
   var p = normalizePhone(order.phone);
   if (!p.valid) return 'Numéro invalide';
   if (env.blacklist[p.phone]) return 'Liste noire';
-  var h = clientHistory_(p.phone, env.index, order.id);
+  var h = clientHistory_(p.phone, env.index, order.id, env.archived);
   var windowMs = env.settings.DOUBLON_HEURES * 3600 * 1000;
   var t = toDate_(order.date) || env.now;
   if (windowMs > 0) {
@@ -322,11 +374,13 @@ function alertLevel_(alert) {
 /** Tout ce dont les calculs ont besoin, lu une seule fois. */
 function makeEnv_(ctx) {
   var wilayas = getWilayaList_();
+  var clients = readClients_();
   return {
     settings: getSettings_(),
     wilayas: wilayas,
     rates: readRates_(wilayas),
-    blacklist: readBlacklist_(),
+    blacklist: clients.blacklist,
+    archived: clients.archived,
     index: phoneIndex_(ctx.orders),
     now: new Date()
   };
@@ -411,6 +465,36 @@ function applyEdits_(o, input, env, allowShippingOverride) {
  * Lancé automatiquement toutes les 5 minutes (voir Setup.gs).
  */
 function processNewRows() {
+  if (!hasNewRows_()) return 0; // rien de nouveau : pas de lecture complète, pas de verrou
+  return processNewRowsNow_();
+}
+
+/**
+ * Lecture rapide (trois colonnes) : y a-t-il une ligne sans statut, avec au
+ * moins un nom ou un téléphone ?
+ */
+function hasNewRows_() {
+  var sh = ss_().getSheetByName(SHEET.ORDERS);
+  if (!sh) return false;
+  var last = sh.getLastRow();
+  if (last < 2) return false;
+  var map = headerMap_(sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0]);
+  if (map.status === undefined || map.phone === undefined) return true; // la lecture complète donnera une erreur claire
+  var column = function (key) {
+    return map[key] === undefined ? [] : sh.getRange(2, map[key] + 1, last - 1, 1).getValues();
+  };
+  var status = column('status');
+  var phone = column('phone');
+  var client = column('client');
+  for (var i = 0; i < status.length; i++) {
+    if (String(status[i][0]).trim()) continue;
+    if (String(phone[i][0]).trim() || (client[i] && String(client[i][0]).trim())) return true;
+  }
+  return false;
+}
+
+/** Prépare tout de suite les lignes sans statut (après une importation, ou depuis le menu). */
+function processNewRowsNow_() {
   return withLock_(function () {
     var ctx = readOrders_();
     var fresh = ctx.orders.filter(function (o) { return !o.status; });

@@ -315,7 +315,7 @@ function transferReleasitOrders_(options) {
   if (props.getProperty(RELEASIT.PROP_LAST_ERROR) !== null) props.deleteProperty(RELEASIT.PROP_LAST_ERROR);
 
   // 6. Préparation des nouvelles lignes (téléphone, wilaya, alertes, statut « À confirmer »).
-  if (summary.added) processNewRows();
+  if (summary.added) processNewRowsNow_();
   return summary;
 }
 
@@ -370,6 +370,12 @@ function releasitColumnsReport_() {
 /* ------------------------------------------------------------------ */
 /* Fonctions appelées par l'interface et le menu                      */
 /* ------------------------------------------------------------------ */
+
+/** Vérification rapide avant d'afficher une liste : nombre de commandes arrivées (0 en cas de souci). */
+function releasitQuickSync_() {
+  var s = transferReleasitOrders();
+  return s && s.added ? s.added : 0;
+}
 
 /** Vérification rapide à l'ouverture des pages Commandes et Confirmation. */
 function api_releasitSync() {

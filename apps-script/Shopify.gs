@@ -469,7 +469,7 @@ function importShopifyOrders_() {
   if (props.getProperty(SHOP.PROP_LAST_ERROR) !== null) props.deleteProperty(SHOP.PROP_LAST_ERROR);
 
   // 4. Préparation des nouvelles lignes (téléphone, wilaya, alertes, statut « À confirmer »).
-  if (summary.imported) processNewRows();
+  if (summary.imported) processNewRowsNow_();
   return summary;
 }
 

@@ -20,7 +20,12 @@
     ship: { data: null, tab: 'toship', selected: {}, busy: false, results: null },
     track: { data: null, days: 30, filter: 'all' },
     order: null,      // dernière commande affichée dans la fenêtre (pour la réafficher)
-    unlockId: null    // commande déverrouillée par un administrateur
+    unlockId: null,   // commande déverrouillée par un administrateur
+    list: null,       // dernière liste de la page Commandes (mise à jour sur place)
+    preloaded: {},    // réponses déjà reçues avec le démarrage (clé : fonction + arguments)
+    prefetch: null,   // commande suivante préparée à l'avance { id, data }
+    pending: {},      // commandes envoyées, en cours d'enregistrement
+    cooldown: 0       // évite qu'un double clic traite aussi la commande suivante
   };
   var TZ = 'Africa/Algiers';
   var ALERT = {
@@ -34,6 +39,12 @@
   /** Appelle une fonction du serveur (Api.gs) et renvoie une promesse. */
   function call(fn) {
     var args = Array.prototype.slice.call(arguments, 1);
+    var key = fn + '|' + JSON.stringify(args);
+    if (S.preloaded && Object.prototype.hasOwnProperty.call(S.preloaded, key)) {
+      var ready = S.preloaded[key];
+      delete S.preloaded[key];
+      return Promise.resolve(ready);
+    }
     return new Promise(function (resolve, reject) {
       var runner = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject);
       runner[fn].apply(runner, args);
@@ -137,9 +148,31 @@
 
   var ROUTES = ['tableau', 'commandes', 'confirmation', 'expeditions', 'suivi'];
 
-  function go() {
+  function currentRoute() {
     var r = (location.hash || '').replace(/^#\/?/, '');
-    if (ROUTES.indexOf(r) < 0) r = 'tableau';
+    return ROUTES.indexOf(r) < 0 ? 'tableau' : r;
+  }
+
+  /** Arguments de la liste des commandes ; à l'ouverture de la page : vérifie RELEASIT et l'état des importations. */
+  function listArgs(first) {
+    var f = {};
+    Object.keys(S.filter).forEach(function (k) { f[k] = S.filter[k]; });
+    if (first) { f.sync = true; f.withStatus = true; }
+    return f;
+  }
+
+  /** Ce que la première page demandera : calculé par le serveur avec le démarrage, en un seul aller-retour. */
+  function preloadSpec(route) {
+    var spec = route === 'tableau' ? { fn: 'api_dashboard', args: [S.period] }
+      : route === 'commandes' ? { fn: 'api_listOrders', args: [listArgs(true)] }
+      : route === 'confirmation' ? { fn: 'api_queue', args: [{ sync: true, first: true }] }
+      : null;
+    if (spec) spec.key = spec.fn + '|' + JSON.stringify(spec.args);
+    return spec;
+  }
+
+  function go() {
+    var r = currentRoute();
     S.route = r;
     $all('[data-route]').forEach(function (a) {
       var on = a.getAttribute('data-route') === r;
@@ -167,8 +200,16 @@
   function setAlertCount(n) {
     $all('[data-alert-count]').forEach(function (el) { el.textContent = n; el.hidden = !n; });
   }
+  function applyCounts(c) {
+    if (!c) return;
+    setQueueCount(c.queue);
+    setAlertCount(c.alerts);
+  }
   function refreshCount() {
-    call('api_counts').then(function (c) { setQueueCount(c.queue); setAlertCount(c.alerts); }).catch(function () {});
+    call('api_counts').then(applyCounts).catch(function () {});
+  }
+  function arrivedText(n) {
+    return n > 1 ? n + ' nouvelles commandes reçues' : '1 nouvelle commande reçue';
   }
 
   /* ================================================================ */
@@ -290,9 +331,7 @@
         }).join('') + '</select>') +
       '</div>' +
       '<div id="orders-list"><p class="loading">Chargement…</p></div>';
-    loadOrders();
-    loadShopStatus();
-    syncReleasit(function () { if (S.route === 'commandes') { loadOrders(); loadShopStatus(); } });
+    loadOrders(true);
   }
 
   /* Arrivée automatique des commandes (Releasit, Shopify) : état, et transfert à la demande. */
@@ -301,7 +340,11 @@
   }
 
   function loadShopStatus() {
-    call('api_importStatus').then(function (st) {
+    call('api_importStatus').then(renderShopStatus).catch(function () {});
+  }
+
+  function renderShopStatus(st) {
+    (function () {
       var box = $('#shop-status');
       if (!box || S.route !== 'commandes') return;
       var r = st.releasit;
@@ -328,25 +371,18 @@
           'ou connectez Shopify (dans le classeur, sur ordinateur : menu <strong>DZ Smart Shop</strong>).</span>');
       }
       box.innerHTML = html;
-    }).catch(function () {});
+    })();
   }
 
-  /* Vérifie l'onglet RELEASIT sans bloquer la page ; recharge si des commandes sont arrivées. */
-  function syncReleasit(onAdded) {
-    call('api_releasitSync').then(function (r) {
-      if (!r || !r.added) return;
-      toast(r.added > 1 ? r.added + ' nouvelles commandes reçues' : '1 nouvelle commande reçue');
-      refreshCount();
-      if (onAdded) onAdded();
-    }).catch(function () {});
-  }
-
-  function loadOrders() {
+  function loadOrders(first) {
     var t = ++S.token;
-    call('api_listOrders', S.filter).then(function (res) {
+    call('api_listOrders', listArgs(first)).then(function (res) {
       if (t !== S.token || S.route !== 'commandes') return;
+      S.list = res;
       renderChips(res.counts);
       renderOrderList(res);
+      if (res.importStatus) renderShopStatus(res.importStatus);
+      if (res.arrived) { toast(arrivedText(res.arrived)); if (res.menuCounts) applyCounts(res.menuCounts); }
     }).catch(function (e) {
       if (t === S.token) $('#orders-list').innerHTML = errorBox(e);
     });
@@ -512,8 +548,7 @@
     toast('Annulation du colis chez Ecotrack…');
     call('api_cancelParcel', id).then(function (r) {
       toast(r.message);
-      afterOrderChange();
-      if (fromShipping) closeModal(); else openOrder(id);
+      if (fromShipping) { closeModal(); afterOrderChange(r.counts); } else { afterOrderSaved(r.order, null, r.counts); openOrder(id); }
     }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
   }
 
@@ -533,16 +568,16 @@
     call('api_deleteOrder', id, reason).then(function (r) {
       closeModal();
       toast(r.message);
-      afterOrderChange();
+      afterOrderSaved(null, id, r.counts);
     }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
   }
 
   function reopenOrder(btn) {
     var id = btn.getAttribute('data-id');
     btn.disabled = true;
-    call('api_updateOrder', id, { status: 'À confirmer' }).then(function () {
+    call('api_updateOrder', id, { status: 'À confirmer' }).then(function (o) {
       toast('Commande ' + id + ' remise « À confirmer »');
-      afterOrderChange();
+      afterOrderSaved(o);
       openOrder(id);
     }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
   }
@@ -563,12 +598,51 @@
     );
   }
 
-  function afterOrderChange() {
+  /** Après une modification : recharge la page affichée ; les compteurs viennent de la réponse quand elle les donne. */
+  function afterOrderChange(counts) {
     if (S.route === 'commandes') loadOrders();
     else if (S.route === 'tableau') pageDashboard();
     else if (S.route === 'expeditions') loadShipping();
     else if (S.route === 'suivi') loadTracking();
-    refreshCount();
+    if (counts) applyCounts(counts); else refreshCount();
+  }
+
+  function inStatusFilter(o) {
+    var f = S.filter.status;
+    if (f === 'all') return true;
+    if (f === 'queue') return S.boot.queueStatuses.indexOf(o.status) >= 0;
+    return o.status === f;
+  }
+
+  /**
+   * Page Commandes : met à jour la ligne modifiée (ou la retire) sans recharger
+   * toute la liste. Ailleurs, recharge la page comme avant.
+   */
+  function afterOrderSaved(o, removedId, counts) {
+    counts = counts || (o && o.counts);
+    if (S.route !== 'commandes' || !S.list) { afterOrderChange(counts); return; }
+    applyCounts(counts);
+    var id = removedId || o.id;
+    var rows = S.list.rows;
+    var idx = -1;
+    for (var i = 0; i < rows.length; i++) if (rows[i].id === id) idx = i;
+    if (idx < 0) { loadOrders(); return; }
+    var old = rows[idx];
+    var c = S.list.counts;
+    var bump = function (st, n) {
+      c[st || '—'] = Math.max((c[st || '—'] || 0) + n, 0);
+      if (S.boot.queueStatuses.indexOf(st) >= 0) c.queue = Math.max((c.queue || 0) + n, 0);
+    };
+    bump(old.status, -1);
+    if (removedId) c.all = Math.max((c.all || 0) - 1, 0); else bump(o.status, 1);
+    if (!removedId && inStatusFilter(o)) {
+      rows[idx] = o;
+    } else {
+      rows.splice(idx, 1);
+      S.list.total = Math.max(S.list.total - 1, 0);
+    }
+    renderChips(c);
+    renderOrderList(S.list);
   }
 
   function saveOrder(btn) {
@@ -586,7 +660,7 @@
     call('api_updateOrder', id, data).then(function (o) {
       closeModal();
       toast('Commande ' + o.id + ' enregistrée');
-      afterOrderChange();
+      afterOrderSaved(o);
     }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
   }
 
@@ -596,7 +670,7 @@
     call('api_createOrder', data).then(function (o) {
       closeModal();
       toast('Commande ' + o.id + ' ajoutée');
-      afterOrderChange();
+      afterOrderChange(o.counts);
     }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
   }
 
@@ -625,20 +699,36 @@
         '<section class="detail" id="detail"></section>' +
       '</div>';
     S.currentId = null;
-    loadQueue(true);
-    syncReleasit(function () { if (S.route === 'confirmation') loadQueue(false); });
+    S.prefetch = null;
+    loadQueue(true, true);
   }
 
-  function loadQueue(selectFirst) {
-    return call('api_queue').then(function (q) {
+  /** Retire de la file les commandes déjà envoyées au serveur, pas encore enregistrées. */
+  function setQueue(q) {
+    q.due = q.due.filter(function (x) { return !S.pending[x.id]; });
+    q.later = q.later.filter(function (x) { return !S.pending[x.id]; });
+    q.stats.due = q.due.length;
+    q.stats.later = q.later.length;
+    S.queue = q;
+  }
+
+  function loadQueue(selectFirst, sync) {
+    var opts = sync ? (selectFirst ? { sync: true, first: true } : { sync: true }) : null;
+    return (opts ? call('api_queue', opts) : call('api_queue')).then(function (q) {
       if (S.route !== 'confirmation') return;
-      S.queue = q;
+      if (q.arrived) toast(arrivedText(q.arrived));
+      if (q.menuCounts) applyCounts(q.menuCounts);
+      setQueue(q);
       setQueueCount(q.stats.due);
       renderQueue();
       var ids = q.due.concat(q.later).map(function (x) { return x.id; });
       if (selectFirst || !S.currentId || ids.indexOf(S.currentId) < 0) {
         if (!selectFirst && S.currentId && !S.busy) toast('La commande ' + S.currentId + ' a été traitée par une autre personne.');
-        if (q.due.length) openInDetail(q.due[0].id);
+        if (q.firstDetail && q.due.length && q.firstDetail.order.id === q.due[0].id) {
+          // Fiche jointe à la file : affichée sans nouvel aller-retour.
+          S.currentId = q.due[0].id; S.current = q.firstDetail; ++S.detailToken;
+          markCurrent(); renderDetail();
+        } else if (q.due.length) openInDetail(q.due[0].id);
         else renderEmptyDetail();
       }
     }).catch(function (e) {
@@ -744,6 +834,29 @@
       '<div class="card"><h3>Message WhatsApp</h3><p class="message" id="d-msg"></p>' +
         '<p class="small" style="margin-top:8px">Modèle modifiable dans l’onglet Paramètres (MESSAGE_WHATSAPP).</p></div>';
     updateSummary();
+    prefetchNext();
+  }
+
+  /** La commande suivante de la file (après `id`), ou null. */
+  function nextDueAfter(id) {
+    var due = S.queue ? S.queue.due : [];
+    for (var i = 0; i < due.length; i++) {
+      if (due[i].id === id) return due[i + 1] || (i > 0 ? due[0] : null);
+    }
+    return due[0] && due[0].id !== id ? due[0] : null;
+  }
+
+  /** Prépare en arrière-plan la commande suivante : elle s'affichera tout de suite. */
+  function prefetchNext() {
+    var next = S.currentId ? nextDueAfter(S.currentId) : null;
+    if (!next || (S.prefetch && S.prefetch.id === next.id)) return;
+    var id = next.id;
+    S.prefetch = { id: id, data: null };
+    call('api_getOrder', id).then(function (d) {
+      if (S.prefetch && S.prefetch.id === id) S.prefetch.data = d;
+    }).catch(function () {
+      if (S.prefetch && S.prefetch.id === id) S.prefetch = null;
+    });
   }
 
   /** Recalcule prix, frais, total et message quand la confirmatrice modifie la commande. */
@@ -807,16 +920,37 @@
   }
 
   function submit(outcome, extra) {
-    if (S.busy || !S.currentId) return;
-    S.busy = true;
-    $all('#detail button').forEach(function (b) { b.disabled = true; });
+    if (S.busy || !S.currentId || Date.now() < S.cooldown) return;
     var id = S.currentId;
     var payload = { fields: readForm($('#d-form')) };
     Object.keys(extra || {}).forEach(function (k) { payload[k] = extra[k]; });
     var blacklist = outcome === 'cancel' && $('#cancel-black') && $('#cancel-black').checked;
     var phone = S.current.order.phone;
+    var next = nextDueAfter(id);
+    var ready = next && S.prefetch && S.prefetch.id === next.id && S.prefetch.data ? S.prefetch.data : null;
+    var waitingFor = next && !ready ? next.id : null;
 
-    call('api_recordCall', id, outcome, payload).then(function (o) {
+    // 1. La commande traitée quitte la file, la suivante s'affiche tout de suite.
+    S.pending[id] = true;
+    setQueue(S.queue);
+    if (outcome === 'confirm') S.queue.stats.confirmedToday++;
+    setQueueCount(S.queue.due.length);
+    S.cooldown = Date.now() + 800;
+    renderQueue();
+    if (ready) {
+      S.currentId = next.id; S.current = ready; S.prefetch = null;
+      markCurrent(); renderDetail();
+    } else if (next) {
+      S.currentId = next.id; S.current = null; ++S.detailToken;
+      markCurrent();
+      $('#detail').innerHTML = '<div class="card"><p class="loading">Chargement…</p></div>';
+    } else {
+      renderEmptyDetail();
+    }
+
+    // 2. Enregistrement : un seul aller-retour (résultat, commande suivante si besoin, file, compteurs).
+    call('api_recordCall', id, outcome, payload, { next: waitingFor, queue: true }).then(function (o) {
+      delete S.pending[id];
       var msgs = {
         confirm: 'Commande ' + o.id + ' confirmée',
         no_answer: o.status === 'Injoignable' ? 'Commande ' + o.id + ' : client injoignable' : 'Pas de réponse noté, rappel ' + fmtDate(o.callback),
@@ -825,23 +959,18 @@
       };
       toast(msgs[outcome]);
       if (blacklist) call('api_setBlacklist', phone, true).catch(function (e) { toast(errText(e), true); });
-      var due = S.queue.due;
-      var idx = -1;
-      for (var i = 0; i < due.length; i++) if (due[i].id === id) idx = i;
-      if (idx >= 0) due.splice(idx, 1);
-      S.queue.stats.due = due.length;
-      if (outcome === 'confirm') S.queue.stats.confirmedToday++;
-      setQueueCount(due.length);
-      S.busy = false;
-      var next = due[Math.max(idx, 0)] || due[0];
-      renderQueue();
-      if (next) openInDetail(next.id); else renderEmptyDetail();
-      loadQueue(false);
+      applyCounts(o.counts);
+      if (S.route !== 'confirmation') return;
+      if (o.queue) { setQueue(o.queue); setQueueCount(S.queue.due.length); renderQueue(); }
+      if (waitingFor && S.currentId === waitingFor && !S.current) {
+        if (o.next) { S.current = o.next; renderDetail(); } else openInDetail(waitingFor);
+      }
     }).catch(function (e) {
-      S.busy = false;
-      $all('#detail button').forEach(function (b) { b.disabled = false; });
-      toast(errText(e), true);
-      if (/déjà été traitée/.test(errText(e))) loadQueue(true);
+      delete S.pending[id];
+      toast('Commande ' + id + ' non enregistrée : ' + errText(e), true);
+      if (S.route !== 'confirmation') return;
+      loadQueue(!S.currentId);
+      if (waitingFor && S.currentId === waitingFor && !S.current) openInDetail(waitingFor);
     });
   }
 
@@ -1205,8 +1334,7 @@
       call('api_releasitTransfer').then(function (r) {
         toast(r.message);
         loadShopStatus();
-        loadOrders();
-        refreshCount();
+        if (r.summary && r.summary.added) { loadOrders(); refreshCount(); }
       }).catch(function (e) { toast(errText(e), true); loadShopStatus(); });
     },
     'shop-import': function () {
@@ -1228,10 +1356,7 @@
     'order-unlock': function (el) { S.unlockId = el.getAttribute('data-id'); if (S.order) renderOrderModal(S.order); },
     'create-order': createOrder,
     'toggle-blacklist': toggleBlacklist,
-    'refresh-queue': function () {
-      loadQueue(false);
-      syncReleasit(function () { if (S.route === 'confirmation') loadQueue(false); });
-    },
+    'refresh-queue': function () { loadQueue(false, true); },
     'q-open': function (el) { if (!S.busy) openInDetail(el.getAttribute('data-id')); },
     'toggle-queue': function () { $('#queue').classList.toggle('open'); },
     'confirm': function () { submit('confirm'); },
@@ -1327,7 +1452,7 @@
 
   function tick() {
     if (document.visibilityState !== 'visible' || S.busy || modalOpen()) return;
-    if (S.route === 'confirmation') loadQueue(false);
+    if (S.route === 'confirmation') { if (!Object.keys(S.pending).length) loadQueue(false, true); }
     else if (S.route === 'suivi') loadTracking();
     else refreshCount();
   }
@@ -1336,14 +1461,17 @@
   /* Démarrage                                                        */
   /* ================================================================ */
 
-  call('api_bootstrap').then(function (b) {
+  var firstSpec = preloadSpec(currentRoute());
+  call('api_bootstrap', firstSpec).then(function (b) {
     S.boot = b;
+    if (b.preload && firstSpec && b.preload.key === firstSpec.key) S.preloaded[firstSpec.key] = b.preload.data;
+    applyCounts(b.counts);
     $all('[data-shop]').forEach(function (el) { el.textContent = b.shop; });
     $all('[data-user-name]').forEach(function (el) { el.textContent = b.user.name; });
     $all('[data-user-mail]').forEach(function (el) { el.textContent = b.user.email; });
     window.addEventListener('hashchange', go);
     go();
-    if (S.route !== 'confirmation') refreshCount();
+    if (!b.counts) refreshCount();
     setInterval(tick, 60000);
   }).catch(function (e) {
     view.innerHTML = errorBox(e) +

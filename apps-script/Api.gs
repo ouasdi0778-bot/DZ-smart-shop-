@@ -33,6 +33,21 @@ function include(name) {
   return HtmlService.createHtmlOutputFromFile(name).getContent();
 }
 
+/**
+ * À chaque modification faite à la main dans le classeur : si c'est un onglet
+ * de réglages (Paramètres, Tarifs, Équipe, Clients, Produits), la mémoire est
+ * vidée pour que l'application voie tout de suite le changement.
+ */
+function onEdit(e) {
+  try {
+    var name = e && e.range ? e.range.getSheet().getName() : '';
+    var keys = configKeysFor_(name);
+    if (keys.length) clearConfigCache_(keys);
+  } catch (err) {
+    // Ne doit jamais gêner la saisie.
+  }
+}
+
 function onOpen() {
   var ui = SpreadsheetApp.getUi();
   ui.createMenu(APP_NAME)
@@ -41,6 +56,7 @@ function onOpen() {
     .addItem('Traiter les nouvelles commandes', 'menuProcess')
     .addItem('Recalculer les alertes clients', 'menuRecalc')
     .addItem('Restaurer une commande de la corbeille', 'menuTrashRestore')
+    .addItem('Archiver et alléger le classeur maintenant', 'menuMaintenance')
     .addSeparator()
     .addSubMenu(ui.createMenu('Releasit')
       .addItem('Transférer les commandes maintenant', 'menuReleasitTransfer')
@@ -76,7 +92,7 @@ function menuOpenApp() {
 }
 
 function menuProcess() {
-  var n = processNewRows();
+  var n = processNewRowsNow_();
   SpreadsheetApp.getActiveSpreadsheet().toast(n + ' nouvelle(s) commande(s) ajoutée(s) à la file de confirmation.', APP_NAME);
 }
 
@@ -89,18 +105,52 @@ function menuRecalc() {
 /* Démarrage de l'interface                                           */
 /* ------------------------------------------------------------------ */
 
-function api_bootstrap() {
+/**
+ * Données de démarrage. `preload` = { fn, args } : la première page est
+ * calculée tout de suite, dans le même aller-retour (api_dashboard,
+ * api_listOrders ou api_queue), ainsi que les compteurs du menu.
+ */
+function api_bootstrap(preload) {
   var s = getSettings_();
   var wilayas = getWilayaList_();
-  var products = [];
-  var sh = ss_().getSheetByName(SHEET.PRODUCTS);
-  if (sh && sh.getLastRow() > 1) {
-    sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(function (r) {
-      var name = String(r[0]).trim();
-      if (name) products.push({ name: name, price: toNumber_(r[1]) });
-    });
+  var products = cached_('cfg:products', function () {
+    var list = [];
+    var sh = ss_().getSheetByName(SHEET.PRODUCTS);
+    if (sh && sh.getLastRow() > 1) {
+      sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(function (r) {
+        var name = String(r[0]).trim();
+        if (name) list.push({ name: name, price: toNumber_(r[1]) });
+      });
+    }
+    return list;
+  });
+  var first = null;
+  var counts = null;
+  try {
+    var allowed = { api_dashboard: 1, api_listOrders: 1, api_queue: 1 };
+    var args = preload && Array.isArray(preload.args) ? preload.args : [];
+    var arrived = 0;
+    if (preload && allowed[preload.fn]) {
+      var opt = args[0] || {};
+      if (preload.fn !== 'api_dashboard' && opt.sync) arrived = releasitQuickSync_();
+    }
+    var ctx = readOrders_();
+    counts = countsData_(ctx, s);
+    if (preload && allowed[preload.fn]) {
+      var data = preload.fn === 'api_dashboard' ? dashboardData_(ctx, args[0])
+        : preload.fn === 'api_listOrders' ? listData_(ctx, args[0] || {})
+        : queueData_(ctx, currentUser_());
+      if (preload.fn !== 'api_dashboard') data.arrived = arrived;
+      if (preload.fn === 'api_queue' && args[0] && args[0].first) data.firstDetail = firstQueueDetail_(ctx, data, currentUser_());
+      if (preload.fn === 'api_listOrders' && args[0] && args[0].withStatus) data.importStatus = api_importStatus();
+      first = { key: typeof preload.key === 'string' ? preload.key : preload.fn + '|' + JSON.stringify(args), data: data };
+    }
+  } catch (e) {
+    first = null; // la page se chargera normalement et affichera l'erreur
   }
   return {
+    preload: first,
+    counts: counts,
     app: { name: APP_NAME, version: APP_VERSION },
     shop: s.NOM_BOUTIQUE,
     user: currentUser_(),
@@ -125,7 +175,10 @@ function api_bootstrap() {
 /* ------------------------------------------------------------------ */
 
 function api_dashboard(period) {
-  var ctx = readOrders_();
+  return dashboardData_(readOrders_(), period);
+}
+
+function dashboardData_(ctx, period) {
   var now = new Date();
   var since = periodStart_(period || '7', now);
   var inPeriod = ctx.orders.filter(function (o) {
@@ -133,6 +186,8 @@ function api_dashboard(period) {
     var d = toDate_(o.date);
     return d && d >= since;
   });
+  // Sur « Tout », les commandes archivées comptent aussi (elles sont toutes terminées).
+  if (!since) inPeriod = inPeriod.concat(readArchivedOrders_());
   var has = function (list) { return function (o) { return list.indexOf(o.status) >= 0; }; };
   var count = function (arr, list) { return arr.filter(has(list)).length; };
   var sum = function (arr) { return arr.reduce(function (a, o) { return a + toNumber_(o.total); }, 0); };
@@ -215,7 +270,16 @@ function api_dashboard(period) {
  */
 function api_listOrders(filter) {
   filter = filter || {};
+  var arrived = filter.sync ? releasitQuickSync_() : 0;
   var ctx = readOrders_();
+  var res = listData_(ctx, filter);
+  res.arrived = arrived;
+  if (arrived) res.menuCounts = countsData_(ctx, null);
+  if (filter.withStatus) res.importStatus = api_importStatus();
+  return res;
+}
+
+function listData_(ctx, filter) {
   var now = new Date();
   var since = periodStart_(filter.period || '30', now);
   var q = normalizeText_(filter.q || '');
@@ -280,10 +344,26 @@ function queueItem_(o) {
 }
 
 /** File d'appels : à appeler maintenant (due) et rappels programmés plus tard (later). */
-function api_queue() {
+/** opts.sync : vérifie d'abord l'onglet RELEASIT ; opts.first : joint la fiche de la première commande à appeler. */
+function api_queue(opts) {
+  opts = opts || {};
+  var arrived = opts.sync ? releasitQuickSync_() : 0;
   var ctx = readOrders_();
-  var now = new Date();
   var user = currentUser_();
+  var q = queueData_(ctx, user);
+  q.arrived = arrived;
+  if (arrived) q.menuCounts = countsData_(ctx, null);
+  if (opts.first) q.firstDetail = firstQueueDetail_(ctx, q, user);
+  return q;
+}
+
+function firstQueueDetail_(ctx, q, user) {
+  var first = q.due.length ? findOrder_(ctx, q.due[0].id) : null;
+  return first ? orderDetail_(ctx, makeEnv_(ctx), first, user) : null;
+}
+
+function queueData_(ctx, user) {
+  var now = new Date();
   var due = [];
   var later = [];
   var rank = {};
@@ -328,8 +408,12 @@ function api_getOrder(id) {
   var ctx = readOrders_();
   var o = findOrder_(ctx, id);
   if (!o) throw new Error('Commande ' + id + ' introuvable.');
-  var env = makeEnv_(ctx);
-  var h = clientHistory_(o.phone, env.index, o.id);
+  return orderDetail_(ctx, makeEnv_(ctx), o, currentUser_());
+}
+
+/** Fiche d'une commande : la commande, l'historique du client, et ce qui est permis. */
+function orderDetail_(ctx, env, o, user) {
+  var h = clientHistory_(o.phone, env.index, o.id, env.archived);
   var recent = h.list.slice().sort(function (a, b) {
     var da = toDate_(a.date);
     var db = toDate_(b.date);
@@ -338,7 +422,7 @@ function api_getOrder(id) {
     return { id: String(x.id), date: iso_(x.date), status: x.status, total: toNumber_(x.total), product: String(x.product) };
   });
   var phone = normalizePhone(o.phone);
-  var rules = orderRules_(o, currentUser_(), env.settings);
+  var rules = orderRules_(o, user, env.settings);
   return {
     order: serializeOrder_(o),
     rules: rules,
@@ -354,8 +438,9 @@ function api_getOrder(id) {
  * outcome : 'confirm' | 'no_answer' | 'callback' | 'cancel'
  * payload : { fields: {client, wilaya, commune, address, mode, qty, notes}, callback: date ISO, reason: motif }
  */
-function api_recordCall(id, outcome, payload) {
+function api_recordCall(id, outcome, payload, opts) {
   payload = payload || {};
+  opts = opts || {};
   return withLock_(function () {
     var ctx = readOrders_();
     var o = findOrder_(ctx, id);
@@ -412,7 +497,18 @@ function api_recordCall(id, outcome, payload) {
     f.updated = env.now;
     writeFields_(ctx, o, f);
     log_(user, o.id, 'Appel', detail);
-    return serializeOrder_(o);
+    // En un seul aller-retour : la commande suivante, la file à jour et les compteurs.
+    var res = serializeOrder_(o);
+    if (opts.next) {
+      var next = findOrder_(ctx, opts.next);
+      if (next && QUEUE_STATUSES.indexOf(next.status) >= 0) {
+        env.index = phoneIndex_(ctx.orders);
+        res.next = orderDetail_(ctx, env, next, user);
+      }
+    }
+    if (opts.queue) res.queue = queueData_(ctx, user);
+    res.counts = countsData_(ctx, env.settings);
+    return res;
   });
 }
 
@@ -501,7 +597,9 @@ function api_updateOrder(id, input) {
     writeFields_(ctx, o, f);
     if (force) log_(user, o.id, 'Déverrouillage', 'Motif : ' + why + ' · ' + changes.join(' · '));
     else log_(user, o.id, 'Modification', changes.join(' · '));
-    return serializeOrder_(o);
+    var res = serializeOrder_(o);
+    res.counts = countsData_(ctx, env.settings);
+    return res;
   });
 }
 
@@ -532,7 +630,9 @@ function api_createOrder(input) {
     o.alert = computeAlert_(o, env);
     appendOrder_(ctx, o);
     log_(user, o.id, 'Nouvelle commande', 'Saisie à la main · ' + o.alert);
-    return serializeOrder_(o);
+    var res = serializeOrder_(o);
+    res.counts = countsData_(ctx, env.settings);
+    return res;
   });
 }
 
@@ -553,12 +653,14 @@ function api_setBlacklist(phone, on, note) {
     }
     if (!row) {
       row = last + 1;
+      ensureRows_(sh, row);
       sh.getRange(row, 1).setNumberFormat('@');
       sh.getRange(row, 1, 1, 4).setValues([[p.phone, '', !!on, note || '']]);
     } else {
       sh.getRange(row, 3).setValue(!!on);
       if (note) sh.getRange(row, 4).setValue(note);
     }
+    clearConfigCache_(configKeysFor_(SHEET.CLIENTS));
     // Met à jour l'alerte des commandes en attente de ce client.
     var ctx = readOrders_();
     var env = makeEnv_(ctx);

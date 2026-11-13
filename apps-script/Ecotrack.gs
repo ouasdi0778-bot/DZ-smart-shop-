@@ -320,6 +320,7 @@ function syncEcotrackFees_() {
     }
     sh.getRange(2, homeCol + 1, n, 1).setValues(home);
     sh.getRange(2, deskCol + 1, n, 1).setValues(desk);
+    clearConfigCache_(configKeysFor_(SHEET.RATES));
     log_(currentUser_(), '', 'Tarifs Ecotrack', stats.rows - stats.inactive + ' wilayas mises à jour');
     return stats;
   });
@@ -649,10 +650,9 @@ function syncEcotrackStatuses_() {
   var summary = { configured: true, checked: 0, updated: 0, missing: 0, unknown: 0 };
   if (!ecotrackConfig_().configured) { summary.configured = false; return summary; }
 
-  var tracked = withLock_(function () {
-    return readOrders_().orders.filter(isEcotrackTracked_).map(function (o) {
-      return { id: String(o.id), tracking: String(o.tracking).trim(), date: toDate_(o.date) };
-    });
+  // Lecture sans verrou : les clics des confirmatrices ne l'attendent pas.
+  var tracked = readOrders_().orders.filter(isEcotrackTracked_).map(function (o) {
+    return { id: String(o.id), tracking: String(o.tracking).trim(), date: toDate_(o.date) };
   });
   summary.checked = tracked.length;
   if (!tracked.length) { markSynced_(); return summary; }

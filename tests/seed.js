@@ -100,6 +100,7 @@ function seedFirstOrders_() {
   var rates = ss.getSheetByName('Tarifs');
   rates.getRange(17, 2, 1, 4).setValues([[600, 400, 650, 380]]); // 16 - Alger
   rates.getRange(32, 2, 1, 4).setValues([[750, 450, 700, 420]]); // 31 - Oran
+  clearConfigCache_();
   var sh = ss.getSheetByName('Commandes');
   var header = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
   var add = function (fields) {
@@ -149,6 +150,7 @@ function seedDemo_() {
     ['Écouteurs sans fil', 2600, 1100, 60],
     ['Crème visage', 1700, 600, 80]
   ]);
+  clearConfigCache_();
 
   var people = [
     ['Yacine Boudiaf', '0550 12 34 56'], ['Amina Kaci', '+213 661 45 78 90'], ['Karim Saadi', 770981122],

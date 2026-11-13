@@ -294,7 +294,11 @@ function api_markFollowUp(id) {
 
 /** Pastilles du menu : appels à faire et alertes de suivi (urgentes ou à surveiller). */
 function api_counts() {
-  var ctx = readOrders_();
+  return countsData_(readOrders_(), getSettings_());
+}
+
+/** Compteurs du menu : commandes à appeler maintenant, alertes de la page Suivi. */
+function countsData_(ctx, settings) {
   var now = new Date();
   var due = 0;
   ctx.orders.forEach(function (o) {
@@ -302,6 +306,6 @@ function api_counts() {
     var cb = toDate_(o.callback);
     if (!cb || cb <= now) due++;
   });
-  var alerts = trackingAlerts_(ctx.orders, getSettings_(), now).filter(function (a) { return a.level !== 'info'; });
+  var alerts = trackingAlerts_(ctx.orders, settings || getSettings_(), now).filter(function (a) { return a.level !== 'info'; });
   return { queue: due, alerts: alerts.length };
 }

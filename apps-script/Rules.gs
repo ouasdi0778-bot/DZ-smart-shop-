@@ -141,7 +141,8 @@ function cancelParcel_(id, user) {
       writeFields_(ctx, o, { tracking: '', carrierStatus: '', carrierMoved: '', paymentId: '', followUp: '', updated: new Date() });
     }
     log_(user, o.id, 'Colis annulé', 'Colis ' + tracking + ' supprimé chez Ecotrack · la commande redevient modifiable');
-    return { order: serializeOrder_(o), message: 'Colis ' + tracking + ' annulé chez Ecotrack. La commande ' + o.id + ' est de nouveau modifiable.' };
+    return { order: serializeOrder_(o), counts: countsData_(ctx, null),
+      message: 'Colis ' + tracking + ' annulé chez Ecotrack. La commande ' + o.id + ' est de nouveau modifiable.' };
   });
 }
 
@@ -187,26 +188,15 @@ function api_deleteOrder(id, reason) {
     var sh = ss_().getSheetByName(TRASH.SHEET) || ss_().insertSheet(TRASH.SHEET);
     ensureHeaders_(sh, titles.map(function (t) { return String(t).trim(); }).filter(function (t) { return t; }).concat(TRASH.EXTRA));
     var header = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
-
-    var byTitle = {};
-    titles.forEach(function (t, i) {
-      var k = normalizeText_(t);
-      if (k && byTitle[k] === undefined) byTitle[k] = values[i];
-    });
-    byTitle[normalizeText_(TRASH.EXTRA[0])] = new Date();
-    byTitle[normalizeText_(TRASH.EXTRA[1])] = user.name;
-    byTitle[normalizeText_(TRASH.EXTRA[2])] = why;
-    var row = header.map(function (t) {
-      var v = byTitle[normalizeText_(t)];
-      return v === undefined ? '' : v;
-    });
-    var r = sh.getLastRow() + 1;
-    var tmap = headerMap_(header);
-    TEXT_KEYS_.forEach(function (k) { if (tmap[k] !== undefined) sh.getRange(r, tmap[k] + 1).setNumberFormat('@'); });
-    sh.getRange(r, 1, 1, row.length).setValues([row]);
+    var extra = {};
+    extra[TRASH.EXTRA[0]] = new Date();
+    extra[TRASH.EXTRA[1]] = user.name;
+    extra[TRASH.EXTRA[2]] = why;
+    appendArchiveRows_(sh, [rowForHeader_(titles, values, header, extra)]);
     ctx.sheet.deleteRow(o._row);
     log_(user, o.id, 'Suppression', 'Mise à la corbeille' + (why ? ' · Motif : ' + why : ''));
-    return { id: String(o.id), message: 'Commande ' + o.id + ' mise à la corbeille.' };
+    ctx.orders = ctx.orders.filter(function (x) { return x !== o; });
+    return { id: String(o.id), counts: countsData_(ctx, null), message: 'Commande ' + o.id + ' mise à la corbeille.' };
   });
 }
 
