@@ -94,6 +94,7 @@ L'intégration suit la [documentation de l'API Ecotrack](https://documenter.getp
 2. L'outil **crée** le colis chez Ecotrack et écrit son **n° de suivi** dans le classeur. **Il ne l'expédie pas** : la commande reste « Confirmée » et apparaît dans l'onglet **Créés, à valider chez Ecotrack**.
 3. **Vous validez l'expédition dans l'interface d'Ecotrack.** L'outil le voit à la lecture suivante des statuts et la commande passe « Expédiée », puis « En livraison », « Livrée » ou « Retour » toute seule.
 4. Si Ecotrack refuse un colis (par exemple « Commune mal écrite »), le motif est affiché et la commande reste sans n° de suivi : corrigez-la, puis renvoyez-la.
+5. Une erreur dans un colis **pas encore validé** ? **Annuler le colis** (dans la commande, ou dans l'onglet *Créés, à valider*) le supprime chez Ecotrack : la commande redevient « Confirmée » et modifiable, puis vous recréez le colis. Un colis déjà validé ne peut plus être annulé depuis l'outil (demande de retour chez Ecotrack).
 
 ### Statuts
 
@@ -112,6 +113,23 @@ Les statuts sont relus **toutes les 30 minutes** (ou à la demande avec « Actua
 - Un statut inconnu **ne change rien** : il est affiché dans « Statut société », signalé dans la page Suivi et noté une fois dans l'onglet **Journal**. La table se trouve dans `ECO_STATUSES_` (fichier `Ecotrack.gs`).
 - Un colis qu'Ecotrack ne retrouve pas est marqué « Introuvable chez Ecotrack » et signalé dans le Journal. Son statut reste inchangé.
 - La lecture groupée utilise `get/orders/status`, dont la documentation ne décrit pas la réponse : l'outil lit alors la liste d'Ecotrack par pages, puis colis par colis, en secours.
+
+## Commandes verrouillées et corbeille
+
+Une commande ne se modifie plus dès que son colis existe chez la société de livraison, pour que le classeur et Ecotrack disent toujours la même chose.
+
+| Étape | Statuts | Modifiable | Actions |
+|---|---|---|---|
+| En confirmation | À confirmer, Pas de réponse, Rappeler, Injoignable | Tout | Annuler, Supprimer (administrateur) |
+| Confirmée, pas encore envoyée | Confirmée sans n° de suivi | Tout | Annuler, revenir « À confirmer », Supprimer (administrateur) |
+| Colis créé chez Ecotrack, pas encore validé | Confirmée avec n° de suivi | 🔒 Notes seulement | **Annuler le colis** : supprimé chez Ecotrack, la commande se déverrouille |
+| Colis validé, en route | Expédiée, En livraison | 🔒 Notes seulement | Le statut vient d'Ecotrack |
+| Terminée | Livrée, Retour, Annulée | 🔒 Notes seulement | Une commande annulée **avant l'envoi** peut être **remise à confirmer** |
+
+- **Statuts de livraison** : avec Ecotrack, « Expédiée », « En livraison », « Livrée » et « Retour » arrivent tout seuls et ne se choisissent pas à la main. Avec une société sans connexion (Yalidine pour l'instant), vous les saisissez, toujours vers l'avant : une commande expédiée ne revient pas « À confirmer ».
+- **Déverrouillage exceptionnel** : un **administrateur** (rôle « Administrateur » dans l'onglet Équipe) peut cliquer **Modifier quand même**. Le motif est obligatoire et noté dans le Journal. Le colis chez Ecotrack, lui, ne change pas.
+- **Supprimer** (administrateur, seulement avant tout envoi) : la commande part dans l'onglet **Corbeille** avec la date, l'auteur et le motif. Releasit et Shopify ne la font pas revenir. Pour la récupérer : menu **DZ Smart Shop › Restaurer une commande de la corbeille**.
+- Les verrous s'appliquent dans l'application. Dans le classeur, les cases restent modifiables à la main (les confirmatrices ont besoin du droit d'écriture pour que l'application fonctionne) : un garde-fou est prévu plus tard.
 
 ## Suivi des colis
 
@@ -167,7 +185,7 @@ C'est la voie la plus simple, **sans accès Shopify** : Releasit COD écrit lui-
 - **Plusieurs lignes avec le même n°** (une par produit) : une seule commande, par exemple « Coque A ×2 + Coque B ».
 - **L'onglet RELEASIT n'est jamais modifié** : l'outil le lit seulement. Il retient la dernière ligne lue et ne transfère que les suivantes. Vous pouvez supprimer d'anciennes lignes ; si la dernière ligne lue disparaît, l'outil relit les lignes des 7 derniers jours (sans doublon).
 - **Ne renommez pas les titres** de la première ligne de RELEASIT (sinon une erreur claire s'affiche dans la page Commandes). Une nouvelle colonne s'ajoute **à la fin**.
-- **Pour retirer une commande, annulez-la** dans l'application plutôt que de supprimer sa ligne de Commandes : une ligne supprimée revient tant qu'elle est encore dans les dernières lignes de RELEASIT.
+- **Pour retirer une commande, annulez-la, ou mettez-la à la Corbeille** (bouton Supprimer, administrateur) : elle ne reviendra pas. Une ligne effacée à la main dans Commandes, elle, revient tant qu'elle est encore dans les dernières lignes de RELEASIT.
 - Lignes sans n° de commande, ou sans nom ni téléphone : ignorées et signalées dans le Journal.
 
 ## Importer les commandes Shopify (Releasit COD)
@@ -212,7 +230,7 @@ Toute autre application ou automatisation qui **ajoute une ligne** dans l'onglet
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 69 tests du code serveur (dont Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 75 tests du code serveur (dont Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
@@ -230,6 +248,7 @@ apps-script/
   Tracking.gs   page Suivi : alertes, argent, versements, chronologie
   Shopify.gs    importation des commandes Shopify (Releasit COD), wilayas en arabe
   Releasit.gs   transfert des commandes de l'onglet RELEASIT (écrites par Releasit COD)
+  Rules.gs      verrouillage selon l'étape, annulation d'un colis Ecotrack, corbeille
   Api.gs        application web, menu du classeur, fonctions appelées par l'interface
   Setup.gs      création/réparation du classeur et du traitement automatique
   Index.html    page de l'application

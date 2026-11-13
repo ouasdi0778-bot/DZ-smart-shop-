@@ -308,17 +308,20 @@ test('api_updateOrder : statut, société, suivi, téléphone', function () {
   baseSetup();
   addRaw({ 'N°': '#7001', 'Client': 'Modif', 'Téléphone': '0550000041', 'Wilaya': 'Alger', 'Prix': 1000 });
   processNewRows();
-  var o = api_updateOrder('#7001', { status: 'Expédiée', carrier: 'Ecotrack', tracking: 'ECO-1' });
-  assert.strictEqual(o.status, 'Expédiée');
-  assert.strictEqual(o.carrier, 'Ecotrack');
-  assert.strictEqual(o.shipping, 700, 'tarif Ecotrack domicile');
-  assert.strictEqual(o.total, 1700);
-  assert.strictEqual(o.tracking, 'ECO-1');
+  addRaw({ 'N°': '#7002', 'Client': 'Modif 2', 'Téléphone': '0550000042', 'Wilaya': 'Alger', 'Prix': 1000 });
+  processNewRows();
+  var o = api_updateOrder('#7001', { status: 'Expédiée', carrier: 'Yalidine', tracking: 'YAL-1' });
+  assert.strictEqual(o.status, 'Expédiée', 'société sans API : statut saisi à la main');
+  assert.strictEqual(o.carrier, 'Yalidine');
+  assert.strictEqual(o.tracking, 'YAL-1');
+  var e = api_updateOrder('#7002', { carrier: 'Ecotrack' });
+  assert.strictEqual(e.shipping, 700, 'tarif Ecotrack domicile');
+  assert.strictEqual(e.total, 1700);
   assert.throws(function () { api_updateOrder('#7001', { status: 'Volée' }); }, /inconnu/);
   assert.throws(function () { api_updateOrder('#nope', {}); }, /introuvable/);
-  var o2 = api_updateOrder('#7001', { phone: '12' });
+  var o2 = api_updateOrder('#7002', { phone: '12' });
   assert.strictEqual(o2.alert, 'Numéro invalide');
-  var o3 = api_updateOrder('#7001', { status: 'Annulée', cancelReason: 'Doublon' });
+  var o3 = api_updateOrder('#7002', { status: 'Annulée', cancelReason: 'Doublon' });
   assert.strictEqual(o3.cancelReason, 'Doublon');
   var journal = sheet('Journal').getRange(2, 4, sheet('Journal').getLastRow() - 1, 2).getValues();
   assert.ok(journal.some(function (r) { return /Expédiée/.test(r[1]); }));
@@ -1660,6 +1663,185 @@ test('Releasit : une commande transférée se confirme puis part chez Ecotrack a
   assert.strictEqual(payload.code_wilaya, 16);
   assert.strictEqual(payload.stop_desk, 1);
   assert.strictEqual(payload.commune, 'Bab Ezzouar');
+});
+
+/* ---------------- Verrouillage, annulation du colis, corbeille ---------------- */
+
+var ADMIN = { name: 'Admin', role: 'Administrateur' };
+var AGENT = { name: 'Imane', role: 'Confirmatrice' };
+function asAgent() {
+  __mock.setUser('imane@example.com');
+  sheet('Équipe').appendRow(['imane@example.com', 'Imane', 'Confirmatrice']);
+}
+function trackingOf(id) { return order(id).tracking; }
+
+test('Verrou : étapes, statuts permis et boutons selon la commande', function () {
+  var eco = { SOCIETE_PAR_DEFAUT: 'Ecotrack' };
+  var yal = { SOCIETE_PAR_DEFAUT: 'Yalidine' };
+  var r = orderRules_({ status: 'À confirmer' }, ADMIN, eco);
+  assert.deepStrictEqual([r.stage, r.locked, r.canDelete, r.canUnlock], ['queue', false, true, false]);
+  assert.ok(r.statuses.indexOf('Confirmée') >= 0 && r.statuses.indexOf('Annulée') >= 0);
+  assert.strictEqual(r.statuses.indexOf('Expédiée'), -1, 'avec Ecotrack, « Expédiée » vient d’Ecotrack');
+  assert.ok(orderRules_({ status: 'Confirmée' }, ADMIN, yal).statuses.indexOf('Livrée') >= 0, 'société sans API : statuts à la main');
+  assert.strictEqual(orderRules_({ status: 'À confirmer' }, AGENT, eco).canDelete, false, 'suppression : administrateur seulement');
+
+  r = orderRules_({ status: 'Confirmée', carrier: 'Ecotrack', tracking: 'ECO1', carrierMoved: new Date(2026, 10, 13, 18, 20) }, ADMIN, eco);
+  assert.deepStrictEqual([r.stage, r.locked, r.canCancelParcel, r.canDelete, r.canUnlock], ['parcel', true, true, false, true]);
+  assert.deepStrictEqual(r.statuses, ['Confirmée']);
+  assert.ok(/Colis créé chez Ecotrack le 13\/11\/2026 à 18:20 \(n° ECO1\).*annulez d’abord le colis/.test(r.reason), r.reason);
+  assert.strictEqual(orderRules_({ status: 'Confirmée', carrier: 'Ecotrack', tracking: 'ECO1' }, AGENT, eco).canUnlock, false);
+
+  r = orderRules_({ status: 'Expédiée', carrier: 'Ecotrack', tracking: 'ECO1' }, ADMIN, eco);
+  assert.deepStrictEqual([r.stage, r.locked, r.statuses, r.canCancelParcel], ['shipping', true, ['Expédiée'], false]);
+  assert.ok(/mis à jour par Ecotrack/.test(r.reason));
+  assert.deepStrictEqual(orderRules_({ status: 'Expédiée', carrier: 'Yalidine', tracking: 'Y1' }, ADMIN, eco).statuses, ['Expédiée', 'En livraison', 'Livrée', 'Retour']);
+  assert.deepStrictEqual(orderRules_({ status: 'En livraison', carrier: 'Yalidine' }, ADMIN, eco).statuses, ['En livraison', 'Livrée', 'Retour']);
+
+  r = orderRules_({ status: 'Livrée', carrier: 'Ecotrack', tracking: 'ECO1' }, ADMIN, eco);
+  assert.deepStrictEqual([r.stage, r.statuses, r.canReopen, r.canDelete], ['done', ['Livrée'], false, false]);
+  r = orderRules_({ status: 'Annulée' }, ADMIN, eco);
+  assert.deepStrictEqual([r.locked, r.canReopen, r.statuses, r.canDelete], [true, true, ['À confirmer', 'Annulée'], true]);
+  assert.ok(/remettez-la « À confirmer »/.test(r.reason));
+  assert.strictEqual(orderRules_({ status: 'Annulée', carrier: 'Ecotrack', tracking: 'ECO1' }, ADMIN, eco).canReopen, false, 'colis annulé chez Ecotrack');
+});
+
+test('Verrou : colis créé chez Ecotrack = commande non modifiable (sauf les notes), « Annuler le colis » la déverrouille', function () {
+  ecoSetup();
+  addConfirmed('#L1');
+  assert.ok(results(ship(['#L1']))['#L1'].ok);
+  var t = trackingOf('#L1');
+  asAgent();
+
+  assert.throws(function () { api_updateOrder('#L1', { phone: '0661457890' }); }, /Colis créé chez Ecotrack.*annulez d’abord le colis/);
+  assert.throws(function () { api_updateOrder('#L1', { status: 'Annulée', cancelReason: 'Doublon' }); }, /annulez d’abord le colis pour changer le statut/);
+  assert.throws(function () { api_updateOrder('#L1', { tracking: '' }); }, /verrouillée/);
+  // Le formulaire renvoie tous les champs : inchangés, ils ne bloquent pas l'enregistrement des notes.
+  var form = api_getOrder('#L1').order;
+  var saved = api_updateOrder('#L1', { client: form.client, phone: form.phone, wilaya: form.wilaya, qty: form.qty, price: form.price, shipping: form.shipping, notes: 'Client prévenu' });
+  assert.strictEqual(saved.notes, 'Client prévenu');
+  assert.strictEqual(saved.tracking, t);
+  assert.throws(function () { api_updateOrder('#L1', { notes: 'x', force: true, forceReason: 'test' }); }, /Seul un administrateur/);
+  var data = api_getOrder('#L1');
+  assert.deepStrictEqual([data.rules.locked, data.rules.canCancelParcel, data.order.locked], [true, true, true]);
+  assertSerializable(data, 'api_getOrder');
+  assert.strictEqual(api_listOrders({ period: 'all' }).rows[0].locked, true);
+
+  // Annuler le colis : supprimé chez Ecotrack, la commande redevient modifiable.
+  var res = api_cancelParcel('#L1');
+  assert.ok(/annulé chez Ecotrack/.test(res.message), res.message);
+  assert.strictEqual(FAKE.lastCall('/api/v1/delete/order').query.tracking, t);
+  assert.ok(!FAKE.orders.some(function (o) { return o.tracking === t; }));
+  var o = order('#L1');
+  assert.deepStrictEqual([o.status, o.tracking, o.carrierStatus, o.locked], ['Confirmée', '', '', false]);
+  assert.ok(logActions().indexOf('Colis annulé') >= 0);
+  assert.ok(api_shippingList().toShip.some(function (x) { return x.id === '#L1'; }), 'de retour dans « à expédier »');
+  assert.strictEqual(api_updateOrder('#L1', { commune: 'Hussein Dey' }).commune, 'Hussein Dey');
+  assert.ok(results(ship(['#L1']))['#L1'].ok, 'le colis se recrée');
+  assert.notStrictEqual(trackingOf('#L1'), t);
+  assert.throws(function () { api_cancelParcel('#nope'); }, /introuvable/);
+});
+
+test('Verrou : colis déjà validé chez Ecotrack : annulation refusée, rien ne change', function () {
+  ecoSetup();
+  addConfirmed('#L2');
+  ship(['#L2']);
+  var t = trackingOf('#L2');
+  FAKE.validate(t);
+  assert.throws(function () { api_cancelParcel('#L2'); }, /Ecotrack refuse d’annuler le colis .*Commande non modifiable.*demande de retour/);
+  assert.strictEqual(trackingOf('#L2'), t);
+  syncEcotrackStatuses_();
+  assert.strictEqual(order('#L2').status, 'Expédiée');
+  assert.throws(function () { api_cancelParcel('#L2'); }, /n’a pas de colis Ecotrack en attente/);
+  assert.throws(function () { api_updateOrder('#L2', { status: 'Livrée' }); }, /mis à jour par Ecotrack/);
+  assert.throws(function () { api_updateOrder('#L2', { address: 'Ailleurs' }); }, /Colis validé et en route/);
+  addConfirmed('#L3');
+  assert.throws(function () { api_cancelParcel('#L3'); }, /n’a pas de colis/);
+});
+
+test('Verrou : statuts à la main (société sans API), commande terminée, remise à confirmer, déverrouillage', function () {
+  baseSetup();
+  setSetting('SOCIETE_PAR_DEFAUT', 'Ecotrack');
+  addRaw({ 'N°': '#V1', 'Client': 'A', 'Téléphone': '0550000051', 'Wilaya': 'Alger', 'Prix': 1000 });
+  addRaw({ 'N°': '#V2', 'Client': 'B', 'Téléphone': '0550000052', 'Wilaya': 'Alger', 'Prix': 1000 });
+  processNewRows();
+  assert.throws(function () { api_updateOrder('#V1', { status: 'Expédiée' }); }, /créez le colis depuis la page Expéditions/);
+  assert.throws(function () { api_updateOrder('#V1', { status: 'Expédiée', carrier: 'Ecotrack' }); }, /créez le colis/);
+  assert.strictEqual(api_updateOrder('#V1', { status: 'Expédiée', carrier: 'Yalidine', tracking: 'YAL-9' }).status, 'Expédiée');
+  assert.throws(function () { api_updateOrder('#V1', { address: 'Autre' }); }, /Commande expédiée/);
+  assert.throws(function () { api_updateOrder('#V1', { status: 'À confirmer' }); }, /ne peut pas revenir à « À confirmer »/);
+  assert.strictEqual(api_updateOrder('#V1', { status: 'Livrée' }).status, 'Livrée');
+  assert.throws(function () { api_updateOrder('#V1', { status: 'Retour' }); }, /Commande livrée/);
+
+  // Annulée avant l'envoi, puis remise à confirmer : motif effacé, de nouveau modifiable.
+  api_updateOrder('#V2', { status: 'Annulée', cancelReason: 'Trop cher' });
+  assert.throws(function () { api_updateOrder('#V2', { client: 'Autre' }); }, /Commande annulée/);
+  var back = api_updateOrder('#V2', { status: 'À confirmer' });
+  assert.deepStrictEqual([back.status, back.cancelReason, back.locked], ['À confirmer', '', false]);
+  assert.ok(api_queue().due.some(function (x) { return x.id === '#V2'; }));
+
+  // Déverrouillage par l'administrateur : motif obligatoire, noté dans le Journal.
+  assert.throws(function () { api_updateOrder('#V1', { address: 'Corrigée', force: true }); }, /motif du déverrouillage/);
+  var fixed = api_updateOrder('#V1', { address: 'Corrigée', status: 'Retour', force: true, forceReason: 'Erreur de saisie' });
+  assert.deepStrictEqual([fixed.address, fixed.status], ['Corrigée', 'Retour']);
+  var j = sheet('Journal');
+  var last = j.getRange(j.getLastRow(), 1, 1, 5).getValues()[0];
+  assert.strictEqual(last[3], 'Déverrouillage');
+  assert.ok(/Motif : Erreur de saisie/.test(last[4]), last[4]);
+});
+
+test('Corbeille : suppression par l’administrateur, Releasit et Shopify ne la recréent pas, restauration', function () {
+  releasitSetup();
+  releasitAdd({ id: '#9001' });
+  releasitAdd({ id: '#9002', phone: '+2130661457890' });
+  transferReleasitOrders_();
+  var res = api_deleteOrder('#9001', 'Commande test');
+  assert.ok(/corbeille/.test(res.message));
+  assert.deepStrictEqual(orderRowIds(), ['#9002']);
+  var trash = sheet('Corbeille');
+  var header = trash.getRange(1, 1, 1, trash.getLastColumn()).getValues()[0];
+  var row = trash.getRange(2, 1, 1, header.length).getValues()[0];
+  assert.strictEqual(row[header.indexOf('N°')], '#9001');
+  assert.strictEqual(row[header.indexOf('Client')], 'Client Test');
+  assert.strictEqual(row[header.indexOf('Motif de suppression')], 'Commande test');
+  assert.ok(row[header.indexOf('Supprimée le')] instanceof Date);
+  assert.ok(logActions().indexOf('Suppression') >= 0);
+
+  // Releasit relit tout (repère perdu) : la commande supprimée ne revient pas. Shopify non plus.
+  PropertiesService.getScriptProperties().deleteProperty('RELEASIT_MARK');
+  assert.strictEqual(transferReleasitOrders_().added, 0);
+  saveShopifyConfig_(SHOP_DOMAIN, SHOPIFY.token, '');
+  SHOPIFY.add({ name: '#9001', createdAt: hoursBack(1) });
+  assert.strictEqual(importShopifyOrders_().imported, 0);
+  assert.deepStrictEqual(orderRowIds(), ['#9002']);
+
+  // Restauration (menu du classeur).
+  assert.strictEqual(api_restoreOrder('#9001').id, '#9001');
+  assert.deepStrictEqual(orderRowIds().sort(), ['#9001', '#9002']);
+  assert.strictEqual(order('#9001').status, 'À confirmer');
+  assert.strictEqual(order('#9001').phone, '0550123456');
+  assert.strictEqual(trash.getLastRow(), 1, 'sortie de la corbeille');
+  assert.throws(function () { api_restoreOrder('#9001'); }, /corbeille est vide|absente/);
+  __mock.state.prompts.push('#9999');
+  onOpen();
+  menuTrashRestore();
+  assert.ok(__mock.state.alerts.length >= 1);
+
+  // Confirmatrice : pas de suppression. Commande envoyée : pas de suppression.
+  asAgent();
+  assert.throws(function () { api_deleteOrder('#9002'); }, /Seul un administrateur/);
+  assert.strictEqual(api_getOrder('#9002').rules.canDelete, false);
+});
+
+test('Corbeille : une commande envoyée ne se supprime pas ; les n° manuels ne sont pas réutilisés', function () {
+  ecoSetup();
+  addConfirmed('#D1');
+  ship(['#D1']);
+  assert.throws(function () { api_deleteOrder('#D1'); }, /ne peut pas être supprimée/);
+  var a = api_createOrder({ client: 'Manuel', phone: '0550000061', wilaya: '16 - Alger', product: 'X', price: 1000 });
+  assert.strictEqual(a.id, 'M0001');
+  api_deleteOrder('M0001');
+  var b = api_createOrder({ client: 'Manuel 2', phone: '0550000062', wilaya: '16 - Alger', product: 'X', price: 1000 });
+  assert.strictEqual(b.id, 'M0002', 'M0001 est à la corbeille : le n° n’est pas réutilisé');
 });
 
 test('fichier unique dist/Code.gs : à jour et fonctionnel', function () {

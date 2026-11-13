@@ -94,6 +94,7 @@
     values.forEach(function (v, i) { self._set(r, i + 1, v); });
     return this;
   };
+  Sheet.prototype.deleteRow = function (r) { this.data.splice(r - 1, 1); return this; };
   Sheet.prototype.setFrozenRows = function (n) { this.frozen = n; return this; };
   Sheet.prototype.setColumnWidth = function () { return this; };
   Sheet.prototype.getConditionalFormatRules = function () { return this._cf.slice(); };

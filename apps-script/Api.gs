@@ -40,6 +40,7 @@ function onOpen() {
     .addSeparator()
     .addItem('Traiter les nouvelles commandes', 'menuProcess')
     .addItem('Recalculer les alertes clients', 'menuRecalc')
+    .addItem('Restaurer une commande de la corbeille', 'menuTrashRestore')
     .addSeparator()
     .addSubMenu(ui.createMenu('Releasit')
       .addItem('Transférer les commandes maintenant', 'menuReleasitTransfer')
@@ -337,8 +338,10 @@ function api_getOrder(id) {
     return { id: String(x.id), date: iso_(x.date), status: x.status, total: toNumber_(x.total), product: String(x.product) };
   });
   var phone = normalizePhone(o.phone);
+  var rules = orderRules_(o, currentUser_(), env.settings);
   return {
     order: serializeOrder_(o),
+    rules: rules,
     history: { orders: h.orders, delivered: h.delivered, returned: h.returned, cancelled: h.cancelled, recent: recent },
     blacklisted: !!env.blacklist[phone.phone],
     phoneValid: phone.valid,
@@ -428,7 +431,12 @@ function pickEdits_(input) {
   return out;
 }
 
-/** Modifie une commande depuis la page Commandes (y compris son statut). */
+/**
+ * Modifie une commande depuis la page Commandes (y compris son statut).
+ * Une commande verrouillée (colis créé, expédiée, terminée : voir Rules.gs)
+ * n'accepte que ses notes et les statuts permis, sauf déverrouillage par un
+ * administrateur : input.force = true et input.forceReason = motif.
+ */
 function api_updateOrder(id, input) {
   input = input || {};
   return withLock_(function () {
@@ -437,11 +445,38 @@ function api_updateOrder(id, input) {
     if (!o) throw new Error('Commande ' + id + ' introuvable.');
     var env = makeEnv_(ctx);
     var user = currentUser_();
-    var f = applyEdits_(o, pickEdits_(input), env, true);
+    var rules = orderRules_(o, user, env.settings);
+    var force = input.force === true || input.force === 'true';
+    var why = String(input.forceReason || '').trim();
+    if (force && !rules.admin) throw new Error('Seul un administrateur (onglet Équipe) peut modifier une commande verrouillée.');
+    if (force && !why) throw new Error('Indiquez le motif du déverrouillage.');
+
+    var edits = pickEdits_(input);
+    var f;
+    if (rules.locked && !force) {
+      // Seules les notes changent ; toute autre modification est refusée.
+      var others = {};
+      Object.keys(edits).forEach(function (k) { if (k !== 'notes') others[k] = edits[k]; });
+      var tried = applyEdits_(o, others, env, true);
+      if (Object.keys(tried).some(function (k) { return Object.prototype.hasOwnProperty.call(others, k); })) throw new Error(rules.reason);
+      f = {};
+      if (Object.prototype.hasOwnProperty.call(edits, 'notes')) {
+        var notes = String(edits.notes == null ? '' : edits.notes).trim();
+        if (notes !== String(o.notes)) f.notes = notes;
+      }
+    } else {
+      f = applyEdits_(o, edits, env, true);
+    }
     var changes = [];
 
     if (input.status && input.status !== o.status) {
       if (STATUS_LIST.indexOf(input.status) < 0) throw new Error('Statut inconnu : ' + input.status);
+      // Statuts permis ; la société choisie dans le même enregistrement compte.
+      var target = {};
+      Object.keys(o).forEach(function (k) { target[k] = o[k]; });
+      if (f.carrier !== undefined) target.carrier = f.carrier;
+      var targetRules = orderRules_(target, user, env.settings);
+      if (!force && targetRules.statuses.indexOf(input.status) < 0) throw new Error(statusRefusal_(target, targetRules, input.status));
       f.status = input.status;
       if (QUEUE_STATUSES.indexOf(input.status) < 0) f.callback = '';
       changes.push('Statut : ' + (o.status || '—') + ' → ' + input.status);
@@ -450,6 +485,8 @@ function api_updateOrder(id, input) {
     if (finalStatus === STATUS.CANCELLED) {
       var reason = String(input.cancelReason || o.cancelReason || 'Autre');
       if (reason !== String(o.cancelReason)) f.cancelReason = reason;
+    } else if (o.status === STATUS.CANCELLED && !isBlank_(o.cancelReason)) {
+      f.cancelReason = ''; // commande remise « À confirmer »
     }
     if (f.phone !== undefined) {
       var merged = {};
@@ -462,7 +499,8 @@ function api_updateOrder(id, input) {
     if (edited.length) changes.push('Modifié : ' + edited.join(', '));
     f.updated = env.now;
     writeFields_(ctx, o, f);
-    log_(user, o.id, 'Modification', changes.join(' · '));
+    if (force) log_(user, o.id, 'Déverrouillage', 'Motif : ' + why + ' · ' + changes.join(' · '));
+    else log_(user, o.id, 'Modification', changes.join(' · '));
     return serializeOrder_(o);
   });
 }

@@ -11,7 +11,7 @@ var path = require('path');
 var ROOT = path.join(__dirname, '..');
 var SRC = path.join(ROOT, 'apps-script');
 var OUT = path.join(ROOT, 'dist', 'Code.gs');
-var ORDER = ['Config.gs', 'Utils.gs', 'Orders.gs', 'Ecotrack.gs', 'Tracking.gs', 'Shopify.gs', 'Releasit.gs', 'Api.gs', 'Setup.gs'];
+var ORDER = ['Config.gs', 'Utils.gs', 'Orders.gs', 'Ecotrack.gs', 'Tracking.gs', 'Shopify.gs', 'Releasit.gs', 'Rules.gs', 'Api.gs', 'Setup.gs'];
 var HTML = ['Index', 'Styles', 'App'];
 
 function build() {

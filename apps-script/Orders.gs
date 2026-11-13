@@ -106,8 +106,9 @@ function appendOrders_(ctx, list) {
 /** Prochain numéro pour une commande saisie à la main : M0001, M0002… */
 function nextManualId_(ctx) {
   var max = 0;
-  ctx.orders.forEach(function (o) {
-    var m = String(o.id).match(/^M(\d+)$/);
+  var ids = ctx.orders.map(function (o) { return String(o.id); }).concat(Object.keys(trashIds_()));
+  ids.forEach(function (id) {
+    var m = id.match(/^M(\d+)$/);
     if (m) max = Math.max(max, +m[1]);
   });
   return 'M' + ('000' + (max + 1)).slice(-4);
@@ -147,7 +148,9 @@ function serializeOrder_(o) {
     alertLevel: alertLevel_(o.alert),
     notes: String(o.notes),
     source: String(o.source),
-    updated: iso_(o.updated)
+    updated: iso_(o.updated),
+    stage: orderStage_(o),
+    locked: isLockedStage_(orderStage_(o))
   };
 }
 

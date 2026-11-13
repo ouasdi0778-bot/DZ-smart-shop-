@@ -445,7 +445,7 @@ function importShopifyOrders_() {
   if (rows.length) {
     summary.imported = withLock_(function () {
       var ctx = readOrders_();
-      var known = {};
+      var known = trashIds_(); // une commande mise à la corbeille ne revient pas
       ctx.orders.forEach(function (o) { known[String(o.id).trim()] = true; });
       var added = 0;
       rows.forEach(function (o) {

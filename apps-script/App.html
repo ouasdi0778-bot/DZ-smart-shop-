@@ -18,7 +18,9 @@
     token: 0,
     detailToken: 0,
     ship: { data: null, tab: 'toship', selected: {}, busy: false, results: null },
-    track: { data: null, days: 30, filter: 'all' }
+    track: { data: null, days: 30, filter: 'all' },
+    order: null,      // dernière commande affichée dans la fenêtre (pour la réafficher)
+    unlockId: null    // commande déverrouillée par un administrateur
   };
   var TZ = 'Africa/Algiers';
   var ALERT = {
@@ -372,7 +374,8 @@
     }).join('') + '</tr></thead><tbody>';
     res.rows.forEach(function (o) {
       html += '<tr class="clickable" data-act="open-order" data-id="' + h(o.id) + '">' +
-        '<td data-label="N°" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button><div class="small">' + fmtDate(o.date) + '</div></td>' +
+        '<td data-label="N°" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button>' +
+          (o.locked ? ' <span class="lock-icon" title="Verrouillée" aria-label="Verrouillée">🔒</span>' : '') + '<div class="small">' + fmtDate(o.date) + '</div></td>' +
         '<td data-label="Client" class="multi">' + h(o.client) + '<div class="small">' + h(fmtPhone(o.phone)) + '</div></td>' +
         '<td data-label="Wilaya" class="multi">' + h(o.wilaya) + '<div class="small">' + h(o.commune) + '</div></td>' +
         '<td data-label="Produit">' + h(o.product) + (o.qty > 1 ? ' ×' + o.qty : '') + '</td>' +
@@ -423,14 +426,35 @@
   }
 
   function openOrder(id) {
+    S.unlockId = null;
     showModal(modalHead('Commande ' + h(id)) + '<p class="loading">Chargement…</p>');
     call('api_getOrder', id).then(renderOrderModal).catch(function (e) {
       showModal(modalHead('Commande ' + h(id)) + errorBox(e));
     });
   }
 
+  /* Verrou : message, et boutons Annuler le colis / Remettre à confirmer / Modifier quand même. */
+  function lockBox(o, r, unlocked) {
+    if (unlocked) {
+      return '<div class="lock-box warn"><p>Déverrouillage administrateur : la modification sera notée dans le Journal avec son motif. ' +
+        (o.tracking ? 'Attention : le colis chez Ecotrack, lui, ne change pas.' : '') + '</p></div>' +
+        field('Motif du déverrouillage (obligatoire)', input('forceReason', '', ' data-role="force-reason" placeholder="Ex. adresse corrigée à la demande d’Ecotrack"'), 'full');
+    }
+    if (!r.locked) return '';
+    return '<div class="lock-box"><p>🔒 ' + h(r.reason) + '</p>' +
+      (r.canCancelParcel ? '<button type="button" class="btn danger" data-act="parcel-cancel-ask" data-id="' + h(o.id) + '" data-tracking="' + h(o.tracking) + '">Annuler le colis</button>' : '') +
+      (r.canReopen ? '<button type="button" class="btn" data-act="order-reopen" data-id="' + h(o.id) + '">Remettre à confirmer</button>' : '') +
+      (r.canUnlock ? '<button type="button" class="link-btn" data-act="order-unlock" data-id="' + h(o.id) + '">Modifier quand même (administrateur)</button>' : '') +
+      '</div>';
+  }
+
   function renderOrderModal(data) {
+    S.order = data;
     var o = data.order;
+    var r = data.rules || { locked: false, statuses: S.boot.statuses };
+    var unlocked = r.locked && S.unlockId === o.id;
+    var locked = r.locked && !unlocked;
+    var statuses = unlocked ? S.boot.statuses : r.statuses;
     var hist = data.history;
     var b = S.boot;
     var meta = '<p class="small" style="margin-top:4px">Reçue le ' + fmtDate(o.date) + ' · source : ' + h(o.source || '—') +
@@ -447,9 +471,10 @@
         '<span>' + (o.carrierLabel ? h(o.carrierLabel) : 'statut pas encore lu') + (o.carrierMoved ? ' · mouvement ' + h(ago(o.carrierMoved)) : '') + '</span>' +
         '<button type="button" class="btn" style="min-height:36px;margin-left:auto" data-act="track-history" data-id="' + h(o.id) + '">Voir la chronologie</button></div>' +
         '<div id="parcel-history"></div>' : '') +
-      '<div id="order-form" data-id="' + h(o.id) + '">' +
+      lockBox(o, r, unlocked) +
+      '<div id="order-form" data-id="' + h(o.id) + '" data-locked="' + (locked ? '1' : '') + '" data-force="' + (unlocked ? '1' : '') + '">' +
         '<div class="form-grid">' +
-          field('Statut', '<select name="status" data-role="status">' + options(b.statuses, o.status) + '</select>') +
+          field('Statut', '<select name="status" data-role="status"' + (statuses.length < 2 ? ' disabled' : '') + '>' + options(statuses, o.status) + '</select>') +
           field('Motif d’annulation', '<select name="cancelReason">' + options(b.cancelReasons, o.cancelReason, 'Choisir…') + '</select>') +
         '</div>' +
         '<div style="height:12px"></div>' +
@@ -458,11 +483,68 @@
       '<div class="modal-actions">' +
         (data.phoneValid ? '<button type="button" class="btn ' + (data.blacklisted ? '' : 'danger') + '" data-act="toggle-blacklist" data-phone="' + h(o.phone) + '" data-on="' + (!data.blacklisted) + '">' +
           (data.blacklisted ? 'Retirer de la liste noire' : 'Mettre en liste noire') + '</button>' : '') +
+        (r.canDelete ? '<button type="button" class="btn danger" data-act="order-delete-ask" data-id="' + h(o.id) + '">Supprimer</button>' : '') +
         '<button type="button" class="btn" data-act="close-modal">Fermer</button>' +
-        '<button type="button" class="btn primary" data-act="save-order" data-id="' + h(o.id) + '">Enregistrer</button>' +
+        '<button type="button" class="btn primary" data-act="save-order" data-id="' + h(o.id) + '">' + (locked ? 'Enregistrer les notes' : 'Enregistrer') + '</button>' +
       '</div>'
     );
+    if (locked) {
+      // Seules les notes (et les statuts permis) restent modifiables.
+      $all('#order-form [name]').forEach(function (el) {
+        if (['notes', 'status', 'cancelReason'].indexOf(el.name) < 0) el.disabled = true;
+      });
+    }
     toggleCancelField();
+  }
+
+  function askCancelParcel(id, tracking, fromShipping) {
+    showModal(modalHead('Annuler le colis ?') +
+      '<p>Le colis <span class="mono">' + h(tracking) + '</span> sera supprimé chez Ecotrack. C’est possible seulement s’il n’est pas encore validé.</p>' +
+      '<p class="small" style="margin-top:8px">La commande ' + h(id) + ' redeviendra « Confirmée » et modifiable. Après correction, recréez le colis depuis la page Expéditions.</p>' +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="' + (fromShipping ? 'close-modal' : 'open-order') + '" data-id="' + h(id) + '">Retour</button>' +
+      '<button type="button" class="btn danger" data-act="parcel-cancel" data-id="' + h(id) + '" data-from="' + (fromShipping ? 'ship' : 'order') + '">Annuler le colis</button></div>');
+  }
+
+  function cancelParcel(btn) {
+    var id = btn.getAttribute('data-id');
+    var fromShipping = btn.getAttribute('data-from') === 'ship';
+    btn.disabled = true;
+    toast('Annulation du colis chez Ecotrack…');
+    call('api_cancelParcel', id).then(function (r) {
+      toast(r.message);
+      afterOrderChange();
+      if (fromShipping) closeModal(); else openOrder(id);
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  }
+
+  function askDeleteOrder(id) {
+    showModal(modalHead('Supprimer la commande ' + h(id) + ' ?') +
+      '<p>Elle sera déplacée dans l’onglet <strong>Corbeille</strong> du classeur. Releasit et Shopify ne la feront pas revenir.</p>' +
+      '<p class="small" style="margin-top:8px">Pour la récupérer : dans le classeur, menu DZ Smart Shop › Restaurer une commande de la corbeille.</p>' +
+      '<div style="height:10px"></div>' + field('Motif (facultatif)', input('trashReason', '', ' data-role="trash-reason" placeholder="Ex. commande test"'), 'full') +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="open-order" data-id="' + h(id) + '">Retour</button>' +
+      '<button type="button" class="btn danger" data-act="order-delete" data-id="' + h(id) + '">Mettre à la corbeille</button></div>');
+  }
+
+  function deleteOrder(btn) {
+    var id = btn.getAttribute('data-id');
+    var reason = ($('[data-role="trash-reason"]') || {}).value || '';
+    btn.disabled = true;
+    call('api_deleteOrder', id, reason).then(function (r) {
+      closeModal();
+      toast(r.message);
+      afterOrderChange();
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  }
+
+  function reopenOrder(btn) {
+    var id = btn.getAttribute('data-id');
+    btn.disabled = true;
+    call('api_updateOrder', id, { status: 'À confirmer' }).then(function () {
+      toast('Commande ' + id + ' remise « À confirmer »');
+      afterOrderChange();
+      openOrder(id);
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
   }
 
   function toggleCancelField() {
@@ -491,7 +573,15 @@
 
   function saveOrder(btn) {
     var id = btn.getAttribute('data-id');
-    var data = readForm($('#order-form'));
+    var form = $('#order-form');
+    var data = readForm(form);
+    if (form.getAttribute('data-locked') === '1') {
+      data = { notes: data.notes, status: data.status, cancelReason: data.cancelReason };
+    } else if (form.getAttribute('data-force') === '1') {
+      data.force = true;
+      data.forceReason = ($('[data-role="force-reason"]') || {}).value || '';
+      if (!String(data.forceReason).trim()) { toast('Indiquez le motif du déverrouillage.', true); return; }
+    }
     btn.disabled = true;
     call('api_updateOrder', id, data).then(function (o) {
       closeModal();
@@ -870,7 +960,7 @@
     var html = '<p class="small">Ces colis existent chez Ecotrack mais ne partent pas tant que vous ne les avez pas validés dans l’interface d’Ecotrack. ' +
       'Une fois validés, la commande passe « Expédiée » toute seule. Un colis non validé depuis plus de ' + d.alertHours + ' h est signalé.</p>';
     html += '<div class="table-wrap"><table class="data cards"><thead><tr>' +
-      ['Commande', 'Destination', 'N° de suivi', 'Statut Ecotrack', 'Créé depuis', 'Total'].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>';
+      ['Commande', 'Destination', 'N° de suivi', 'Statut Ecotrack', 'Créé depuis', 'Total', ''].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>';
     d.created.forEach(function (o) {
       html += '<tr>' +
         '<td data-label="Commande" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button> · ' + h(o.client) + '</td>' +
@@ -878,9 +968,11 @@
         '<td data-label="N° de suivi" class="mono">' + h(o.tracking) + '</td>' +
         '<td data-label="Statut Ecotrack">' + h(o.carrierLabel) + '</td>' +
         '<td data-label="Créé depuis">' + h(hoursText(o.ageHours)) + (o.late ? ' <span class="pill" style="background:#FFF3DC;color:#8A5200">à valider</span>' : '') + '</td>' +
-        '<td data-label="Total" class="num strong">' + money(o.total) + '</td></tr>';
+        '<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
+        '<td data-label=""><button type="button" class="btn danger" style="min-height:36px" data-act="parcel-cancel-ask" data-from="ship" data-id="' + h(o.id) + '" data-tracking="' + h(o.tracking) + '">Annuler le colis</button></td></tr>';
     });
-    return html + '</tbody></table></div>';
+    return html + '</tbody></table></div>' +
+      '<p class="small">Une erreur dans un colis pas encore validé ? « Annuler le colis » le supprime chez Ecotrack : la commande redevient modifiable, puis vous recréez le colis.</p>';
   }
 
   /** « 5 h », « 2 j » à partir d'un nombre d'heures. */
@@ -1128,6 +1220,12 @@
     },
     'close-modal': closeModal,
     'save-order': saveOrder,
+    'parcel-cancel-ask': function (el) { askCancelParcel(el.getAttribute('data-id'), el.getAttribute('data-tracking'), el.getAttribute('data-from') === 'ship'); },
+    'parcel-cancel': cancelParcel,
+    'order-delete-ask': function (el) { askDeleteOrder(el.getAttribute('data-id')); },
+    'order-delete': deleteOrder,
+    'order-reopen': reopenOrder,
+    'order-unlock': function (el) { S.unlockId = el.getAttribute('data-id'); if (S.order) renderOrderModal(S.order); },
     'create-order': createOrder,
     'toggle-blacklist': toggleBlacklist,
     'refresh-queue': function () {

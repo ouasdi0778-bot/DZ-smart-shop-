@@ -290,7 +290,7 @@ function transferReleasitOrders_(options) {
   if (candidates.length) {
     summary.added = withLock_(function () {
       var ctx = readOrders_();
-      var known = {};
+      var known = trashIds_(); // une commande mise à la corbeille ne revient pas
       ctx.orders.forEach(function (o) { known[String(o.id).trim()] = true; });
       var fresh = candidates.filter(function (o) {
         if (known[o.id]) { summary.skipped++; return false; }

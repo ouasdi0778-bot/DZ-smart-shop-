@@ -1,7 +1,7 @@
 /**
  * Faux serveur Ecotrack, pour tester l'intégration sans appeler le vrai
  * service. Il imite les points de terminaison de la documentation :
- * get/wilayas, get/fees, create/orders, get/orders (jeton « Bearer »,
+ * get/wilayas, get/fees, create/orders, get/orders, delete/order (jeton « Bearer »,
  * 50 requêtes par minute, pagination de 40).
  */
 (function (g) {
@@ -162,6 +162,15 @@
     });
   }
 
+  /** delete/order : possible tant que l'expédition n'est pas validée (réponse 200 dans tous les cas). */
+  function deleteOrder(query) {
+    var o = fake.orders.filter(function (x) { return x.tracking === query.tracking; })[0];
+    if (!o) return respond(200, { success: false, error: 'Commande introuvable' });
+    if (o.status !== 'prete_a_expedier') return respond(200, { success: false, error: 'Commande non modifiable' });
+    fake.remove(o.tracking);
+    return respond(200, { success: true, message: 'Commande supprimée avec succès' });
+  }
+
   g.UrlFetchApp = {
     fetch: function (url, params) {
       params = params || {};
@@ -188,6 +197,7 @@
       if (method === 'GET' && u.path === '/api/v1/get/wilayas') return respond(200, wilayas());
       if (method === 'GET' && u.path === '/api/v1/get/fees') return respond(200, fees());
       if (method === 'GET' && u.path === '/api/v1/get/orders') return listOrders(u.query);
+      if (method === 'DELETE' && u.path === '/api/v1/delete/order') return deleteOrder(u.query);
       if (method === 'POST' && u.path === '/api/v1/create/orders') {
         var res = createOrders(body);
         if (fake.createThenFail) throw new Error('Timeout : la connexion a été coupée');
