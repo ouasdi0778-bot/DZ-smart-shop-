@@ -160,6 +160,7 @@ function serializeOrder_(o) {
     carrierMoved: iso_(o.carrierMoved),
     paymentId: String(o.paymentId),
     followUp: iso_(o.followUp),
+    label: labelState_(o),
     campaign: String(o.campaign),
     adSource: String(o.adSource == null ? '' : o.adSource),
     shopifyId: String(o.shopifyId),

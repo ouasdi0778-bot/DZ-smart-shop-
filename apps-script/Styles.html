@@ -186,6 +186,11 @@
   .result-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid #EEF0F3; }
   .result-row:first-of-type { border-top: 0; }
   .result-row .grow { flex: 1 1 240px; min-width: 0; }
+  .label-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; }
+  .label-bar .chips { align-items: center; }
+  .check-line { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+  .progress { height: 8px; border-radius: 999px; background: #EEF0F3; overflow: hidden; margin-top: 10px; }
+  .progress span { display: block; height: 100%; background: var(--ink); transition: width .2s; }
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
   .timeline { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
   .timeline li { display: flex; gap: 14px; padding: 10px 0 10px 22px; position: relative; border-top: 1px solid #EEF0F3; }

@@ -111,6 +111,9 @@
   }
 
   g.UrlFetchApp = {
+    fetchAll: function (list) {
+      return list.map(function (req) { return g.UrlFetchApp.fetch(req.url, req); });
+    },
     fetch: function (url, params) {
       params = params || {};
       if (String(url).indexOf(fake.host) !== 0) return previous(url, params);

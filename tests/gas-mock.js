@@ -110,6 +110,11 @@
     this.maxCols = Math.max(this.maxCols - n, 1);
     return this;
   };
+  Sheet.prototype.insertColumnsAfter = function (c, n) {
+    this.data.forEach(function (row) { if (c < row.length) { var args = [c, 0]; for (var i = 0; i < n; i++) args.push(''); row.splice.apply(row, args); } });
+    this.maxCols += n;
+    return this;
+  };
   Sheet.prototype.setFrozenRows = function (n) { this.frozen = n; return this; };
   Sheet.prototype.setColumnWidth = function () { return this; };
   Sheet.prototype.getConditionalFormatRules = function () { return this._cf.slice(); };
@@ -270,7 +275,12 @@
       return fmt.replace('yyyy', d.getFullYear()).replace('MM', pad(d.getMonth() + 1)).replace('dd', pad(d.getDate()))
         .replace('HH', pad(d.getHours())).replace('mm', pad(d.getMinutes())).replace('ss', pad(d.getSeconds()));
     },
-    sleep: function (ms) { state.sleeps.push(ms); }
+    sleep: function (ms) { state.sleeps.push(ms); },
+    base64Encode: function (bytes) {
+      var bin = '';
+      for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i] & 255);
+      return typeof btoa === 'function' ? btoa(bin) : Buffer.from(bin, 'binary').toString('base64');
+    }
   };
 
   function output(html) {

@@ -138,6 +138,8 @@ function readSettings_() {
   s.NOM_BOUTIQUE = String(s.NOM_BOUTIQUE || APP_NAME).trim();
   s.MESSAGE_WHATSAPP = String(s.MESSAGE_WHATSAPP || '');
   s.SUIVI_ALERTE_HEURES = Math.max(1, toNumber_(s.SUIVI_ALERTE_HEURES) || 26);
+  s.FORMAT_BORDEREAU = /10|15|therm|etiq/i.test(normalizeText_(s.FORMAT_BORDEREAU)) ? '10x15' : 'A4';
+  s.RAMASSAGE = !/^(non|no|false|faux|0)$/i.test(String(s.RAMASSAGE == null ? 'OUI' : s.RAMASSAGE).trim());
   // 0 = jamais ; sinon au moins 30 jours, pour ne rien archiver ou effacer par erreur.
   var days = function (v) { var n = Math.round(toNumber_(v)); return n <= 0 ? 0 : Math.max(n, 30); };
   s.ARCHIVE_JOURS = days(s.ARCHIVE_JOURS);

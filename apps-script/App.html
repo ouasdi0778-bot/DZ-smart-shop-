@@ -17,7 +17,13 @@
     busy: false,
     token: 0,
     detailToken: 0,
-    ship: { data: null, tab: 'toship', selected: {}, busy: false, results: null },
+    ship: {
+      data: null, tab: 'toship', selected: {}, busy: false, results: null,
+      created: { sel: {}, filter: 'all' }, // onglet « Créés, à valider » : sélection et filtre
+      vbusy: false, vresults: null,         // validation de l'expédition
+      printing: false, pdf: null,           // dernier PDF de bordereaux { url, items, marked }
+      refreshedAt: 0                        // dernière relecture des colis créés chez Ecotrack
+    },
     track: { data: null, days: 30, filter: 'all', view: 'active', done: 'all' },
     order: null,      // dernière commande affichée dans la fenêtre (pour la réafficher)
     unlockId: null,   // commande déverrouillée par un administrateur
@@ -537,6 +543,8 @@
     }
     if (!r.locked) return '';
     return '<div class="lock-box"><p>🔒 ' + h(r.reason) + '</p>' +
+      (r.canPrintLabel ? '<button type="button" class="btn" data-act="label-one" data-id="' + h(o.id) + '">🖨 Bordereau</button>' +
+        (o.label && (o.label.printed || o.label.reprint) ? '<span class="small">' + (o.label.reprint ? 'Bordereau à réimprimer (colis recréé)' : 'Imprimé le ' + h(o.label.at) + (o.label.by ? ' · ' + h(o.label.by) : '')) + '</span>' : '') : '') +
       (r.canCancelParcel ? '<button type="button" class="btn danger" data-act="parcel-cancel-ask" data-id="' + h(o.id) + '" data-tracking="' + h(o.tracking) + '">Annuler le colis</button>' : '') +
       (r.canReopen ? '<button type="button" class="btn" data-act="order-reopen" data-id="' + h(o.id) + '">Remettre à confirmer</button>' : '') +
       (r.canUnlock ? '<button type="button" class="link-btn" data-act="order-unlock" data-id="' + h(o.id) + '">Modifier quand même (administrateur)</button>' : '') +
@@ -1104,7 +1112,7 @@
 
   function pageShipping() {
     view.innerHTML =
-      '<div class="page-head"><div><h1>Expéditions</h1><p class="sub">Envoi des commandes confirmées à Ecotrack et suivi des colis</p></div>' +
+      '<div class="page-head"><div><h1>Expéditions</h1><p class="sub">Envoi à Ecotrack, bordereaux et validation de l’expédition</p></div>' +
       '<button type="button" class="btn" data-act="ship-reload">Actualiser</button></div>' +
       '<div id="ship"><p class="loading">Chargement…</p></div>';
     loadShipping();
@@ -1118,7 +1126,11 @@
       var ready = {};
       d.toShip.forEach(function (o) { if (!o.problems.length) ready[o.id] = true; });
       Object.keys(S.ship.selected).forEach(function (id) { if (!ready[id]) delete S.ship.selected[id]; });
+      var created = {};
+      d.created.forEach(function (o) { created[o.id] = true; });
+      Object.keys(S.ship.created.sel).forEach(function (id) { if (!created[id]) delete S.ship.created.sel[id]; });
       renderShipping();
+      maybeRefreshCreated(d);
     }).catch(function (e) {
       if (t === S.token && S.route === 'expeditions') $('#ship').innerHTML = errorBox(e);
     });
@@ -1158,8 +1170,9 @@
         plural(okCount, 'colis créé', 'colis créés') + (sh.results.length - okCount ? ' · ' + plural(sh.results.length - okCount, 'refusé', 'refusés') : '') +
         '</p></div><button type="button" class="btn" data-act="ship-dismiss">Fermer</button></div>';
       if (okCount) {
-        html += '<p style="margin-bottom:8px">Ces colis sont <strong>créés</strong> chez Ecotrack mais <strong>pas encore expédiés</strong> : validez-les dans l’interface d’Ecotrack. ' +
-          'L’outil détecte la validation tout seul (au plus tard 30 minutes plus tard).</p>';
+        html += '<p style="margin-bottom:8px">Ces colis sont <strong>créés</strong> chez Ecotrack mais <strong>pas encore expédiés</strong> : ' +
+          'imprimez les bordereaux, puis validez l’expédition (onglet « Créés, à valider »).</p>' +
+          '<div class="quick" style="margin-bottom:8px"><button type="button" class="btn primary" data-act="labels-from-results">🖨 Imprimer les bordereaux de ces colis</button></div>';
       }
       html += sh.results.map(function (r) {
         return '<div class="result-row"><span class="pill" style="background:' + (r.ok ? '#DDF0E4;color:#146C2E' : '#FBE7E7;color:#A12626') + '">' + (r.ok ? 'Créé' : 'Refusé') + '</span>' +
@@ -1170,10 +1183,26 @@
       html += '</section>';
     }
 
+    // Résultat de la dernière validation
+    if (sh.vresults) {
+      var vOk = sh.vresults.filter(function (r) { return r.ok; }).length;
+      html += '<section class="card"><div class="detail-head"><div><h2>Résultat de la validation</h2><p class="muted">' +
+        plural(vOk, 'colis validé', 'colis validés') + (sh.vresults.length - vOk ? ' · ' + plural(sh.vresults.length - vOk, 'refusé', 'refusés') : '') +
+        '</p></div><button type="button" class="btn" data-act="ship-vdismiss">Fermer</button></div>';
+      if (vOk) html += '<p style="margin-bottom:8px">Ces colis sont <strong>expédiés</strong> : ils sont maintenant dans la page <a href="#/suivi">Suivi</a>.</p>';
+      html += sh.vresults.map(function (r) {
+        return '<div class="result-row"><span class="pill" style="background:' + (r.ok ? '#DDF0E4;color:#146C2E' : '#FBE7E7;color:#A12626') + '">' + (r.ok ? 'Validé' : 'Refusé') + '</span>' +
+          '<span class="grow"><strong>' + h(r.id) + '</strong>' + (r.client ? ' · ' + h(r.client) : '') +
+          (r.message ? '<br><span class="small" style="color:' + (r.ok ? 'var(--muted)' : '#A12626') + '">' + h(r.message) + '</span>' : '') + '</span>' +
+          (r.tracking ? '<span class="mono strong">' + h(r.tracking) + '</span>' : '') + '</div>';
+      }).join('');
+      html += '</section>';
+    }
+
     // Onglets
     html += '<div class="chips" role="group" aria-label="Vue">' +
       '<button type="button" class="chip" data-act="ship-tab" data-tab="toship" aria-pressed="' + (sh.tab === 'toship') + '">À expédier · ' + d.toShip.length + '</button>' +
-      '<button type="button" class="chip" data-act="ship-tab" data-tab="created" aria-pressed="' + (sh.tab === 'created') + '">Créés, à valider chez Ecotrack · ' + d.created.length + '</button></div>';
+      '<button type="button" class="chip" data-act="ship-tab" data-tab="created" aria-pressed="' + (sh.tab === 'created') + '">Créés, à valider · ' + d.created.length + '</button></div>';
 
     if (sh.tab === 'toship') html += renderToShip(d, ready, picked);
     else html += renderCreated(d);
@@ -1210,23 +1239,317 @@
   }
 
   function renderCreated(d) {
-    if (!d.created.length) return '<div class="card"><p class="empty">Aucun colis en attente de validation chez Ecotrack.</p></div>';
-    var html = '<p class="small">Ces colis existent chez Ecotrack mais ne partent pas tant que vous ne les avez pas validés dans l’interface d’Ecotrack. ' +
-      'Une fois validés, la commande passe « Expédiée » toute seule. Un colis non validé depuis plus de ' + d.alertHours + ' h est signalé.</p>';
+    var sh = S.ship;
+    var c = sh.created;
+    if (!d.created.length) return '<div class="card"><p class="empty">Aucun colis en attente de validation.</p></div>';
+    var unprinted = d.created.filter(function (o) { return !o.label.printed; });
+    var list = c.filter === 'unprinted' ? unprinted : d.created;
+    var n = pickedCreated().length;
+    var allPicked = list.length > 0 && list.every(function (o) { return c.sel[o.id]; });
+    var fmt = labelFormat();
+    var html = '<p class="small"><strong>1.</strong> Imprimez les bordereaux et collez-les sur les colis. ' +
+      '<strong>2.</strong> Validez l’expédition, ici ou sur le site d’Ecotrack : la commande passe « Expédiée » et va dans Suivi. ' +
+      'Un colis pas validé depuis plus de ' + d.alertHours + ' h est signalé.</p>';
+    html += '<div class="chips" role="group" aria-label="Filtre des colis">' +
+      '<button type="button" class="chip" data-act="created-filter" data-filter="all" aria-pressed="' + (c.filter !== 'unprinted') + '">Tous · ' + d.created.length + '</button>' +
+      '<button type="button" class="chip" data-act="created-filter" data-filter="unprinted" aria-pressed="' + (c.filter === 'unprinted') + '">Pas encore imprimés · ' + unprinted.length + '</button></div>';
+    html += '<section class="card label-bar">' +
+      '<label class="check-line"><input type="checkbox" class="check" data-created-all' + (allPicked ? ' checked' : '') + (list.length ? '' : ' disabled') + '> ' +
+      'Tout sélectionner (' + list.length + ')</label>' +
+      '<div class="chips" role="group" aria-label="Format d’impression">' +
+      '<span class="small strong">Format :</span>' +
+      '<button type="button" class="chip" data-act="label-format" data-format="A4" aria-pressed="' + (fmt === 'A4') + '">A4 · 4 par feuille</button>' +
+      '<button type="button" class="chip" data-act="label-format" data-format="10x15" aria-pressed="' + (fmt === '10x15') + '">Étiquette 10×15</button></div>' +
+      '<div class="quick">' +
+      '<button type="button" class="btn primary" data-act="labels-print"' + ((!n || sh.printing) ? ' disabled' : '') + '>🖨 Imprimer les bordereaux (' + n + ')</button>' +
+      (d.canValidate ? '<button type="button" class="btn" data-act="validate-ask"' + ((!n || sh.vbusy) ? ' disabled' : '') + '>' +
+        (sh.vbusy ? 'Validation en cours…' : '✓ Valider l’expédition (' + n + ')') + '</button>' : '') +
+      '</div></section>';
+    if (!list.length) return html + '<div class="card"><p class="empty">Tous les bordereaux sont imprimés.</p></div>';
     html += '<div class="table-wrap"><table class="data cards"><thead><tr>' +
-      ['Commande', 'Destination', 'N° de suivi', 'Statut Ecotrack', 'Créé depuis', 'Total', ''].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>';
-    d.created.forEach(function (o) {
+      ['', 'Commande', 'Destination', 'N° de suivi', 'Bordereau', 'Créé depuis', 'Total', ''].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>';
+    list.forEach(function (o) {
       html += '<tr>' +
+        '<td data-label="Choisir"><input type="checkbox" class="check" data-created-check="' + h(o.id) + '"' + (c.sel[o.id] ? ' checked' : '') + ' aria-label="Sélectionner le colis ' + h(o.id) + '"></td>' +
         '<td data-label="Commande" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button> · ' + h(o.client) + '</td>' +
         '<td data-label="Destination" class="multi">' + h(o.wilaya) + '<div class="small">' + h(o.commune) + '</div></td>' +
         '<td data-label="N° de suivi" class="mono">' + h(o.tracking) + '</td>' +
-        '<td data-label="Statut Ecotrack">' + h(o.carrierLabel) + '</td>' +
+        '<td data-label="Bordereau" class="multi">' + labelBadge(o.label) + '</td>' +
         '<td data-label="Créé depuis">' + h(hoursText(o.ageHours)) + (o.late ? ' <span class="pill" style="background:#FFF3DC;color:#8A5200">à valider</span>' : '') + '</td>' +
         '<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
         '<td data-label=""><button type="button" class="btn danger" style="min-height:36px" data-act="parcel-cancel-ask" data-from="ship" data-id="' + h(o.id) + '" data-tracking="' + h(o.tracking) + '">Annuler le colis</button></td></tr>';
     });
     return html + '</tbody></table></div>' +
-      '<p class="small">Une erreur dans un colis pas encore validé ? « Annuler le colis » le supprime chez Ecotrack : la commande redevient modifiable, puis vous recréez le colis.</p>';
+      (d.canValidate ? '' : '<p class="small">La validation de l’expédition est réservée à l’administrateur et au magasinier (onglet Équipe).</p>') +
+      '<p class="small">Une erreur dans un colis pas encore validé ? « Annuler le colis » le supprime chez Ecotrack : la commande redevient modifiable, puis vous recréez le colis (et réimprimez son bordereau).</p>';
+  }
+
+  function pickedCreated() {
+    var d = S.ship.data;
+    if (!d) return [];
+    return d.created.filter(function (o) { return S.ship.created.sel[o.id]; }).map(function (o) { return o.id; });
+  }
+
+  /** « Imprimé le … par … », « Pas imprimé » ou « À réimprimer ». */
+  function labelBadge(l) {
+    l = l || {};
+    if (l.reprint) return '<span class="pill" style="background:#FFF3DC;color:#8A5200">À réimprimer</span><div class="small">colis recréé : nouveau n° de suivi</div>';
+    if (l.printed) return '<span class="pill" style="background:#DDF0E4;color:#146C2E">🖨 Imprimé</span><div class="small">le ' + h(l.at) + (l.by ? ' · ' + h(l.by) : '') + '</div>';
+    return '<span class="pill" style="background:#EEF0F3;color:#3D4350">Pas imprimé</span>';
+  }
+
+  /* ---------------- Bordereaux : téléchargement, mise en page, impression ---------------- */
+
+  var LABEL_FORMAT_KEY = 'dz-smart-shop:format-bordereau';
+  /** Format de cet appareil (retenu), sinon celui des Paramètres. */
+  function labelFormat() {
+    var v = '';
+    try { v = window.localStorage.getItem(LABEL_FORMAT_KEY) || ''; } catch (e) { v = ''; }
+    if (v === 'A4' || v === '10x15') return v;
+    return (S.ship.data && S.ship.data.labelFormat) || 'A4';
+  }
+  function setLabelFormat(v) {
+    try { window.localStorage.setItem(LABEL_FORMAT_KEY, v); } catch (e) { /* navigation privée : choix non retenu */ }
+  }
+
+  // Outil PDF (pdf-lib), chargé seulement au moment d'imprimer. L'empreinte vérifie que le fichier n'a pas été modifié.
+  var PDFLIB_URLS = [
+    'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js',
+    'https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js'
+  ];
+  var PDFLIB_SRI = 'sha384-weMABwrltA6jWR8DDe9Jp5blk+tZQh7ugpCsF3JwSA53WZM9/14PjS5LAJNHNjAI';
+  var pdfLibLoading = null;
+  function loadPdfLib() {
+    if (window.PDFLib) return Promise.resolve(window.PDFLib);
+    if (pdfLibLoading) return pdfLibLoading;
+    var attempt = function (i) {
+      return new Promise(function (resolve, reject) {
+        var tag = document.createElement('script');
+        tag.src = PDFLIB_URLS[i];
+        tag.integrity = PDFLIB_SRI;
+        tag.crossOrigin = 'anonymous';
+        tag.onload = function () { if (window.PDFLib) resolve(window.PDFLib); else reject(new Error('pdf-lib')); };
+        tag.onerror = function () { tag.parentNode.removeChild(tag); reject(new Error('pdf-lib')); };
+        document.head.appendChild(tag);
+      }).catch(function () {
+        if (i + 1 < PDFLIB_URLS.length) return attempt(i + 1);
+        throw new Error('Impossible de charger l’outil de mise en page des PDF. Vérifiez la connexion internet, puis réessayez.');
+      });
+    };
+    pdfLibLoading = attempt(0).catch(function (e) { pdfLibLoading = null; throw e; });
+    return pdfLibLoading;
+  }
+
+  function base64Bytes(b64) {
+    var bin = atob(b64);
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  var MM = 72 / 25.4; // points par millimètre
+  /** Pose une page de bordereau dans une case, sans la déformer, centrée. */
+  function placeLabel(page, emb, x, y, w, hgt, margin) {
+    var scale = Math.min((w - 2 * margin) / emb.width, (hgt - 2 * margin) / emb.height);
+    var dw = emb.width * scale;
+    var dh = emb.height * scale;
+    page.drawPage(emb, { x: x + (w - dw) / 2, y: y + (hgt - dh) / 2, width: dw, height: dh });
+  }
+  function layoutLabels(L, out, pages, format) {
+    if (format === '10x15') {
+      pages.forEach(function (emb) { placeLabel(out.addPage([100 * MM, 150 * MM]), emb, 0, 0, 100 * MM, 150 * MM, 0); });
+      return;
+    }
+    var W = 210 * MM;
+    var H = 297 * MM;
+    var grey = L.rgb(0.6, 0.6, 0.6);
+    for (var i = 0; i < pages.length; i += 4) {
+      var page = out.addPage([W, H]);
+      for (var k = 0; k < 4 && i + k < pages.length; k++) {
+        placeLabel(page, pages[i + k], (k % 2) * W / 2, H - (Math.floor(k / 2) + 1) * H / 2, W / 2, H / 2, 5 * MM);
+      }
+      // Traits de coupe
+      page.drawLine({ start: { x: W / 2, y: 0 }, end: { x: W / 2, y: H }, thickness: 0.5, color: grey, dashArray: [4, 4] });
+      page.drawLine({ start: { x: 0, y: H / 2 }, end: { x: W, y: H / 2 }, thickness: 0.5, color: grey, dashArray: [4, 4] });
+    }
+  }
+
+  /** Un seul PDF avec tous les bordereaux : { bytes, pages, done, bad }. */
+  function buildLabelsPdf(L, files, format) {
+    return L.PDFDocument.create().then(function (out) {
+      var pages = [];
+      var done = [];
+      var bad = [];
+      var step = files.reduce(function (p, f) {
+        return p.then(function () {
+          return L.PDFDocument.load(base64Bytes(f.pdf), { ignoreEncryption: true })
+            .then(function (src) { return out.embedPdf(src, src.getPageIndices()); })
+            .then(function (embedded) { embedded.forEach(function (e) { pages.push(e); }); done.push(f); })
+            .catch(function () { f.message = 'PDF d’Ecotrack illisible.'; bad.push(f); });
+        });
+      }, Promise.resolve());
+      return step.then(function () {
+        if (!pages.length) return { bytes: null, pages: 0, done: done, bad: bad };
+        layoutLabels(L, out, pages, format);
+        return out.save().then(function (bytes) { return { bytes: bytes, pages: out.getPageCount(), done: done, bad: bad }; });
+      });
+    });
+  }
+
+  function failedList(failed) {
+    if (!failed.length) return '';
+    return '<div class="lock-box warn"><p>' + plural(failed.length, 'bordereau non reçu', 'bordereaux non reçus') + ' :</p></div>' +
+      failed.map(function (r) {
+        return '<div class="result-row"><span class="pill" style="background:#FBE7E7;color:#A12626">Erreur</span>' +
+          '<span class="grow"><strong>' + h(r.id) + '</strong>' + (r.client ? ' · ' + h(r.client) : '') +
+          '<br><span class="small" style="color:#A12626">' + h(r.message || 'Erreur inconnue') + '</span></span></div>';
+      }).join('');
+  }
+
+  function printProgress(done, total) {
+    var p = total ? Math.round(done / total * 100) : 0;
+    showModal(modalHead('Bordereaux') + '<p>Préparation des bordereaux… ' + done + ' / ' + total + '</p>' +
+      '<div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="' + total + '" aria-valuenow="' + done + '"><span style="width:' + p + '%"></span></div>');
+  }
+
+  /** Télécharge les bordereaux chez Ecotrack (par petits paquets), puis les réunit en un seul PDF. */
+  function printLabels(ids) {
+    if (S.ship.printing || !ids.length) return;
+    var format = labelFormat();
+    var per = (S.ship.data && S.ship.data.labelsPerCall) || 6;
+    var files = [];
+    var failed = [];
+    S.ship.printing = true;
+    if (S.route === 'expeditions') renderShipping();
+    printProgress(0, ids.length);
+    var lib = loadPdfLib();
+    lib.catch(function () { /* l'erreur est affichée plus bas */ });
+    var chunks = [];
+    for (var i = 0; i < ids.length; i += per) chunks.push(ids.slice(i, i + per));
+    chunks.reduce(function (p, chunk) {
+      return p.then(function () {
+        return call('api_labelFiles', chunk).then(function (res) {
+          res.forEach(function (r) { (r.ok ? files : failed).push(r); });
+          printProgress(files.length + failed.length, ids.length);
+        });
+      });
+    }, Promise.resolve()).then(function () {
+      if (!files.length) return { bytes: null, pages: 0, done: [], bad: [] };
+      return lib.then(function (L) { return buildLabelsPdf(L, files, format); });
+    }).then(function (res) {
+      S.ship.printing = false;
+      if (S.route === 'expeditions') renderShipping();
+      failed = failed.concat(res.bad);
+      if (!res.bytes) {
+        showModal(modalHead('Bordereaux') + '<p>Aucun bordereau n’a pu être préparé.</p>' + failedList(failed) +
+          '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Fermer</button></div>');
+        return;
+      }
+      showLabelsReady(res, failed, format);
+    }).catch(function (e) {
+      S.ship.printing = false;
+      if (S.route === 'expeditions') renderShipping();
+      showModal(modalHead('Bordereaux') + errorBox(e) + failedList(failed) +
+        '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Fermer</button></div>');
+    });
+  }
+
+  function showLabelsReady(res, failed, format) {
+    if (S.ship.pdf && S.ship.pdf.url) URL.revokeObjectURL(S.ship.pdf.url);
+    var url = URL.createObjectURL(new Blob([res.bytes], { type: 'application/pdf' }));
+    S.ship.pdf = { url: url, marked: false, items: res.done.map(function (f) { return { id: f.id, tracking: f.tracking }; }) };
+    var now = new Date();
+    var name = 'bordereaux-' + now.getFullYear() + '-' + ('0' + (now.getMonth() + 1)).slice(-2) + '-' + ('0' + now.getDate()).slice(-2) +
+      '-' + ('0' + now.getHours()).slice(-2) + 'h' + ('0' + now.getMinutes()).slice(-2) + '.pdf';
+    var tip = format === '10x15'
+      ? 'Puis, dans la fenêtre d’impression : papier <strong>100 × 150 mm</strong>, échelle <strong>taille réelle (100 %)</strong>, <strong>aucune marge</strong>.'
+      : 'Puis, dans la fenêtre d’impression : papier <strong>A4</strong>, échelle <strong>taille réelle (100 %)</strong>. Découpez ensuite le long des pointillés.';
+    showModal(modalHead('Bordereaux prêts') +
+      '<p><strong>' + plural(res.done.length, 'bordereau', 'bordereaux') + '</strong> · ' + plural(res.pages, 'page', 'pages') + ' ' +
+      (format === '10x15' ? 'étiquette 10×15' : 'A4 (4 par feuille)') + '</p>' +
+      '<p class="small" style="margin:8px 0 12px">Le PDF s’ouvre dans un nouvel onglet : cliquez sur l’imprimante (ou Ctrl+P). ' + tip +
+      ' Sur téléphone, ouvrez le fichier puis « Imprimer » ou « Partager » vers l’application de l’imprimante.</p>' +
+      failedList(failed) +
+      '<div class="modal-actions">' +
+      '<a class="btn" href="' + h(url) + '" download="' + h(name) + '" data-label-download>Télécharger</a>' +
+      '<button type="button" class="btn primary" data-act="labels-open">🖨 Ouvrir et imprimer</button></div>');
+  }
+
+  /** Note « imprimé » (une fois par PDF) dès que vous l'ouvrez, l'imprimez ou le téléchargez. */
+  function markLabelsPrinted() {
+    var pdf = S.ship.pdf;
+    if (!pdf || pdf.marked || !pdf.items.length) return;
+    pdf.marked = true;
+    call('api_markLabelsPrinted', pdf.items).then(function (r) {
+      var d = S.ship.data;
+      if (d) d.created.forEach(function (o) { if (r.labels[o.id]) o.label = r.labels[o.id]; });
+      if (S.route === 'expeditions') renderShipping();
+    }).catch(function (e) { pdf.marked = false; toast(errText(e), true); });
+  }
+
+  /**
+   * Ouvre le PDF dans un nouvel onglet, où le lecteur PDF du navigateur l'imprime.
+   * (L'application tourne dans un cadre protégé de Google : un PDF ne s'y affiche pas.)
+   */
+  function openLabelsPdf() {
+    if (!S.ship.pdf) return;
+    markLabelsPrinted();
+    var win = window.open(S.ship.pdf.url, '_blank');
+    if (!win) toast('Le navigateur a bloqué le nouvel onglet : autorisez les fenêtres pop-up, ou utilisez « Télécharger ».', true);
+  }
+
+  /* ---------------- Validation de l'expédition ---------------- */
+
+  function askValidate() {
+    var d = S.ship.data;
+    var ids = pickedCreated();
+    if (!d || !ids.length || S.ship.vbusy) return;
+    var notPrinted = d.created.filter(function (o) { return S.ship.created.sel[o.id] && !o.label.printed; }).length;
+    showModal(modalHead('Valider l’expédition ?') +
+      '<p>' + plural(ids.length, 'colis va être validé', 'colis vont être validés') + ' chez Ecotrack. Ensuite, <strong>plus de modification ni d’annulation possible</strong> : ' +
+      'en cas de problème, il faudra faire une demande de retour.</p>' +
+      (notPrinted ? '<div class="lock-box warn"><p>⚠ ' + plural(notPrinted, 'colis n’a pas', 'colis n’ont pas') + ' de bordereau imprimé dans l’outil.</p></div>' : '') +
+      '<label class="check-line" style="margin:14px 0"><input type="checkbox" class="check" id="v-pickup"' + (d.pickup ? ' checked' : '') + '> ' +
+      'Demander le ramassage <span class="small">(décoché : vous déposez les colis à l’agence)</span></label>' +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Annuler</button>' +
+      '<button type="button" class="btn primary" data-act="validate-go">' + (notPrinted ? 'Valider quand même' : 'Valider ' + plural(ids.length, 'colis', 'colis')) + '</button></div>');
+  }
+
+  function doValidate() {
+    var ids = pickedCreated();
+    var box = $('#v-pickup');
+    var pickup = box ? box.checked : !!(S.ship.data && S.ship.data.pickup);
+    closeModal();
+    if (!ids.length || S.ship.vbusy) return;
+    S.ship.vbusy = true;
+    renderShipping();
+    toast('Validation chez Ecotrack en cours…');
+    call('api_validateParcels', ids, pickup).then(function (res) {
+      S.ship.vbusy = false;
+      S.ship.vresults = res.results;
+      S.ship.created.sel = {};
+      applyCounts(res.counts);
+      var ok = res.results.filter(function (r) { return r.ok; }).length;
+      var ko = res.results.length - ok;
+      toast(plural(ok, 'colis validé', 'colis validés') + (ko ? ', ' + plural(ko, 'refusé', 'refusés') : '') + (ok ? '. Ils passent dans Suivi.' : ''), ok === 0);
+      loadShipping();
+    }).catch(function (e) {
+      S.ship.vbusy = false;
+      toast(errText(e), true);
+      renderShipping();
+    });
+  }
+
+  /** Colis validés sur le site d'Ecotrack : relus à l'ouverture de la page (au plus une fois par minute). */
+  function maybeRefreshCreated(d) {
+    if (!d.configured || !d.created.length || Date.now() - S.ship.refreshedAt < 60000) return;
+    S.ship.refreshedAt = Date.now();
+    call('api_refreshCreated').then(function (r) {
+      if (!r.updated && !r.missing) return;
+      if (r.message) toast(r.message);
+      if (S.route === 'expeditions') loadShipping();
+      refreshCount();
+    }).catch(function () { /* silencieux : la mise à jour automatique repassera */ });
   }
 
   /** « 5 h », « 2 j » à partir d'un nombre d'heures. */
@@ -1246,7 +1569,7 @@
     var n = Object.keys(S.ship.selected).length;
     if (!n || S.ship.busy) return;
     confirmModal('Créer les colis chez Ecotrack ?', plural(n, 'colis va être créé', 'colis vont être créés') +
-      ' chez Ecotrack, avec le total affiché comme montant à encaisser. Ils ne seront pas expédiés : vous les validez ensuite dans l’interface d’Ecotrack.',
+      ' chez Ecotrack, avec le total affiché comme montant à encaisser. Ils ne seront pas encore expédiés : vous imprimez ensuite les bordereaux et validez l’expédition (onglet « Créés, à valider »).',
       'ship-confirm', 'Créer les colis');
   }
 
@@ -1261,8 +1584,10 @@
       S.ship.busy = false;
       S.ship.selected = {};
       S.ship.results = res;
+      S.ship.created.sel = {};
+      res.forEach(function (r) { if (r.ok) S.ship.created.sel[r.id] = true; });
       var ok = res.filter(function (r) { return r.ok; }).length;
-      toast(plural(ok, 'colis créé', 'colis créés') + (res.length - ok ? ', ' + (res.length - ok) + ' refusé(s)' : '') + (ok ? '. À valider dans Ecotrack.' : ''), ok === 0);
+      toast(plural(ok, 'colis créé', 'colis créés') + (res.length - ok ? ', ' + (res.length - ok) + ' refusé(s)' : '') + (ok ? '. Imprimez les bordereaux, puis validez.' : ''), ok === 0);
       loadShipping();
       refreshCount();
     }).catch(function (e) {
@@ -1990,6 +2315,20 @@
     'ship-reload': function () { loadShipping(); },
     'ship-tab': function (el) { S.ship.tab = el.getAttribute('data-tab'); renderShipping(); },
     'ship-dismiss': function () { S.ship.results = null; renderShipping(); },
+    'ship-vdismiss': function () { S.ship.vresults = null; renderShipping(); },
+    'created-filter': function (el) { S.ship.created.filter = el.getAttribute('data-filter'); renderShipping(); },
+    'label-format': function (el) { setLabelFormat(el.getAttribute('data-format')); renderShipping(); },
+    'labels-print': function () { printLabels(pickedCreated()); },
+    'labels-from-results': function () {
+      var ids = (S.ship.results || []).filter(function (r) { return r.ok; }).map(function (r) { return r.id; });
+      S.ship.tab = 'created';
+      renderShipping();
+      printLabels(ids);
+    },
+    'label-one': function (el) { printLabels([el.getAttribute('data-id')]); },
+    'labels-open': openLabelsPdf,
+    'validate-ask': askValidate,
+    'validate-go': doValidate,
     'ship-ask': askShip,
     'ship-confirm': doShip,
     'eco-test': function () { ecoAction('api_ecotrackTest', 'Test de la connexion…'); },
@@ -2020,6 +2359,7 @@
 
   document.addEventListener('click', function (e) {
     if (e.target.classList && e.target.classList.contains('modal-backdrop')) { closeModal(); return; }
+    if (e.target.closest && e.target.closest('[data-label-download]')) { markLabelsPrinted(); return; }
     var el = e.target.closest('[data-act]');
     if (!el || el.disabled) return;
     var fn = ACTIONS[el.getAttribute('data-act')];
@@ -2042,6 +2382,19 @@
     if (e.target.hasAttribute('data-ship-check')) {
       var sid = e.target.getAttribute('data-ship-check');
       if (e.target.checked) S.ship.selected[sid] = true; else delete S.ship.selected[sid];
+      renderShipping();
+      return;
+    }
+    if (e.target.hasAttribute('data-created-check')) {
+      var cid = e.target.getAttribute('data-created-check');
+      if (e.target.checked) S.ship.created.sel[cid] = true; else delete S.ship.created.sel[cid];
+      renderShipping();
+      return;
+    }
+    if (e.target.hasAttribute('data-created-all')) {
+      var d0 = S.ship.data;
+      var shown = !d0 ? [] : S.ship.created.filter === 'unprinted' ? d0.created.filter(function (o) { return !o.label.printed; }) : d0.created;
+      shown.forEach(function (o) { if (e.target.checked) S.ship.created.sel[o.id] = true; else delete S.ship.created.sel[o.id]; });
       renderShipping();
       return;
     }

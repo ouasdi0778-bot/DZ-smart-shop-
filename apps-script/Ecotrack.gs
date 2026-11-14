@@ -7,7 +7,8 @@
  * classeur ni dans le code.
  *
  * L'outil CRÉE les colis (create/orders). La VALIDATION de l'expédition se
- * fait ensuite dans l'interface d'Ecotrack : l'outil la détecte tout seul en
+ * fait ensuite depuis l'outil (Labels.gs, avec l'impression des bordereaux)
+ * ou dans l'interface d'Ecotrack : l'outil la détecte alors tout seul en
  * relisant les statuts (voir Tracking.gs pour le suivi, les alertes et l'argent).
  *
  * Documentation de l'API : https://documenter.getpostman.com/view/14517169/Tz5je15g
@@ -379,8 +380,8 @@ function ecotrackPayload_(o) {
 /* ------------------------------------------------------------------ */
 
 /**
- * Crée les colis chez Ecotrack (sans les expédier : vous les validez dans
- * l'interface d'Ecotrack) et écrit le n° de suivi. La commande reste
+ * Crée les colis chez Ecotrack (sans les expédier : vous les validez ensuite,
+ * depuis l'outil ou dans l'interface d'Ecotrack) et écrit le n° de suivi. La commande reste
  * « Confirmée » jusqu'à ce que la validation soit détectée. Renvoie une ligne
  * par commande : { id, client, ok, tracking, message }.
  */
@@ -509,7 +510,7 @@ function writeShipResults_(queue, results, user) {
         }
         // carrierMoved = date de création du colis : sert à signaler un colis jamais validé.
         writeFields_(ctx, o, { carrier: ECO.NAME, tracking: r.tracking, carrierStatus: '', carrierMoved: now, updated: now });
-        log_(user, o.id, 'Colis créé chez Ecotrack', 'Suivi ' + r.tracking + ' (à valider dans Ecotrack)' + (r.message ? ' · ' + r.message : ''));
+        log_(user, o.id, 'Colis créé chez Ecotrack', 'Suivi ' + r.tracking + ' (à valider)' + (r.message ? ' · ' + r.message : ''));
       });
     });
   } catch (e) {
@@ -655,17 +656,23 @@ function clearEcotrackError_() {
   if (p.getProperty(ECO.PROP_LAST_ERROR) !== null) p.deleteProperty(ECO.PROP_LAST_ERROR);
 }
 
-/** Met à jour le statut de tous les colis Ecotrack à suivre. Renvoie un résumé. */
-function syncEcotrackStatuses_() {
+/**
+ * Met à jour le statut de tous les colis Ecotrack à suivre. Renvoie un résumé.
+ * opts.onlyCreated : seulement les colis créés pas encore validés (page Expédier).
+ */
+function syncEcotrackStatuses_(opts) {
+  var onlyCreated = !!(opts && opts.onlyCreated);
   var summary = { configured: true, checked: 0, updated: 0, missing: 0, unknown: 0 };
   if (!ecotrackConfig_().configured) { summary.configured = false; return summary; }
 
   // Lecture sans verrou : les clics des confirmatrices ne l'attendent pas.
-  var tracked = readOrders_().orders.filter(isEcotrackTracked_).map(function (o) {
+  var tracked = readOrders_().orders.filter(function (o) {
+    return isEcotrackTracked_(o) && (!onlyCreated || orderStage_(o) === STAGE.PARCEL);
+  }).map(function (o) {
     return { id: String(o.id), tracking: String(o.tracking).trim(), date: toDate_(o.date) };
   });
   summary.checked = tracked.length;
-  if (!tracked.length) { markSynced_(); return summary; }
+  if (!tracked.length) { if (!onlyCreated) markSynced_(); return summary; }
 
   // 1. Lecture groupée des statuts (100 colis par requête).
   var found = {};
@@ -738,7 +745,7 @@ function syncEcotrackStatuses_() {
     });
     applyStockMoves_(ctx); // colis partis, retours reçus
   });
-  markSynced_();
+  if (!onlyCreated) markSynced_();
   return summary;
 }
 
@@ -818,6 +825,7 @@ function api_shippingList() {
       base.since = iso_(since);
       base.ageHours = since ? Math.floor((now.getTime() - since.getTime()) / 3600000) : 0;
       base.late = base.ageHours >= settings.SUIVI_ALERTE_HEURES;
+      base.label = labelState_(o);
       created.push({ o: o, item: base });
     }
   });
@@ -834,12 +842,16 @@ function api_shippingList() {
     host: cfg.url.replace(/^https?:\/\//, ''),
     catalogError: catalogError,
     alertHours: settings.SUIVI_ALERTE_HEURES,
+    labelFormat: settings.FORMAT_BORDEREAU,
+    pickup: settings.RAMASSAGE,
+    canValidate: canSeeStock_(currentUser_()),
+    labelsPerCall: LABEL.PER_CALL,
     toShip: items(toShip),
     created: items(created)
   };
 }
 
-/** Crée les colis chez Ecotrack (la validation se fait dans l'interface d'Ecotrack). */
+/** Crée les colis chez Ecotrack (la validation se fait ensuite : bouton « Valider l'expédition » ou interface d'Ecotrack). */
 function api_shipEcotrack(ids) {
   return shipToEcotrack_(ids, currentUser_());
 }

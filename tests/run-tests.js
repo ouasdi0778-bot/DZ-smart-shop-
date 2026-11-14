@@ -963,6 +963,171 @@ test('Ecotrack : données de la page Expéditions', function () {
   assertSerializable(d2, 'api_shippingList');
 });
 
+/* ---------------- Bordereaux et validation de l'expédition ---------------- */
+
+function asBoss() {
+  __mock.setUser('boss@example.com');
+  sheet('Équipe').appendRow(['boss@example.com', 'Boss', 'Administrateur']);
+  userEdit('Équipe');
+}
+function labelCalls() { return FAKE.calls.filter(function (c) { return c.path === '/api/v1/get/order/label'; }); }
+
+test('Bordereaux : PDF d’Ecotrack (direct, redirection sans le jeton, adresse dans la réponse), erreurs claires', function () {
+  ecoSetup();
+  asBoss();
+  addConfirmed('#B1');
+  addConfirmed('#B2');
+  addConfirmed('#B3');
+  var t = results(ship(['#B1', '#B2']));
+  var files = results(api_labelFiles(['#B1', '#B2', '#B3', '#B1']));
+  assertSerializable(files, 'api_labelFiles');
+  assert.ok(files['#B1'].ok && files['#B2'].ok);
+  assert.strictEqual(files['#B1'].pdf.slice(0, 6), 'JVBERi', 'un PDF en base64 (%PDF)');
+  assert.strictEqual(files['#B1'].tracking, t['#B1'].tracking);
+  assert.ok(!files['#B3'].ok && /envoyez d’abord/.test(files['#B3'].message), files['#B3'].message);
+  assert.strictEqual(labelCalls().length, 2, 'un seul appel par colis, doublon ignoré');
+  var call = labelCalls()[0];
+  assert.strictEqual(call.query.tracking, t['#B1'].tracking);
+  assert.strictEqual(call.options.followRedirects, false, 'le jeton ne suit jamais une redirection');
+
+  FAKE.labelMode = 'redirect';
+  var r = api_labelFiles(['#B1'])[0];
+  assert.ok(r.ok, r.message);
+  var stored = FAKE.calls.filter(function (c) { return c.storage; });
+  assert.strictEqual(stored.length, 1);
+  assert.ok(!stored[0].headers.Authorization, 'le fichier rangé ailleurs est téléchargé sans le jeton');
+  FAKE.labelMode = 'json';
+  assert.ok(api_labelFiles(['#B2'])[0].ok);
+  FAKE.labelMode = 'html';
+  assert.ok(/pas renvoyé de PDF/.test(api_labelFiles(['#B2'])[0].message));
+  FAKE.labelMode = 'pdf';
+  FAKE.remove(t['#B2'].tracking);
+  assert.ok(/introuvable chez Ecotrack/.test(api_labelFiles(['#B2'])[0].message));
+  FAKE.queue.push({ code: 429, headers: { 'Retry-After': '2' } });
+  assert.ok(api_labelFiles(['#B1'])[0].ok, 'limite de débit : nouvel essai');
+  assert.throws(function () { api_labelFiles(['#1', '#2', '#3', '#4', '#5', '#6', '#7']); }, /Trop de bordereaux/);
+  assert.throws(function () { api_labelFiles([]); }, /Aucun colis/);
+});
+
+test('Bordereaux : « imprimé le … par … », réimpression notée, « à réimprimer » si le colis est recréé', function () {
+  ecoSetup();
+  asAgent();
+  addConfirmed('#P1');
+  addConfirmed('#P2');
+  var t = results(ship(['#P1', '#P2']));
+  var list = api_shippingList();
+  assert.deepStrictEqual(list.created.map(function (o) { return o.label.printed; }), [false, false]);
+  assert.strictEqual(list.labelFormat, 'A4');
+  assert.strictEqual(list.pickup, true);
+  assert.strictEqual(list.canValidate, false, 'une confirmatrice imprime mais ne valide pas');
+
+  // Classeur installé avant cette version : la colonne est ajoutée toute seule.
+  var col = headerOf('Commandes').indexOf('Bordereau imprimé') + 1;
+  assert.ok(col > 0, 'colonne créée à l’installation');
+  sheet('Commandes').deleteColumns(col, 1);
+  var res = api_markLabelsPrinted([{ id: '#P1', tracking: t['#P1'].tracking }, { id: '#P2', tracking: 'ECT-AUTRE' }]);
+  assertSerializable(res, 'api_markLabelsPrinted');
+  assert.strictEqual(res.marked, 1, 'un n° de suivi qui ne correspond plus n’est pas marqué');
+  assert.ok(headerOf('Commandes').indexOf('Bordereau imprimé') >= 0, 'colonne ajoutée');
+  var p1 = order('#P1');
+  assert.strictEqual(p1.label.printed, true);
+  assert.strictEqual(p1.label.by, 'Imane');
+  assert.ok(/^\d\d\/\d\d\/\d{4} à \d\d:\d\d$/.test(p1.label.at), p1.label.at);
+  assert.strictEqual(res.labels['#P1'].printed, true);
+  assert.deepStrictEqual(api_shippingList().created.map(function (o) { return o.label.printed; }), [true, false]);
+  api_markLabelsPrinted([{ id: '#P1', tracking: t['#P1'].tracking }]);
+  var actions = logActions();
+  assert.strictEqual(actions.filter(function (a) { return a === 'Bordereau imprimé'; }).length, 1);
+  assert.strictEqual(actions.filter(function (a) { return a === 'Bordereau réimprimé'; }).length, 1);
+  assert.strictEqual(api_getOrder('#P1').rules.canPrintLabel, true);
+
+  // Colis annulé puis recréé : nouveau n° de suivi, l'ancien bordereau ne vaut plus rien.
+  cancelParcel_('#P1', ADMIN);
+  ship(['#P1']);
+  var again = api_shippingList().created.filter(function (o) { return o.id === '#P1'; })[0];
+  assert.notStrictEqual(again.tracking, t['#P1'].tracking);
+  assert.deepStrictEqual([again.label.printed, again.label.reprint], [false, true]);
+  assert.strictEqual(api_getOrder('#P2').rules.canPrintLabel, true);
+
+  setSetting('FORMAT_BORDEREAU', 'Étiquette 10x15');
+  setSetting('RAMASSAGE', 'non');
+  var l2 = api_shippingList();
+  assert.deepStrictEqual([l2.labelFormat, l2.pickup], ['10x15', false]);
+});
+
+test('Validation de l’expédition : ramassage, Expédiée, stock, SMS, refus, déjà validé, réservée admin et magasinier', function () {
+  ecoSetup();
+  saveSmsConfig_(HTTPSMS.key, '0550 12 34 56');
+  setCatalog([{ 'Produit': 'Sac à main', 'Stock': 5 }]);
+  ['#V1', '#V2', '#V3', '#V4', '#V5'].forEach(function (id) { addConfirmed(id); });
+  var t = results(ship(['#V1', '#V2', '#V3', '#V4', '#V5']));
+  api_markLabelsPrinted([{ id: '#V1', tracking: t['#V1'].tracking }]);
+
+  asAgent();
+  assert.throws(function () { api_validateParcels(['#V1'], true); }, /administrateur et au magasinier/);
+  asStockKeeper();
+  assert.strictEqual(api_shippingList().canValidate, true);
+  FAKE.validate(t['#V4'].tracking); // déjà validé sur le site d'Ecotrack
+
+  var res = api_validateParcels(['#V1', '#V2', '#V4', '#V9'], true);
+  assertSerializable(res, 'api_validateParcels');
+  var out = results(res.results);
+  assert.ok(out['#V1'].ok && out['#V2'].ok && out['#V4'].ok);
+  assert.ok(/vérifié chez Ecotrack/.test(out['#V4'].message), out['#V4'].message);
+  assert.ok(!out['#V9'].ok && /introuvable/.test(out['#V9'].message));
+  assert.deepStrictEqual(FAKE.validated.map(function (v) { return v.ask; }), ['1', '1'], 'ramassage demandé');
+  var v1 = order('#V1');
+  assert.deepStrictEqual([v1.status, v1.carrierStatus, v1.page], ['Expédiée', 'en_ramassage', 'suivi']);
+  assert.strictEqual(catalogStock(''), 2, '3 colis partis : le stock baisse');
+  assert.strictEqual(movesOf('Colis parti').length, 3);
+  var q = readSmsQueue_(PropertiesService.getScriptProperties());
+  assert.ok(q.some(function (x) { return x.i === '#V1' && STATUS_LIST[x.s] === 'Expédiée'; }), 'SMS « expédiée » en file');
+  var j = sheet('Journal');
+  var lines = j.getRange(2, 3, j.getLastRow() - 1, 3).getValues();
+  assert.ok(lines.some(function (r) { return r[0] === '#V1' && r[1] === 'Expédition validée' && /ramassage demandé/.test(r[2]) && !/non imprimé/.test(r[2]); }));
+  assert.ok(lines.some(function (r) { return r[0] === '#V2' && /bordereau non imprimé/.test(r[2]); }));
+  assert.ok(/Déjà expédiée/.test(api_validateParcels(['#V1'], true).results[0].message), 'pas de double validation');
+  assert.ok(!__mock.state.cache['valid:#V1'], 'réservation libérée');
+  assert.strictEqual(res.counts.toShip, 0);
+
+  // Refus d'Ecotrack : la commande reste « Confirmée ».
+  FAKE.validateMode = 'refuse';
+  var refused = api_validateParcels(['#V3'], false).results[0];
+  assert.ok(!refused.ok && /Colis bloqué/.test(refused.message), refused.message);
+  assert.strictEqual(order('#V3').status, 'Confirmée');
+  // Sans ramassage (dépôt à l'agence).
+  FAKE.validateMode = 'ok';
+  assert.ok(api_validateParcels(['#V3'], false).results[0].ok);
+  assert.strictEqual(FAKE.validated[FAKE.validated.length - 1].ask, '0');
+  assert.ok(sheet('Journal').getRange(2, 5, sheet('Journal').getLastRow() - 1, 1).getValues().some(function (r) { return /sans ramassage/.test(r[0]); }));
+  // Réponse perdue : le statut chez Ecotrack fait foi.
+  FAKE.validateMode = 'lost';
+  var lost = api_validateParcels(['#V5'], true).results[0];
+  assert.ok(lost.ok, lost.message);
+  assert.strictEqual(order('#V5').status, 'Expédiée');
+  assert.throws(function () { api_validateParcels([], true); }, /Aucun colis/);
+});
+
+test('Créés, à valider : relus chez Ecotrack à l’ouverture (validés sur le site)', function () {
+  ecoSetup();
+  ['#R1', '#R2', '#R3'].forEach(function (id) { addConfirmed(id); });
+  var t = results(ship(['#R1', '#R2', '#R3']));
+  FAKE.validate(t['#R3'].tracking);
+  syncEcotrackStatuses_();
+  assert.strictEqual(order('#R3').status, 'Expédiée');
+  var lastSync = PropertiesService.getScriptProperties().getProperty(ECO.PROP_LAST_SYNC);
+  FAKE.validate(t['#R1'].tracking);
+  var r = api_refreshCreated();
+  assertSerializable(r, 'api_refreshCreated');
+  assert.deepStrictEqual([r.checked, r.updated], [2, 1]);
+  assert.ok(/1 colis validé chez Ecotrack est passé dans Suivi/.test(r.message), r.message);
+  assert.strictEqual(FAKE.lastCall('/api/v1/get/orders/status').query.trackings.split(',').sort().join(','), [t['#R1'].tracking, t['#R2'].tracking].sort().join(','),
+    'seulement les colis pas encore validés');
+  assert.deepStrictEqual([order('#R1').status, order('#R2').status], ['Expédiée', 'Confirmée']);
+  assert.strictEqual(PropertiesService.getScriptProperties().getProperty(ECO.PROP_LAST_SYNC), lastSync, 'pas compté comme une mise à jour complète');
+  assert.strictEqual(api_refreshCreated().updated, 0);
+});
+
 /* ---------------- Suivi des colis ---------------- */
 
 function hoursAgo(h) { return new Date(Date.now() - h * 3600000); }

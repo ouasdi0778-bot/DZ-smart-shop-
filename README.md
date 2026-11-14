@@ -13,7 +13,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 | **Tableau de bord** | Commandes reçues, taux de confirmation et de livraison, montant livré, argent en route, liste « à faire », taux de livraison par wilaya, résultats par confirmatrice et par produit |
 | **Commandes** | Liste filtrable (statut, wilaya, période, recherche par nom, téléphone, n° de commande ou de suivi), modification d'une commande, ajout à la main, liste noire |
 | **Centre de confirmation** | File d'appels (rappels dus en premier, puis les commandes les plus récentes : réglage `ORDRE_FILE`), fiche client avec historique et alerte, boutons Appeler et WhatsApp (message pré-rempli), correction de la commande avec recalcul des frais et du total, résultat en un clic : Confirmer, Pas de réponse, Rappeler plus tard, Annuler (avec motif) |
-| **Expéditions** | Commandes confirmées prêtes à partir (avec les problèmes à corriger avant l'envoi), **création des colis chez Ecotrack** en un clic avec n° de suivi écrit dans le classeur, et liste des colis créés qui attendent votre validation chez Ecotrack |
+| **Expéditions** | Commandes confirmées prêtes à partir (avec les problèmes à corriger avant l'envoi), **création des colis chez Ecotrack** en un clic avec n° de suivi écrit dans le classeur, **impression des bordereaux** Ecotrack (A4 ou étiquette 10×15) et **validation de l'expédition** (avec ou sans ramassage) |
 | **Suivi** | Statut de chaque colis relu toutes les 30 minutes, **alertes « à traiter »** (colis suspendu, retour en cours, sans mouvement depuis 26 h, créé mais jamais validé…), **où est l'argent** (chez le livreur, livré pas encaissé, encaissé pas payé, prêt à verser, payé) avec les versements, et **chronologie** détaillée de chaque colis |
 
 Ce qui se passe tout seul :
@@ -83,7 +83,7 @@ Chaque page correspond à une étape. Une commande passe toute seule à la suiva
 | Page | Commandes | Elles en sortent quand… |
 |---|---|---|
 | **Commandes** (onglet « À traiter ») | À confirmer, Pas de réponse, Rappeler, Injoignable | elles sont confirmées (→ Expédier) ou annulées (→ onglet **✕ Annulées** de la même page, avec le **motif** sous le statut) |
-| **Expédier** | Confirmées : à expédier, puis colis créés à valider chez Ecotrack | vous validez le colis dans Ecotrack, ou vous cliquez « Expédiée (autre société) » (→ Suivi) |
+| **Expédier** | Confirmées : à expédier, puis colis créés à valider | vous imprimez le bordereau et validez l'expédition (dans l'outil ou sur le site d'Ecotrack), ou vous cliquez « Expédiée (autre société) » (→ Suivi) |
 | **Suivi › En cours** | Expédiées, en livraison, retours en cours | elles sont livrées, ou le retour est reçu (→ Terminées) |
 | **Suivi › Terminées** | Livrées (avec l'état de l'argent : à recevoir, payé), retours reçus | elles sont archivées après 100 jours |
 
@@ -126,10 +126,30 @@ L'intégration suit la [documentation de l'API Ecotrack](https://documenter.getp
 ### Au quotidien
 
 1. Page **Expéditions › À expédier** : sélectionnez les commandes **prêtes**, puis **Envoyer à Ecotrack**. Une commande avec un problème (téléphone invalide, adresse ou commune manquante, wilaya non desservie, stop desk indisponible…) est signalée et se corrige avec **Modifier**.
-2. L'outil **crée** le colis chez Ecotrack et écrit son **n° de suivi** dans le classeur. **Il ne l'expédie pas** : la commande reste « Confirmée » et apparaît dans l'onglet **Créés, à valider chez Ecotrack**.
-3. **Vous validez l'expédition dans l'interface d'Ecotrack.** L'outil le voit à la lecture suivante des statuts et la commande passe « Expédiée », puis « En livraison », « Livrée » ou « Retour » toute seule.
+2. L'outil **crée** le colis chez Ecotrack et écrit son **n° de suivi** dans le classeur. **Il ne l'expédie pas** : la commande reste « Confirmée » et apparaît dans l'onglet **Créés, à valider** (les colis tout juste créés y sont déjà cochés).
+3. **Imprimez les bordereaux** (voir ci-dessous), collez-les sur les colis, puis **validez l'expédition** : bouton **✓ Valider l'expédition**, ou sur le site d'Ecotrack. La commande passe « Expédiée », puis « En livraison », « Livrée » ou « Retour » toute seule.
 4. Si Ecotrack refuse un colis (par exemple « Commune mal écrite »), le motif est affiché et la commande reste sans n° de suivi : corrigez-la, puis renvoyez-la.
 5. Une erreur dans un colis **pas encore validé** ? **Annuler le colis** (dans la commande, ou dans l'onglet *Créés, à valider*) le supprime chez Ecotrack : la commande redevient « Confirmée » et modifiable, puis vous recréez le colis. Un colis déjà validé ne peut plus être annulé depuis l'outil (demande de retour chez Ecotrack).
+
+### Bordereaux
+
+- Onglet **Créés, à valider** : cochez les colis (ou **Tout sélectionner**), choisissez le **format**, puis **🖨 Imprimer les bordereaux**.
+  - **A4 · 4 par feuille** (imprimante normale), avec des traits de coupe ;
+  - **Étiquette 10×15** (imprimante thermique), un bordereau par étiquette.
+- **Chaque appareil retient son format.** Le format proposé au départ est le réglage `FORMAT_BORDEREAU` (`A4` ou `10x15`).
+- Ce sont les **bordereaux officiels d'Ecotrack** (avec leur code-barres), réunis dans **un seul PDF**. Le PDF s'ouvre dans un nouvel onglet : cliquez sur l'imprimante. Réglez l'échelle sur **taille réelle (100 %)** ; pour la thermique, papier **100 × 150 mm** sans marge. Sur téléphone, ouvrez le fichier puis « Imprimer » ou « Partager ».
+- Chaque colis affiche **🖨 Imprimé le … par …** (colonne « Bordereau imprimé » des commandes), ou **Pas imprimé**. Le filtre **Pas encore imprimés** les retrouve.
+- **Réimprimer** : bouton **🖨 Bordereau** dans la fiche de la commande (colis créé ou en route). La réimpression est notée dans le Journal.
+- Un colis **annulé puis recréé** a un nouveau n° de suivi : il affiche **À réimprimer**, l'ancien bordereau ne vaut plus rien.
+- Le premier usage télécharge l'outil de mise en page des PDF (pdf-lib, depuis jsDelivr ou unpkg) : il faut une connexion internet, et le fichier est vérifié par son empreinte.
+
+### Valider l'expédition
+
+- Bouton **✓ Valider l'expédition** (onglet *Créés, à valider*), réservé à l'**administrateur** et au **magasinier** (onglet Équipe), car c'est **définitif** : ensuite, Ecotrack ne permet plus de modifier ni d'annuler le colis (il faudra une demande de retour).
+- La fenêtre de confirmation prévient si des colis **n'ont pas de bordereau imprimé** dans l'outil (vous pouvez valider quand même, par exemple si vous l'avez imprimé sur le site d'Ecotrack).
+- Case **Demander le ramassage** : cochée par défaut selon le réglage `RAMASSAGE` (`OUI`). Décochez-la si vous déposez les colis à l'agence.
+- Après la validation : la commande passe **« Expédiée »** et va dans **Suivi**, le **stock baisse** (« Colis parti ») et le **SMS « expédiée »** part. Un refus d'Ecotrack est affiché avec son motif, et la commande reste « Confirmée ».
+- **Vous pouvez aussi valider sur le site d'Ecotrack** : à l'ouverture de l'onglet *Créés, à valider*, l'outil relit ces colis chez Ecotrack (au plus une fois par minute) ; ceux déjà validés passent tout de suite dans Suivi. Sinon, la lecture automatique des statuts le fait dans les 30 minutes.
 
 ### Statuts
 
@@ -257,15 +277,17 @@ Fonctionnement :
 ## Sécurité et fiabilité (Ecotrack)
 
 - Le jeton est envoyé uniquement à l'adresse enregistrée, en `https`, et les redirections ne sont jamais suivies.
+- Un bordereau rangé ailleurs par Ecotrack (lien ou redirection vers leur stockage) est téléchargé **sans** le jeton.
+- Une validation ne peut pas partir deux fois : seuls les colis « créés, pas encore validés » sont envoyés, un colis en cours de validation est verrouillé, et si la réponse se perd, l'outil relit le statut chez Ecotrack avant de conclure.
 - Une commande ne peut pas être créée deux fois : seules les commandes **Confirmée** sans n° de suivi sont envoyées, et une commande en cours d'envoi est verrouillée.
 - Si la connexion est coupée en plein envoi, l'outil cherche chez Ecotrack (par notre numéro de commande) si le colis a été créé avant de conclure : pas de doublon.
 - Les limites d'Ecotrack (50 requêtes par minute) sont respectées : jusqu'à 100 commandes par requête, et attente automatique en cas d'erreur 429.
 
 ## Pas encore pris en charge (Ecotrack)
 
-- Valider l'expédition, modifier ou supprimer un colis : à faire dans l'interface d'Ecotrack (une commande annulée dans l'outil après la création de son colis n'est **pas** annulée chez Ecotrack).
+- Modifier un colis : à faire dans l'interface d'Ecotrack (une commande annulée dans l'outil après la création de son colis n'est **pas** annulée chez Ecotrack ; avant la validation, utilisez « Annuler le colis »).
 - Choisir un bureau précis pour le stop desk : l'API ne demande que « domicile » ou « stop desk ».
-- Remarques au livreur (`add/maj`), demande de retour, bordereaux PDF, et Yalidine.
+- Remarques au livreur (`add/maj`), demande de retour, et Yalidine.
 
 ## Commandes Releasit COD : arrivée automatique (onglet RELEASIT)
 
@@ -371,7 +393,7 @@ Ce que fait l'outil pour rester rapide :
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 105 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 109 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
@@ -387,6 +409,7 @@ apps-script/
   Orders.gs     lecture/écriture des commandes, tarifs, alertes, traitement des nouvelles lignes
   Ecotrack.gs   création des colis, tarifs, statuts Ecotrack
   Tracking.gs   page Suivi : alertes, argent, versements, chronologie
+  Labels.gs     bordereaux Ecotrack (PDF), « imprimé », validation de l'expédition
   Shopify.gs    importation des commandes Shopify (Releasit COD), wilayas en arabe
   Releasit.gs   transfert des commandes de l'onglet RELEASIT (écrites par Releasit COD)
   Rules.gs      verrouillage selon l'étape, annulation d'un colis Ecotrack, corbeille
@@ -409,7 +432,7 @@ tests/          imitation de Google Apps Script, tests, données d'exemple, aper
 1. **Shopify, sens retour** : étiquette « confirmée » ou annulation dans Shopify quand une commande est confirmée ou annulée dans l'outil, et retrait des commandes annulées dans Shopify (demande la permission `write_orders`).
 2. **Liste des communes** d'Ecotrack en liste déroulante dans la confirmation, si Ecotrack fournit un point de terminaison pour cela.
 3. **SMS** : confirmation par réponse « 1 » / « 2 » du client, et accusé de réception des SMS (demande une adresse publique pour httpSMS).
-4. **Yalidine** (Ecotrack est fait) : création des colis, suivi des statuts, et impression des bordereaux pour les deux sociétés.
+4. **Yalidine** (Ecotrack est fait, bordereaux compris) : création des colis, suivi des statuts et bordereaux.
 5. **Suivi avancé** : liste « à prévenir aujourd'hui », remarques au livreur et réponses (Ecotrack `add/maj`, `get/maj`), demande de retour, rapprochement des versements, résumé du matin par e-mail.
 
 ## Limites connues

@@ -107,6 +107,7 @@ function orderRules_(o, user, settings) {
     reason: reason,
     statuses: STATUS_LIST.filter(function (s) { return allowed.indexOf(s) >= 0; }),
     canCancelParcel: stage === STAGE.PARCEL,
+    canPrintLabel: canPrintLabel_(o),
     canReopen: canReopen,
     canDelete: admin && neverSent,
     canUnlock: admin && locked,
