@@ -394,6 +394,7 @@
 
   function loadOrders(first) {
     var t = ++S.token;
+    if (S.filter.status === 'trash' && !String(S.filter.q || '').trim()) { loadTrash(t); return; }
     call('api_listOrders', listArgs(first)).then(function (res) {
       if (t !== S.token || S.route !== 'commandes') return;
       S.list = res;
@@ -406,18 +407,42 @@
     });
   }
 
+  /** Corbeille (administrateur) : commandes supprimées, avec « Restaurer ». */
+  function loadTrash(t) {
+    $('#orders-list').innerHTML = '<p class="loading">Chargement…</p>';
+    call('api_listTrash').then(function (res) {
+      if (t !== S.token || S.route !== 'commandes') return;
+      renderChips(S.list ? S.list.counts : {});
+      var box = $('#orders-list');
+      if (!res.rows.length) { box.innerHTML = '<div class="card"><p class="empty">La corbeille est vide.</p></div>'; return; }
+      box.innerHTML = '<p class="small" style="margin-bottom:10px">Commandes supprimées avec le bouton « Supprimer ». Elles sont aussi dans l’onglet <strong>Corbeille</strong> du classeur. Releasit et Shopify ne les font pas revenir.</p>' +
+        table(['N°', 'Client', 'Produit', 'Total', 'Statut', 'Supprimée', ''], res.rows.map(function (o) {
+          return [h(o.id) + '<div class="small">' + fmtDate(o.date) + '</div>', h(o.client) + '<div class="small">' + h(fmtPhone(o.phone)) + '</div>',
+            h(o.product), money(o.total), pill(o.status),
+            h(fmtDate(o.deletedAt)) + '<div class="small">par ' + h(o.deletedBy || '—') + (o.reason ? ' · ' + h(o.reason) : '') + '</div>',
+            '<button type="button" class="btn" style="min-height:36px" data-act="trash-restore" data-id="' + h(o.id) + '">Restaurer</button>'];
+        }), [3]);
+    }).catch(function (e) {
+      if (t === S.token) $('#orders-list').innerHTML = errorBox(e);
+    });
+  }
+
   function renderChips(counts) {
     if (String(S.filter.q || '').trim()) {
       $('#chips').innerHTML = '<span class="small">Recherche dans toutes les commandes (toutes les pages) · ' + plural(counts.all || 0, 'résultat', 'résultats') + '</span>';
       return;
     }
-    var list = [['todo', 'À traiter']].concat(TODO_STATUSES.map(function (s) { return [s, s]; })).concat([['Annulée', 'Annulées']]);
-    $('#chips').innerHTML = list.filter(function (c) {
-      return c[0] === 'todo' || c[0] === 'Annulée' || c[0] === S.filter.status || counts[c[0]];
-    }).map(function (c) {
+    var list = [['todo', 'À traiter']].concat(TODO_STATUSES.map(function (s) { return [s, s]; }));
+    var chip = function (c, n) {
       return '<button type="button" class="chip" data-act="chip" data-status="' + h(c[0]) + '" aria-pressed="' + (S.filter.status === c[0]) + '">' +
-        h(c[1]) + ' · ' + (counts[c[0]] || 0) + '</button>';
-    }).join('');
+        h(c[1]) + (n === null ? '' : ' · ' + (n || 0)) + '</button>';
+    };
+    $('#chips').innerHTML = list.filter(function (c) {
+      return c[0] === 'todo' || c[0] === S.filter.status || counts[c[0]];
+    }).map(function (c) { return chip(c, counts[c[0]]); }).join('') +
+      '<span class="chip-sep" aria-hidden="true"></span>' +
+      chip(['Annulée', '✕ Annulées'], counts['Annulée']) +
+      (S.boot.user.admin ? chip(['trash', '🗑 Corbeille'], null) : '');
   }
 
   function renderOrderList(res) {
@@ -438,7 +463,9 @@
         '<td data-label="Wilaya" class="multi">' + h(o.wilaya) + '<div class="small">' + h(o.commune) + '</div></td>' +
         '<td data-label="Produit">' + h(o.product) + (o.qty > 1 ? ' ×' + o.qty : '') + '</td>' +
         '<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
-        '<td data-label="Statut">' + pill(o.status) + (PAGE_LABELS[o.page] ? '<div class="small">→ ' + PAGE_LABELS[o.page] + '</div>' : '') + '</td>' +
+        '<td data-label="Statut">' + pill(o.status) +
+          (o.status === 'Annulée' && o.cancelReason ? '<div class="small strong" style="color:#A12626">Motif : ' + h(o.cancelReason) + '</div>' : '') +
+          (PAGE_LABELS[o.page] && S.filter.status !== 'Annulée' ? '<div class="small">→ ' + PAGE_LABELS[o.page] + '</div>' : '') + '</td>' +
         '<td data-label="Alerte">' + alertPill(o.alert, o.alertLevel) + '</td>' +
         '<td data-label="Livraison" class="multi">' + h(o.mode) + '<div class="small">' + h([o.carrier, o.tracking].filter(Boolean).join(' · ')) + '</div></td>' +
       '</tr>';
@@ -1669,6 +1696,14 @@
     },
     'period': function (el) { S.period = el.getAttribute('data-period'); pageDashboard(); },
     'chip': function (el) { S.filter.status = el.getAttribute('data-status'); S.filter.limit = 100; loadOrders(); },
+    'trash-restore': function (el) {
+      el.disabled = true;
+      call('api_restoreOrder', el.getAttribute('data-id')).then(function (r) {
+        toast(r.message);
+        loadOrders();
+        refreshCount();
+      }).catch(function (e) { el.disabled = false; toast(errText(e), true); });
+    },
     'more': function () { S.filter.limit += 100; loadOrders(); },
     'open-order': function (el) { openOrder(el.getAttribute('data-id')); },
     'new-order': openNewOrder,

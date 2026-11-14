@@ -217,6 +217,33 @@ function api_deleteOrder(id, reason) {
   });
 }
 
+/** Commandes à la corbeille (administrateur), les dernières supprimées d'abord. */
+function api_listTrash() {
+  var user = currentUser_();
+  if (!isAdmin_(user)) throw new Error('Seul un administrateur (onglet Équipe) peut voir la corbeille.');
+  var sh = ss_().getSheetByName(TRASH.SHEET);
+  if (!sh || sh.getLastRow() < 2) return { rows: [] };
+  var values = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getValues();
+  var map = headerMap_(values[0]);
+  var extra = {};
+  values[0].forEach(function (t, i) { extra[normalizeText_(t)] = i; });
+  var cell = function (row, title) { var i = extra[normalizeText_(title)]; return i === undefined ? '' : row[i]; };
+  var rows = [];
+  for (var r = 1; r < values.length; r++) {
+    var o = {};
+    ORDER_COLUMNS.forEach(function (c) { o[c.key] = map[c.key] === undefined ? '' : values[r][map[c.key]]; });
+    if (!String(o.id).trim()) continue;
+    rows.push({
+      id: String(o.id), client: String(o.client), phone: String(o.phone), wilaya: String(o.wilaya), product: String(o.product),
+      total: toNumber_(o.total), status: String(o.status), date: iso_(o.date),
+      deletedAt: iso_(cell(values[r], TRASH.EXTRA[0])), deletedBy: String(cell(values[r], TRASH.EXTRA[1])),
+      reason: String(cell(values[r], TRASH.EXTRA[2]))
+    });
+  }
+  rows.sort(function (a, b) { return String(b.deletedAt).localeCompare(String(a.deletedAt)); });
+  return { rows: rows };
+}
+
 /** Remet une commande de la corbeille dans l'onglet Commandes (administrateur). */
 function api_restoreOrder(id) {
   var user = currentUser_();

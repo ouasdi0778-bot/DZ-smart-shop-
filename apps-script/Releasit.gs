@@ -269,10 +269,15 @@ function transferReleasitOrders_(options) {
   var since = start < 0 ? new Date(Date.now() - RELEASIT.DAYS * 86400000) : null;
   var groups = [];
   var byId = {};
+  var seenRows = {};
   values.slice(Math.max(start, 0)).forEach(function (row) {
     if (row.every(function (v) { return releasitText_(v) === ''; })) return;
     var id = releasitText_(row[col.id]);
     if (!id) { summary.ignored++; return; }
+    // Releasit écrit parfois deux fois la même ligne : ce n'est pas un 2e produit.
+    var sig = row.map(releasitText_).join('|');
+    if (seenRows[sig]) return;
+    seenRows[sig] = true;
     if (!byId[id]) { byId[id] = []; groups.push(byId[id]); }
     byId[id].push(row);
   });

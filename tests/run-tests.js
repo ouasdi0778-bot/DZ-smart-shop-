@@ -1623,6 +1623,17 @@ test('Releasit : pas de doublon, lecture rapide si rien n’a changé, nouvelles
   assert.strictEqual(orderRowIds().length, 3);
 });
 
+test('Releasit : la même ligne écrite deux fois par Releasit n’est pas un 2e produit', function () {
+  releasitSetup();
+  releasitAdd({ id: '#1040', date: '2026-11-14 10:00:44', qty: 2, line: 3600, ship: 450, total: 4050 });
+  releasitAdd({ id: '#1040', date: '2026-11-14 10:00:44', qty: 2, line: 3600, ship: 450, total: 4050 });
+  assert.strictEqual(transferReleasitOrders_().added, 1);
+  var o = order('#1040');
+  assert.deepStrictEqual([o.product, o.qty, o.price, o.total], ['cover iPhone - iphone 15 PRO MAX', 2, 3600, 4050]);
+  releasitAdd({ id: '#1040', date: '2026-11-14 10:00:44', qty: 2, line: 3600, ship: 450, total: 4050 });
+  assert.strictEqual(transferReleasitOrders_().added, 0, 'réécrite plus tard : déjà là');
+});
+
 test('Releasit : une commande sur plusieurs lignes (un produit par ligne) devient une seule commande', function () {
   releasitSetup();
   // Total de la commande répété sur chaque ligne.
@@ -1939,6 +1950,23 @@ test('Corbeille : suppression par l’administrateur, Releasit et Shopify ne la 
   asAgent();
   assert.throws(function () { api_deleteOrder('#9002'); }, /Seul un administrateur/);
   assert.strictEqual(api_getOrder('#9002').rules.canDelete, false);
+});
+
+test('Corbeille : liste dans l’application (administrateur) avec la date, l’auteur et le motif', function () {
+  baseSetup();
+  addOrder('#Z1', 'Sac', { 'Client': 'Zina' });
+  addOrder('#Z2', 'Sac');
+  processNewRows();
+  assert.deepStrictEqual(api_listTrash().rows, [], 'corbeille vide');
+  api_deleteOrder('#Z1', 'Commande test');
+  var t = api_listTrash();
+  assertSerializable(t, 'api_listTrash');
+  assert.deepStrictEqual(t.rows.map(function (x) { return [x.id, x.client, x.status, x.deletedBy, x.reason]; }), [['#Z1', 'Zina', 'À confirmer', 'Admin', 'Commande test']]);
+  assert.ok(t.rows[0].deletedAt);
+  api_restoreOrder('#Z1');
+  assert.deepStrictEqual(api_listTrash().rows, []);
+  asAgent();
+  assert.throws(function () { api_listTrash(); }, /Seul un administrateur/);
 });
 
 test('Corbeille : une commande envoyée ne se supprime pas ; les n° manuels ne sont pas réutilisés', function () {

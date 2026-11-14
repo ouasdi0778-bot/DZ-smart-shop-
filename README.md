@@ -82,11 +82,13 @@ Chaque page correspond à une étape. Une commande passe toute seule à la suiva
 
 | Page | Commandes | Elles en sortent quand… |
 |---|---|---|
-| **Commandes** (onglet « À traiter ») | À confirmer, Pas de réponse, Rappeler, Injoignable | elles sont confirmées (→ Expédier) ou annulées (→ onglet **Annulées** de la même page) |
+| **Commandes** (onglet « À traiter ») | À confirmer, Pas de réponse, Rappeler, Injoignable | elles sont confirmées (→ Expédier) ou annulées (→ onglet **✕ Annulées** de la même page, avec le **motif** sous le statut) |
 | **Expédier** | Confirmées : à expédier, puis colis créés à valider chez Ecotrack | vous validez le colis dans Ecotrack, ou vous cliquez « Expédiée (autre société) » (→ Suivi) |
 | **Suivi › En cours** | Expédiées, en livraison, retours en cours | elles sont livrées, ou le retour est reçu (→ Terminées) |
 | **Suivi › Terminées** | Livrées (avec l'état de l'argent : à recevoir, payé), retours reçus | elles sont archivées après 100 jours |
 
+- **🗑 Corbeille** (administrateur) : les commandes supprimées, avec la date, l'auteur et le motif, et un bouton **Restaurer**.
+- ⚠️ **N'effacez pas de lignes à la main dans l'onglet Commandes** : elles disparaissent sans trace. Utilisez « Annuler » ou « Supprimer » (Corbeille).
 - **Le menu** affiche le nombre de commandes à appeler (Confirmation), à expédier (Expédier) et les alertes (Suivi).
 - **La recherche** de la page Commandes (nom, téléphone, n°) trouve **toutes** les commandes, où qu'elles soient, et indique leur page (« → Expédier », « → Suivi › Terminées »…).
 - Avant la création du colis, une commande confirmée peut être **remise à confirmer** (bouton Modifier dans Expédier).
@@ -161,7 +163,7 @@ Une commande ne se modifie plus dès que son colis existe chez la société de l
 
 - **Statuts de livraison** : avec Ecotrack, « Expédiée », « En livraison », « Livrée » et « Retour » arrivent tout seuls et ne se choisissent pas à la main. Avec une société sans connexion (Yalidine pour l'instant), vous les saisissez, toujours vers l'avant : une commande expédiée ne revient pas « À confirmer ».
 - **Déverrouillage exceptionnel** : un **administrateur** (rôle « Administrateur » dans l'onglet Équipe) peut cliquer **Modifier quand même**. Le motif est obligatoire et noté dans le Journal. Le colis chez Ecotrack, lui, ne change pas.
-- **Supprimer** (administrateur, seulement avant tout envoi) : la commande part dans l'onglet **Corbeille** avec la date, l'auteur et le motif. Releasit et Shopify ne la font pas revenir. Pour la récupérer : menu **DZ Smart Shop › Restaurer une commande de la corbeille**.
+- **Supprimer** (administrateur, seulement avant tout envoi) : la commande part dans l'onglet **Corbeille** avec la date, l'auteur et le motif. Releasit et Shopify ne la font pas revenir. Pour la récupérer : page **Commandes › 🗑 Corbeille** (bouton **Restaurer**), ou menu **DZ Smart Shop › Restaurer une commande de la corbeille**.
 - Les verrous s'appliquent dans l'application. Dans le classeur, les cases restent modifiables à la main (les confirmatrices ont besoin du droit d'écriture pour que l'application fonctionne) : un garde-fou est prévu plus tard.
 
 ## Suivi des colis
@@ -361,7 +363,7 @@ Ce que fait l'outil pour rester rapide :
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 98 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 100 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
