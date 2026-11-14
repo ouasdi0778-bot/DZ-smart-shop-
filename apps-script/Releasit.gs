@@ -444,7 +444,7 @@ function menuReleasitCheck() {
   }).join('\n') : '(aucune)');
   if (r.missing.length) text += '\n\nInformations absentes : ' + r.missing.join(', ') + '.';
   if (r.unknown.length) text += '\n\nColonnes non utilisées : ' + r.unknown.join(', ') + '.';
-  var running = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'transferReleasitOrders'; });
+  var running = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'everyMinute' || t.getHandlerFunction() === 'transferReleasitOrders'; });
   text += running ? '\n\nTransfert automatique : actif (chaque minute).'
     : '\n\nTransfert automatique : pas encore actif. Lancez « Installer / réparer le classeur ».';
   ui.alert('Releasit', text, ui.ButtonSet.OK);

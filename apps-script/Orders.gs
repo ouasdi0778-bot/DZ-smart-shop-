@@ -68,7 +68,13 @@ var TEXT_KEYS_ = ['id', 'phone', 'tracking', 'paymentId', 'shopifyId'];
  * cases voisines : une seule écriture par groupe au lieu d'une par case.
  */
 function writeFields_(ctx, order, fields) {
-  if (fields.status !== undefined && String(fields.status) !== String(order.status)) noteStatusChange_(order, fields.status);
+  if (fields.status !== undefined && String(fields.status) !== String(order.status)) {
+    noteStatusChange_(order, fields.status);
+    // Date de la confirmation (statistiques de l'équipe), notée une seule fois.
+    if (fields.status === STATUS.CONFIRMED && ctx.map.confirmedAt !== undefined && isBlank_(order.confirmedAt) && fields.confirmedAt === undefined) {
+      fields = Object.assign({}, fields, { confirmedAt: new Date() });
+    }
+  }
   var cells = [];
   Object.keys(fields).forEach(function (key) {
     order[key] = fields[key];

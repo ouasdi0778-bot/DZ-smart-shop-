@@ -7,7 +7,7 @@
  */
 
 var APP_NAME = 'DZ Smart Shop';
-var APP_VERSION = '0.1.0';
+var APP_VERSION = '1.0.0';
 
 /** Noms des onglets du classeur. */
 var SHEET = {
@@ -72,6 +72,7 @@ var ORDER_COLUMNS = [
   { key: 'dayCalls', title: 'Appels du jour', kind: 'auto', width: 120, aliases: [] },
   { key: 'stockMove', title: 'Mouvement stock', kind: 'auto', width: 120, aliases: [] },
   { key: 'sms', title: 'SMS envoyés', kind: 'auto', width: 160, aliases: [] },
+  { key: 'confirmedAt', title: 'Confirmée le', kind: 'auto', width: 130, aliases: ['Date de confirmation'] },
   { key: 'updated', title: 'Mis à jour', kind: 'auto', width: 130, aliases: ['Dernière mise à jour'] }
 ];
 
@@ -151,6 +152,7 @@ var DEFAULT_SETTINGS = [
   ['FRAIS_RETOUR', 50, 'Frais payés à la société de livraison pour un colis retourné (DA)'],
   ['COUT_EMBALLAGE', 0, 'Coût d’emballage par commande expédiée (DA). 0 = pas compté'],
   ['TAUX_DOLLAR', 250, 'Prix d’un dollar en dinars, pour les dépenses en USD (publicité). Mettez-le à jour quand il change : les dépenses déjà saisies gardent leur taux'],
+  ['PRIMES', '', 'Prime des confirmatrices par commande livrée, en dinars, avec sa date de début : « 2026-11-01=50; 2027-01-01=60 ». Chaque commande prend le montant valable à sa date (se règle dans Statistiques › Équipe). Vide = pas de prime'],
   ['CATEGORIES_DEPENSES', 'Publicité Facebook; Publicité TikTok; Emballage; Salaires; Loyer; Autre', 'Catégories proposées dans l’onglet Dépenses, séparées par des points-virgules'],
   ['COUT_MOYEN', 'OUI', 'OUI : à chaque entrée de marchandise, le coût d’achat devient la moyenne (ancien stock et nouvelle entrée). NON : le coût d’achat ne change que si vous le modifiez'],
   ['STOCK_SEUIL', 2, 'Un modèle dont le stock disponible tombe à ce nombre (ou moins) est signalé « stock bas ». Le seuil d’une ligne de l’onglet Produits passe avant'],
@@ -167,6 +169,7 @@ var DEFAULT_SETTINGS = [
   ['SMS_SANS_REPONSE_LIVRAISON', 'اتصلنا بك بخصوص طلبك {numero} الموجود عند الموزع. يرجى الرد أو الاتصال بنا لتأكيد التوصيل. {boutique}', 'SMS quand vous appelez un client pendant la livraison et qu’il ne répond pas (au premier appel seulement). Vide = pas de SMS'],
   ['SMS_RETOUR', '', 'SMS « Retour » (vide = pas de SMS)'],
   ['SMS_ANNULEE', '', 'SMS « Annulée » (vide = pas de SMS)'],
+  ['LIMITE_MINUTES_JOUR', 90, 'Temps de travail des tâches automatiques permis par Google chaque jour (environ 90 minutes pour un compte Gmail, 360 pour Google Workspace). Un e-mail vous prévient à 80 %'],
   ['ARCHIVE_JOURS', 100, "Chaque nuit, les commandes terminées sans mouvement depuis ce nombre de jours partent dans l'onglet Archive (une commande livrée dont l'argent n'est pas encore versé reste). 0 = ne jamais archiver"],
   ['JOURNAL_JOURS', 90, "Chaque nuit, les lignes du Journal plus anciennes que ce nombre de jours sont effacées. 0 = tout garder"],
   ['MESSAGE_WHATSAPP', 'Bonjour {prenom}, ici {boutique}. Nous avons bien reçu votre commande {numero} : {produit}, total {total}, livraison à {commune}. Pouvez-vous nous la confirmer ? Merci !', 'Modèle du message WhatsApp. Champs : {prenom} {client} {numero} {produit} {total} {commune} {wilaya} {boutique}']

@@ -350,7 +350,6 @@ function menuSmsSetup() {
   if (second.getSelectedButton() !== ui.Button.OK) return;
   try {
     var r = saveSmsConfig_(first.getResponseText(), second.getResponseText());
-    installTriggers_();
     ui.alert('SMS', 'Enregistré : les SMS partiront du ' + r.from + ', dans la minute qui suit chaque changement de statut (' + smsStatus_().hours + ').\n\nLes textes se modifient dans l’onglet Paramètres (SMS_A_CONFIRMER, SMS_CONFIRMEE…). Texte vide = pas de SMS.', ui.ButtonSet.OK);
   } catch (e) {
     ui.alert('SMS : échec', String(e && e.message ? e.message : e), ui.ButtonSet.OK);

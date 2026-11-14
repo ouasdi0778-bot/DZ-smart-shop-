@@ -1,0 +1,274 @@
+/**
+ * Page Stock (administrateur et magasinier) : chargée seulement quand on ouvre la page (voir App.html, loadModule).
+ */
+(function (DZ) {
+  'use strict';
+  var S = DZ.S;
+  var view = DZ.view;
+  var $ = DZ.$;
+  var $all = DZ.$all;
+  var table = DZ.table;
+  var call = DZ.call;
+  var h = DZ.h;
+  var toast = DZ.toast;
+  var errText = DZ.errText;
+  var errorBox = DZ.errorBox;
+  var money = DZ.money;
+  var plural = DZ.plural;
+  var fmtDate = DZ.fmtDate;
+  var pill = DZ.pill;
+  var options = DZ.options;
+  var field = DZ.field;
+  var input = DZ.input;
+  var readForm = DZ.readForm;
+  var showModal = DZ.showModal;
+  var closeModal = DZ.closeModal;
+  var modalHead = DZ.modalHead;
+
+  /* ================================================================ */
+  /* Stock (administrateur et magasinier)                             */
+  /* ================================================================ */
+
+  function pageStock() {
+    view.innerHTML = '<div id="stock"><p class="loading">Chargement…</p></div>';
+    loadStockPage();
+  }
+
+  function loadStockPage() {
+    var t = ++S.token;
+    return call('api_stockPage').then(function (d) {
+      if (t !== S.token || S.route !== 'stock') return;
+      S.stock.data = d;
+      renderStock();
+    }).catch(function (e) {
+      if (t === S.token && S.route === 'stock') $('#stock').innerHTML = errorBox(e);
+    });
+  }
+
+  function modelName(g, m) { return g.product + (m.model ? ' — ' + m.model : ''); }
+
+  /** Tous les modèles, avec leur produit (pour les formulaires). */
+  function allModels(d, activeOnly) {
+    var out = [];
+    d.products.forEach(function (g) {
+      g.models.forEach(function (m) { if (!activeOnly || m.active) out.push({ g: g, m: m }); });
+    });
+    return out;
+  }
+
+  function moveQty(q) {
+    return '<span class="' + (q < 0 ? 'move-out' : 'move-in') + '">' + (q > 0 ? '+' : '') + q + '</span>';
+  }
+
+  function renderStock() {
+    var d = S.stock.data;
+    var box = $('#stock');
+    if (!box || !d) return;
+    var t = d.totals;
+    var html = '<div class="page-head"><div><h1>Stock</h1><p class="sub">Une commande confirmée réserve ses produits ; le stock baisse quand le colis part et remonte quand le retour est reçu.</p></div>' +
+      '<div class="quick"><button type="button" class="btn primary" data-act="product-new">+ Produit</button>' +
+      '<button type="button" class="btn" data-act="stock-entry">Entrée de marchandise</button>' +
+      '<button type="button" class="btn" data-act="stock-inventory">Inventaire</button></div></div><div class="stack">';
+    html += '<section class="grid-kpi" aria-label="Chiffres du stock">' + [
+      ['Valeur du stock', money(t.value), 'Stock × coût d’achat'],
+      ['Pièces en stock', t.units, plural(t.models, 'modèle actif', 'modèles actifs')],
+      ['Stock bas', t.low, 'Disponible au seuil d’alerte ou moins'],
+      ['En rupture', t.rupture, 'Plus rien de disponible']
+    ].map(function (k) {
+      return '<div class="card kpi"><span class="label">' + h(k[0]) + '</span><span class="value">' + h(k[1]) + '</span><span class="note">' + h(k[2]) + '</span></div>';
+    }).join('') + '</section>';
+
+    if (!d.products.length) {
+      html += '<div class="card"><p class="empty">Aucun produit. Cliquez sur « + Produit », ou ajoutez ci-dessous les modèles vus dans vos commandes.</p></div>';
+    }
+    d.products.forEach(function (g) {
+      html += '<section class="card"><h2>' + h(g.product) + '</h2>' +
+        '<p class="sub" style="margin:-4px 0 10px">' + (g.tracked ? 'Stock ' + g.stock + ' · réservé ' + g.reserved + ' · <strong>disponible ' + g.available + '</strong> · valeur ' + money(g.value) : 'Stock non suivi') + '</p>' +
+        '<div class="table-wrap" style="border:0"><table class="data cards"><thead><tr>' +
+        ['Modèle', 'Stock', 'Réservé', 'Disponible', 'Coût d’achat', 'Prix de vente', ''].map(function (x) { return '<th scope="col">' + x + '</th>'; }).join('') +
+        '</tr></thead><tbody>' + g.models.map(function (m) {
+          var tag = !m.active ? '<span class="pill" style="background:#EEF0F3;color:#3D4350">désactivé</span>'
+            : m.rupture ? '<span class="pill" style="background:#FBE7E7;color:#A12626">rupture</span>'
+            : m.low ? '<span class="pill" style="background:#FFF3DC;color:#8A5200">stock bas</span>' : '';
+          return '<tr class="model-row' + (m.low && m.active ? ' low' : '') + (!m.active ? ' off' : '') + '">' +
+            '<td data-label="Modèle">' + h(m.model || '—') + ' ' + tag + (m.aliases ? '<div class="small">Autres noms : ' + h(m.aliases) + '</div>' : '') + '</td>' +
+            '<td data-label="Stock" class="num">' + (m.tracked ? m.stock : '—') + '</td>' +
+            '<td data-label="Réservé" class="num">' + m.reserved + '</td>' +
+            '<td data-label="Disponible" class="num strong">' + (m.tracked ? m.available : '—') + '</td>' +
+            '<td data-label="Coût d’achat" class="num">' + (m.cost === null ? '<span class="neg">à remplir</span>' : money(m.cost)) + '</td>' +
+            '<td data-label="Prix de vente" class="num">' + (m.price === null ? '—' : money(m.price)) + '</td>' +
+            '<td data-label=""><span class="quick">' +
+              '<button type="button" class="btn" style="min-height:36px" data-act="model-edit" data-key="' + h(m.key) + '">Modifier</button>' +
+              '<button type="button" class="btn" style="min-height:36px" data-act="model-history" data-key="' + h(m.key) + '">Historique</button></span></td></tr>';
+        }).join('') + '</tbody></table></div></section>';
+    });
+    if (d.unknown.length) {
+      html += '<section class="card"><h2>Modèles vus dans les commandes, absents du catalogue</h2>' +
+        table(['Produit', 'Modèle', 'Commandes', ''], d.unknown.map(function (u) {
+          return [h(u.product), h(u.model || '—'), u.orders, '<button type="button" class="btn" style="min-height:36px" data-act="catalog-add" data-label="' + h(u.label) + '">Ajouter</button>'];
+        }), [2]) +
+        '<p style="margin-top:12px"><button type="button" class="btn primary" data-act="catalog-add">Tout ajouter</button></p>' +
+        '<p class="small" style="margin-top:8px">Ensuite, indiquez leur coût d’achat (Modifier) et leur stock (Entrée de marchandise).</p></section>';
+    }
+    html += '<section class="card"><h2>Derniers mouvements</h2>' + (d.moves.length ? movesTable(d.moves.slice(0, 30)) : '<p class="empty">Aucun mouvement pour l’instant.</p>') +
+      '<p class="small" style="margin-top:10px">Historique complet : onglet « Mouvements stock » du classeur.</p></section></div>';
+    box.innerHTML = html;
+  }
+
+  function movesTable(list) {
+    return table(['Date', 'Modèle', 'Mouvement', 'Quantité', 'Stock après', 'Détail'], list.map(function (x) {
+      return [h(fmtDate(x.date)), h(x.product + (x.model ? ' — ' + x.model : '')), h(x.type), moveQty(x.qty), x.after === null ? '—' : x.after,
+        h([x.order ? 'Commande ' + x.order : '', x.cost ? 'coût ' + x.cost + ' DA' : '', x.note, x.by ? 'par ' + x.by : ''].filter(Boolean).join(' · '))];
+    }), [3, 4]);
+  }
+
+  function findModel(key) {
+    var found = null;
+    allModels(S.stock.data).forEach(function (x) { if (x.m.key === key) found = x; });
+    return found;
+  }
+
+  function askNewProduct() {
+    showModal(modalHead('Nouveau produit') +
+      '<div class="form-grid" id="product-form">' +
+        field('Nom du produit', input('product', '', ' placeholder="Ex. cover iPhone"'), 'full') +
+        field('Prix de vente (DA)', input('price', '', ' type="number" min="0" step="10"')) +
+        field('Coût d’achat (DA)', input('cost', '', ' type="number" min="0" step="10"')) +
+        field('Seuil d’alerte', input('threshold', '', ' type="number" min="0" step="1" placeholder="Réglage général"')) +
+        field('Modèles et stock de départ : un par ligne, « modèle = quantité »', '<textarea name="models" rows="5" placeholder="iphone 13 = 10&#10;iphone 15 PRO MAX = 4"></textarea>', 'full') +
+        field('Stock de départ (produit sans modèle)', input('stock', '', ' type="number" min="0" step="1"')) +
+      '</div><p class="small" style="margin-top:8px">Le nom doit être écrit comme dans vos commandes (ex. « cover iPhone - iphone 13 ») pour que le stock suive tout seul. Sinon, ajoutez des « autres noms » avec Modifier.</p>' +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Annuler</button>' +
+      '<button type="button" class="btn primary" data-act="product-save">Ajouter le produit</button></div>');
+  }
+
+  function saveNewProduct(btn) {
+    var f = readForm($('#product-form'));
+    var models = String(f.models || '').split('\n').map(function (line) {
+      var m = line.match(/^(.*?)(?:\s*[=:;]\s*(\d+))?\s*$/);
+      return m && m[1].trim() ? { model: m[1].trim(), stock: m[2] || '' } : null;
+    }).filter(Boolean);
+    btn.disabled = true;
+    call('api_addProduct', { product: f.product, price: f.price, cost: f.cost, threshold: f.threshold, stock: f.stock, models: models }).then(function (r) {
+      closeModal();
+      toast(r.message);
+      loadStockPage();
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  }
+
+  function askEditModel(key) {
+    var x = findModel(key);
+    if (!x) return;
+    var m = x.m;
+    showModal(modalHead('Modifier ' + h(modelName(x.g, m))) +
+      '<div class="form-grid" id="model-form" data-row="' + m.row + '" data-key="' + h(m.key) + '">' +
+        field('Produit', input('product', x.g.product)) +
+        field('Modèle', input('model', m.model)) +
+        field('Prix de vente (DA)', input('price', m.price === null ? '' : m.price, ' type="number" min="0" step="10"')) +
+        field('Coût d’achat (DA)', input('cost', m.cost === null ? '' : m.cost, ' type="number" min="0" step="10"')) +
+        field('Seuil d’alerte', input('threshold', m.ownThreshold === null ? '' : m.ownThreshold, ' type="number" min="0" step="1" placeholder="Réglage général"')) +
+        field('Autres noms (séparés par « ; »)', input('aliases', m.aliases, ' placeholder="Écritures de ce modèle dans les commandes"'), 'full') +
+        '<label class="field full" style="flex-direction:row;align-items:center;gap:10px"><input type="checkbox" name="active"' + (m.active ? ' checked' : '') + ' style="width:auto;min-height:0"> Actif (décochez s’il n’est plus vendu)</label>' +
+      '</div><p class="small" style="margin-top:8px">Le stock se change avec « Entrée de marchandise » ou « Inventaire ». Si vous renommez, l’ancien nom est gardé dans « autres noms ».</p>' +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Annuler</button>' +
+      '<button type="button" class="btn primary" data-act="model-save">Enregistrer</button></div>');
+  }
+
+  function saveModel(btn) {
+    var form = $('#model-form');
+    var f = readForm(form);
+    f.row = Number(form.getAttribute('data-row'));
+    f.key = form.getAttribute('data-key');
+    btn.disabled = true;
+    call('api_updateCatalogRow', f).then(function (r) {
+      closeModal();
+      toast(r.message);
+      loadStockPage();
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  }
+
+  function showHistory(key) {
+    var x = findModel(key);
+    if (!x) return;
+    var list = S.stock.data.moves.filter(function (mv) { return mv.key === key; });
+    showModal(modalHead('Historique · ' + h(modelName(x.g, x.m))) +
+      (list.length ? movesTable(list) : '<p class="empty">Aucun mouvement récent pour ce modèle.</p>') +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Fermer</button></div>');
+  }
+
+  /** Entrée de marchandise ou inventaire : un produit, puis ses modèles. */
+  function askStockForm(kind) {
+    var d = S.stock.data;
+    var products = d.products.filter(function (g) { return g.models.some(function (m) { return m.active; }); });
+    if (!products.length) { toast('Ajoutez d’abord un produit.', true); return; }
+    var entry = kind === 'entry';
+    showModal(modalHead(entry ? 'Entrée de marchandise' : 'Inventaire') +
+      '<div class="form-grid" id="stock-form" data-kind="' + kind + '">' +
+        field('Produit', '<select name="product" data-role="stock-product">' + products.map(function (g, i) {
+          return '<option value="' + i + '">' + h(g.product) + '</option>';
+        }).join('') + '</select>', 'full') +
+        (entry ? field('Coût unitaire (DA, facultatif)', input('cost', '', ' type="number" min="0" step="10"')) + field('Fournisseur (facultatif)', input('supplier', ''))
+          : field('Motif', '<select name="reason">' + options(d.reasons, d.reasons[0]) + '</select>')) +
+        field('Note (facultatif)', input('note', ''), 'full') +
+      '</div><div class="lines" id="stock-lines"></div>' +
+      '<p class="small" style="margin-top:8px">' + (entry ? (d.averageCost ? 'Avec un coût unitaire, le coût d’achat devient la moyenne de l’ancien stock et de cette entrée.' : 'Le coût d’achat ne change pas (réglage COUT_MOYEN = NON).')
+        : 'Tapez la quantité comptée ; laissez vide les modèles non comptés. L’écart est noté avec le motif.') + '</p>' +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Annuler</button>' +
+      '<button type="button" class="btn primary" data-act="stock-save">' + (entry ? 'Enregistrer l’entrée' : 'Enregistrer l’inventaire') + '</button></div>');
+    S.stock.formProducts = products;
+    renderStockLines();
+  }
+
+  function renderStockLines() {
+    var form = $('#stock-form');
+    if (!form) return;
+    var entry = form.getAttribute('data-kind') === 'entry';
+    var g = S.stock.formProducts[Number($('[data-role="stock-product"]').value) || 0];
+    $('#stock-lines').innerHTML = g.models.filter(function (m) { return m.active; }).map(function (m) {
+      return '<label class="line"><span>' + h(m.model || g.product) + ' <span class="small">· stock ' + (m.tracked ? m.stock : '—') + '</span></span>' +
+        '<input type="number" min="0" step="1" inputmode="numeric" data-line-row="' + m.row + '" data-line-key="' + h(m.key) + '" placeholder="' + (entry ? 'Reçu' : (m.tracked ? m.stock : 'Compté')) + '"></label>';
+    }).join('');
+  }
+
+  function saveStockForm(btn) {
+    var form = $('#stock-form');
+    var f = readForm(form);
+    var entry = form.getAttribute('data-kind') === 'entry';
+    var items = $all('[data-line-row]').map(function (el) {
+      var v = String(el.value).trim();
+      if (!v) return null;
+      return entry ? { row: Number(el.getAttribute('data-line-row')), key: el.getAttribute('data-line-key'), qty: v, cost: f.cost }
+        : { row: Number(el.getAttribute('data-line-row')), key: el.getAttribute('data-line-key'), counted: v };
+    }).filter(Boolean);
+    btn.disabled = true;
+    call(entry ? 'api_stockEntry' : 'api_stockInventory', entry ? { items: items, supplier: f.supplier, note: f.note } : { items: items, reason: f.reason + (f.note ? ' · ' + f.note : '') }).then(function (r) {
+      closeModal();
+      toast(r.message);
+      loadStockPage();
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  }
+
+  function addToCatalog(labels, btn) {
+    var list = labels || (S.stock.data ? S.stock.data.unknown.map(function (u) { return u.label; }) : []);
+    if (!list.length) return;
+    btn.disabled = true;
+    call('api_addCatalogItems', list).then(function (r) {
+      toast(r.message);
+      loadStockPage();
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  }
+
+
+  Object.assign(DZ.ACTIONS, {
+    'catalog-add': function (el) { addToCatalog(el.getAttribute('data-label') ? [el.getAttribute('data-label')] : null, el); },
+    'product-new': askNewProduct,
+    'product-save': saveNewProduct,
+    'model-edit': function (el) { askEditModel(el.getAttribute('data-key')); },
+    'model-save': saveModel,
+    'model-history': function (el) { showHistory(el.getAttribute('data-key')); },
+    'stock-entry': function () { askStockForm('entry'); },
+    'stock-inventory': function () { askStockForm('inventory'); },
+    'stock-save': saveStockForm
+  });
+  DZ.modules.stock = { page: pageStock, onChange: function (e) { if (e.target.getAttribute('data-role') !== 'stock-product') return false; renderStockLines(); return true; } };
+})(window.DZ);

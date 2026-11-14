@@ -169,7 +169,8 @@ function readArchivedOrders_() {
   if (!sh || sh.getLastRow() < 2) return [];
   var values = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getValues();
   var map = headerMap_(values[0]);
-  var keys = ['id', 'date', 'status', 'total', 'wilaya', 'agent', 'product', 'qty', 'price', 'carrier', 'mode', 'shipping', 'campaign', 'adSource', 'carrierStatus', 'tracking'];
+  var keys = ['id', 'date', 'status', 'total', 'wilaya', 'agent', 'product', 'qty', 'price', 'carrier', 'mode', 'shipping', 'campaign', 'adSource', 'carrierStatus', 'tracking',
+    'cancelReason', 'courierNote', 'deliveredAt', 'confirmedAt'];
   var out = [];
   for (var r = 1; r < values.length; r++) {
     var o = { archived: true };
@@ -235,7 +236,8 @@ function lightenSheets_() {
 
 /** Déclencheur de nuit : archivage, Journal raccourci, onglets allégés. */
 function nightlyMaintenance() {
-  var out = { archived: 0, journal: 0, rows: 0, autoCancelled: 0, errors: [] };
+  var t0 = Date.now();
+  var out = { archived: 0, journal: 0, rows: 0, autoCancelled: 0, stats: 0, errors: [] };
   var step = function (name, fn) {
     try { fn(); } catch (e) { out.errors.push(name + ' : ' + (e && e.message ? e.message : e)); }
   };
@@ -244,7 +246,9 @@ function nightlyMaintenance() {
   step('archivage', function () { out.archived = archiveOldOrders_().archived; });
   step('journal', function () { out.journal = trimJournal_(getSettings_().JOURNAL_JOURS); });
   step('allègement', function () { out.rows = lightenSheets_(); });
+  step('statistiques', function () { out.stats = rebuildStats_().days; });
   if (out.errors.length) log_({ name: 'Automatique' }, '', 'Erreur maintenance', out.errors.join(' · '));
+  try { noteNightly_(Date.now() - t0, out.errors); } catch (e) { /* l'état de l'outil ne doit pas bloquer l'entretien */ }
   return out;
 }
 

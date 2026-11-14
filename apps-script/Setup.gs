@@ -8,7 +8,12 @@
 var HEADER_BG_ = { 'in': '#EEF0F3', 'list': '#DCE7FA', 'auto': '#D3EDE2' };
 
 function setup() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  return setupSheets_(true);
+}
+
+/** Crée ou répare tout ; withTriggers : réinstalle aussi les tâches automatiques (au nom de celui qui lance). */
+function setupSheets_(withTriggers) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet() || ss_();
   PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', ss.getId());
   clearConfigCache_();
 
@@ -23,7 +28,7 @@ function setup() {
   setupOrdersSheet_(ss);
   removeEmptyDefaultSheet_(ss);
   clearConfigCache_();
-  installTriggers_();
+  if (withTriggers) installTriggers_();
 
   ss.setActiveSheet(ss.getSheetByName(SHEET.ORDERS));
   try { ss.setSpreadsheetTimeZone('Africa/Algiers'); } catch (e) { /* droits insuffisants : sans importance */ }
@@ -249,15 +254,3 @@ function removeEmptyDefaultSheet_(ss) {
  *  - maintenance chaque nuit vers 3 h : archivage, Journal raccourci, onglets allégés (Maintenance.gs).
  * Google limite le temps de calcul quotidien : rien n'est lancé inutilement.
  */
-function installTriggers_() {
-  var handlers = ['processNewRows', 'syncEcotrackStatuses', 'importShopifyOrders', 'transferReleasitOrders', 'nightlyMaintenance', 'sendSmsQueue'];
-  ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (handlers.indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t);
-  });
-  if (ss_().getSheetByName(RELEASIT.SHEET)) ScriptApp.newTrigger('transferReleasitOrders').timeBased().everyMinutes(1).create();
-  if (shopifyConfig_().configured) ScriptApp.newTrigger('importShopifyOrders').timeBased().everyMinutes(5).create();
-  if (smsConfig_().configured) ScriptApp.newTrigger('sendSmsQueue').timeBased().everyMinutes(1).create();
-  ScriptApp.newTrigger('processNewRows').timeBased().everyMinutes(5).create();
-  ScriptApp.newTrigger('syncEcotrackStatuses').timeBased().everyMinutes(30).create();
-  ScriptApp.newTrigger('nightlyMaintenance').timeBased().everyDays(1).atHour(3).create();
-}

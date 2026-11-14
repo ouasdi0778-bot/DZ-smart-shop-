@@ -1,0 +1,185 @@
+/**
+ * Page Bénéfices (administrateur) : chargée seulement quand on ouvre la page (voir App.html, loadModule).
+ */
+(function (DZ) {
+  'use strict';
+  var S = DZ.S;
+  var view = DZ.view;
+  var $ = DZ.$;
+  var $all = DZ.$all;
+  var table = DZ.table;
+  var call = DZ.call;
+  var h = DZ.h;
+  var toast = DZ.toast;
+  var errText = DZ.errText;
+  var errorBox = DZ.errorBox;
+  var money = DZ.money;
+  var plural = DZ.plural;
+  var options = DZ.options;
+  var field = DZ.field;
+  var input = DZ.input;
+  var readForm = DZ.readForm;
+
+  /* ================================================================ */
+  /* Bénéfices (administrateur)                                       */
+  /* ================================================================ */
+
+  function pageProfit() {
+    view.innerHTML = '<div id="profit"><p class="loading">Chargement…</p></div>';
+    if (S.profit.tab === 'stock') S.profit.tab = 'resume';
+    loadProfit();
+  }
+
+  function loadProfit() {
+    var t = ++S.token;
+    var p = S.profit;
+    var box = $('#profit-body');
+    if (box) box.innerHTML = '<p class="loading">Chargement…</p>';
+    return call('api_profit', p.period).then(function (d) {
+      if (t !== S.token || S.route !== 'benefices') return;
+      p.data = d;
+      renderProfit();
+    }).catch(function (e) {
+      if (t === S.token && S.route === 'benefices') $('#profit').innerHTML = errorBox(e);
+    });
+  }
+
+  function signed(n) {
+    return '<span class="' + (n < 0 ? 'neg' : 'pos') + '">' + money(n) + '</span>';
+  }
+
+  function renderProfit() {
+    var p = S.profit;
+    var d = p.data;
+    var box = $('#profit');
+    if (!box || !d) return;
+    var periods = [['today', 'Aujourd’hui'], ['7', '7 jours'], ['30', '30 jours'], ['all', 'Tout']];
+    var tabs = [['resume', 'Résumé'], ['produits', 'Produits'], ['campagnes', 'Publicité'], ['depenses', 'Dépenses']];
+    var html = '<div class="page-head"><div><h1>Bénéfices</h1><p class="sub">Commandes comptées à leur date de commande · visible seulement par l’administrateur</p></div>' +
+      '<div class="seg" role="group" aria-label="Période">' + periods.map(function (x) {
+        return '<button type="button" data-act="profit-period" data-period="' + x[0] + '" aria-pressed="' + (p.period === x[0]) + '">' + x[1] + '</button>';
+      }).join('') + '</div></div>' +
+      '<div class="tabs" role="group" aria-label="Rubrique">' + tabs.map(function (x) {
+        return '<button type="button" class="chip" data-act="profit-tab" data-tab="' + x[0] + '" aria-pressed="' + (p.tab === x[0]) + '">' + x[1] + '</button>';
+      }).join('') + '</div><div id="profit-body"></div>';
+    box.innerHTML = html;
+    var body = $('#profit-body');
+    if (p.tab === 'produits') body.innerHTML = profitProducts(d);
+    else if (p.tab === 'campagnes') body.innerHTML = profitCampaigns(d);
+    else if (p.tab === 'depenses') body.innerHTML = profitExpenses(d);
+    else body.innerHTML = profitSummary(d);
+  }
+
+  function profitSummary(d) {
+    var t = d.totals;
+    var kpis = [
+      ['Ventes des produits', money(t.productSales), plural(t.delivered, 'commande livrée', 'commandes livrées') + ' · encaissé ' + money(t.revenue)],
+      ['Livraison', signed(-t.deliveryNet), t.deliveryNet > 0 ? 'Elle vous coûte (Ecotrack − payé par les clients)' : t.deliveryNet < 0 ? 'Vous gagnez dessus (payé par les clients − Ecotrack)' : 'Ni gain ni perte'],
+      ['Bénéfice des commandes', signed(t.ordersProfit), 'Après livraison, achat et retours'],
+      ['Dépenses', money(t.expenses), 'Dont publicité : ' + money(t.adSpend)],
+      ['Bénéfice net', signed(t.net), 'Ce qui vous reste sur la période'],
+      ['Publicité par commande livrée', t.costPerDelivered === null ? '—' : money(t.costPerDelivered), t.deliveryRate === null ? 'Aucune commande terminée' : 'Taux de livraison : ' + Math.round(t.deliveryRate * 100) + ' %']
+    ];
+    var html = '<div class="stack"><section class="grid-kpi" aria-label="Chiffres clés">' + kpis.map(function (k) {
+      return '<div class="card kpi"><span class="label">' + h(k[0]) + '</span><span class="value">' + k[1] + '</span><span class="note">' + h(k[2]) + '</span></div>';
+    }).join('') + '</section>';
+    var warn = [];
+    if (d.warnings.missingCost) warn.push(plural(d.warnings.missingCost, 'commande livrée sans coût d’achat', 'commandes livrées sans coût d’achat') + ' (' + h(d.warnings.missingCostLabels.join(', ')) + ') : complétez la page Stock.');
+    if (d.warnings.missingFee) warn.push(plural(d.warnings.missingFee, 'commande sans tarif de livraison', 'commandes sans tarif de livraison') + ' dans l’onglet Tarifs : les frais payés par le client sont utilisés.');
+    if (warn.length) html += '<div class="stock-warn" style="flex-direction:column;align-items:flex-start">' + warn.map(function (w) { return '<span>⚠ ' + w + '</span>'; }).join('') + '</div>';
+    html += '<section class="card"><h2>Détail</h2><div class="money-lines">' +
+      '<div><span>Ventes des produits livrés (sans la livraison)</span><span>' + money(t.productSales) + '</span></div>' +
+      '<div><span>Livraison : Ecotrack ' + money(t.deliveryFees) + ' − payé par les clients ' + money(t.clientShipping) + '</span>' + signed(-t.deliveryNet) + '</div>' +
+      '<div><span>Coût d’achat des produits livrés</span>' + signed(-t.productCost) + '</div>' +
+      '<div><span>Frais de retour (' + t.returned + ' × ' + money(d.returnFee) + ')</span>' + signed(-t.returnFees) + '</div>' +
+      (t.packaging ? '<div><span>Emballage</span>' + signed(-t.packaging) + '</div>' : '') +
+      '<div class="total"><span>Bénéfice des commandes</span>' + signed(t.ordersProfit) + '</div>' +
+      d.expensesByCategory.map(function (e) { return '<div><span>' + h(e.category) + '</span>' + signed(-e.amount) + '</div>'; }).join('') +
+      '<div class="total"><span>Bénéfice net</span>' + signed(t.net) + '</div>' +
+      '</div><p class="small" style="margin-top:10px">' + t.inTransit + ' commande(s) encore en route ne sont pas comptées : leur bénéfice arrivera à la livraison.</p></section></div>';
+    return html;
+  }
+
+  function groupRows(list, first) {
+    return list.map(function (g) {
+      return [first(g), g.orders, g.delivered, g.returned, g.deliveryRate === null ? '—' : Math.round(g.deliveryRate * 100) + ' %',
+        money(g.sales), signed(-g.deliveryNet), signed(g.profit)];
+    });
+  }
+
+  function profitProducts(d) {
+    if (!d.products.length) return '<div class="card"><p class="empty">Aucune commande sur la période.</p></div>';
+    return '<section class="card"><h2>Par produit</h2>' +
+      table(['Produit', 'Commandes', 'Livrées', 'Retours', 'Taux de livraison', 'Ventes', 'Livraison', 'Bénéfice'], groupRows(d.products, function (g) { return h(g.name); }), [1, 2, 3, 4, 5, 6, 7]) +
+      '<p class="small" style="margin-top:10px">Livraison : en rouge, ce que la livraison vous coûte (Ecotrack plus cher que ce que paie le client) ; en vert, ce que vous gagnez dessus. ' +
+      'Une commande à plusieurs produits est partagée selon les quantités. Bénéfice avant dépenses (publicité…).</p></section>';
+  }
+
+  function adRows(list) {
+    return list.map(function (g) {
+      return [h(g.name), g.orders, g.delivered, g.deliveryRate === null ? '—' : Math.round(g.deliveryRate * 100) + ' %', signed(g.profit),
+        money(g.spend), signed(g.net), g.costPerDelivered === null ? '—' : money(g.costPerDelivered)];
+    });
+  }
+
+  function profitCampaigns(d) {
+    var head = ['', 'Commandes', 'Livrées', 'Livraison', 'Bénéfice', 'Publicité', 'Net', 'Pub / livrée'];
+    var html = '<div class="stack"><section class="card"><h2>Par plateforme</h2>' +
+      table(['Plateforme'].concat(head.slice(1)), adRows(d.platforms), [1, 2, 3, 4, 5, 6, 7]) + '</section>' +
+      '<section class="card"><h2>Par campagne</h2>' +
+      table(['Campagne'].concat(head.slice(1)), adRows(d.campaigns), [1, 2, 3, 4, 5, 6, 7]) +
+      (d.adUnassigned ? '<p class="small" style="margin-top:10px">' + money(d.adUnassigned) + ' de publicité sans campagne : comptés pour la plateforme, pas pour une campagne.</p>' : '') +
+      '<p class="small" style="margin-top:10px">Pour relier vos commandes à vos publicités : ajoutez « UTM source » et « UTM campaign » à la fin de l’onglet RELEASIT, et dans le lien de vos annonces : ' +
+      '<span class="mono">utm_source=facebook&amp;utm_campaign={{campaign.name}}</span> (Facebook) ou <span class="mono">utm_source=tiktok&amp;utm_campaign=__CAMPAIGN_NAME__</span> (TikTok). ' +
+      'Dans vos dépenses, écrivez le même nom de campagne.</p></section></div>';
+    return html;
+  }
+
+  function profitExpenses(d) {
+    var today = new Date();
+    var iso = today.getFullYear() + '-' + ('0' + (today.getMonth() + 1)).slice(-2) + '-' + ('0' + today.getDate()).slice(-2);
+    var html = '<div class="stack"><section class="card"><h2>Ajouter une dépense</h2><div class="form-grid" id="expense-form">' +
+      field('Date', '<input name="date" type="date" value="' + iso + '">') +
+      field('Catégorie', '<select name="category">' + options(d.categories, d.categories[0]) + '</select>') +
+      field('Campagne (facultatif)', input('campaign', '', ' list="campaign-list" placeholder="Nom de la campagne"')) +
+      field('Montant', input('amount', '', ' type="number" min="0" step="0.01" inputmode="decimal"')) +
+      field('Devise', '<select name="currency"><option>USD</option><option>DA</option></select>') +
+      field('Note', input('note', ''), 'full') +
+      '</div><datalist id="campaign-list">' + d.knownCampaigns.map(function (c) { return '<option value="' + h(c) + '">'; }).join('') + '</datalist>' +
+      '<p class="small" style="margin:10px 0">Dollar : ' + money(d.rate) + ' (réglage TAUX_DOLLAR dans Paramètres). Une dépense garde le taux du jour où elle est saisie.</p>' +
+      '<button type="button" class="btn primary" data-act="expense-add">Ajouter la dépense</button></section>';
+    html += '<section class="card"><h2>Dépenses de la période</h2>' + (d.expenses.length ? table(
+      ['Date', 'Catégorie', 'Campagne', 'Montant', 'En dinars'],
+      d.expenses.map(function (e) {
+        return [h(fmtDay(e.date)), h(e.category), h(e.campaign || '—'),
+          e.currency === 'USD' ? h(e.amount + ' $ × ' + e.rate) : money(e.amount), money(e.amountDA)];
+      }), [3, 4]
+    ) : '<p class="empty">Aucune dépense sur la période.</p>') +
+      '<p class="small" style="margin-top:10px">Pour corriger ou supprimer une dépense : onglet Dépenses du classeur.</p></section></div>';
+    return html;
+  }
+
+  function fmtDay(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    return ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2) + '/' + d.getFullYear();
+  }
+
+  function addExpense(btn) {
+    var data = readForm($('#expense-form'));
+    btn.disabled = true;
+    call('api_addExpense', data).then(function (r) {
+      toast(r.message);
+      btn.disabled = false;
+      loadProfit();
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  }
+
+
+  Object.assign(DZ.ACTIONS, {
+    'profit-period': function (el) { S.profit.period = el.getAttribute('data-period'); loadProfit(); },
+    'profit-tab': function (el) { S.profit.tab = el.getAttribute('data-tab'); renderProfit(); },
+    'expense-add': addExpense
+  });
+  DZ.modules.benefices = { page: pageProfit };
+})(window.DZ);

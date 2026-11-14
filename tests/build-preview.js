@@ -26,16 +26,23 @@ var SEEDS = { demo: 'seedDemo_();', first: 'seedFirstOrders_();', empty: 'setup(
 if (!SEEDS[SCENARIO]) throw new Error('Scénario inconnu : ' + SCENARIO + ' (demo, first ou empty)');
 
 function read(p) { return fs.readFileSync(p, 'utf8'); }
+// Les pages sont allégées comme dans dist/Code.gs : l'aperçu teste exactement ce qui sera collé.
+var bundle = require('./build-bundle.js');
+function readHtml(name) { return bundle.minify(read(path.join(SRC, name + '.html'))); }
 function safe(js) { return js.replace(/<\/script/gi, '<\\/script'); }
 
-var html = read(path.join(SRC, 'Index.html')).replace(/<\?!=\s*include\('(\w+)'\);?\s*\?>/g, function (m, name) {
-  return read(path.join(SRC, name + '.html'));
+var html = readHtml('Index').replace(/<\?!=\s*include\('(\w+)'\);?\s*\?>/g, function (m, name) {
+  return readHtml(name);
 });
+// Pages chargées à la demande (api_pageScript) : rangées comme dans le fichier unique.
+var lazyPages = 'var HTML_FILES_ = {' + bundle.HTML.filter(function (n) { return /^Page/.test(n); }).map(function (n) {
+  return JSON.stringify(n) + ': ' + JSON.stringify(readHtml(n));
+}).join(',') + '};';
 
 var server = [read(path.join(__dirname, 'gas-mock.js')), read(path.join(__dirname, 'fake-ecotrack.js')), read(path.join(__dirname, 'fake-shopify.js')), read(path.join(__dirname, 'fake-httpsms.js'))]
   .concat(fs.readdirSync(SRC).filter(function (f) { return f.endsWith('.gs'); }).sort()
     .map(function (f) { return '// ---- ' + f + '\n' + read(path.join(SRC, f)); }))
-  .concat([read(path.join(__dirname, 'seed.js'))])
+  .concat([lazyPages, read(path.join(__dirname, 'seed.js'))])
   .join('\n;\n');
 
 var fakeRun = [

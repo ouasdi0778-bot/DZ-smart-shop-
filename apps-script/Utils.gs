@@ -158,6 +158,7 @@ function readSettings_() {
   // 0 = jamais ; sinon au moins 30 jours, pour ne rien archiver ou effacer par erreur.
   var days = function (v) { var n = Math.round(toNumber_(v)); return n <= 0 ? 0 : Math.max(n, 30); };
   s.ARCHIVE_JOURS = days(s.ARCHIVE_JOURS);
+  s.LIMITE_MINUTES_JOUR = Math.max(10, toNumber_(s.LIMITE_MINUTES_JOUR) || 90);
   s.FRAIS_RETOUR = Math.max(0, toNumber_(s.FRAIS_RETOUR));
   s.COUT_EMBALLAGE = Math.max(0, toNumber_(s.COUT_EMBALLAGE));
   s.TAUX_DOLLAR = Math.max(0, toNumber_(s.TAUX_DOLLAR));

@@ -50,32 +50,13 @@ function onEdit(e) {
 
 function onOpen() {
   var ui = SpreadsheetApp.getUi();
+  // Menu de secours : tout le reste se fait dans l'application (page Administration).
   ui.createMenu(APP_NAME)
     .addItem('Ouvrir l’application', 'menuOpenApp')
     .addSeparator()
-    .addItem('Traiter les nouvelles commandes', 'menuProcess')
-    .addItem('Recalculer les alertes clients', 'menuRecalc')
-    .addItem('Restaurer une commande de la corbeille', 'menuTrashRestore')
-    .addItem('Archiver et alléger le classeur maintenant', 'menuMaintenance')
-    .addSeparator()
-    .addSubMenu(ui.createMenu('Releasit')
-      .addItem('Transférer les commandes maintenant', 'menuReleasitTransfer')
-      .addItem('Vérifier les colonnes de l’onglet RELEASIT', 'menuReleasitCheck'))
-    .addSubMenu(ui.createMenu('SMS (httpSMS)')
-      .addItem('Enregistrer la clé et le numéro', 'menuSmsSetup')
-      .addItem('Envoyer un SMS de test', 'menuSmsTest')
-      .addItem('Envoyer les SMS en attente maintenant', 'menuSmsSend'))
-    .addSubMenu(ui.createMenu('Shopify')
-      .addItem('Enregistrer la boutique et l’accès', 'menuShopifySetup')
-      .addItem('Tester la connexion', 'menuShopifyTest')
-      .addItem('Importer les commandes maintenant', 'menuShopifyImport'))
-    .addSubMenu(ui.createMenu('Ecotrack')
-      .addItem('Enregistrer l’adresse et le jeton', 'menuEcotrackSetup')
-      .addItem('Tester la connexion', 'menuEcotrackTest')
-      .addItem('Récupérer les tarifs', 'menuEcotrackFees')
-      .addItem('Mettre à jour les statuts des colis', 'menuEcotrackStatuses'))
-    .addSeparator()
     .addItem('Installer / réparer le classeur', 'setup')
+    .addItem('Archiver et alléger le classeur maintenant', 'menuMaintenance')
+    .addItem('Restaurer une commande de la corbeille', 'menuTrashRestore')
     .addToUi();
 }
 
@@ -152,6 +133,7 @@ function api_bootstrap(preload) {
     app: { name: APP_NAME, version: APP_VERSION },
     shop: s.NOM_BOUTIQUE,
     user: { email: me.email, name: me.name, role: me.role, admin: isAdmin_(me), stock: canSeeStock_(me) },
+    health: isAdmin_(me) ? healthSummary_() : null,
     statuses: STATUS_LIST,
     queueStatuses: QUEUE_STATUSES,
     styles: STATUS_STYLE,

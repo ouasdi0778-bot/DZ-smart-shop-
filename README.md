@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 0.1
+## Ce que fait la version 1.0
 
 | Écran | Contenu |
 |---|---|
@@ -14,10 +14,15 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 | **Commandes** | Liste filtrable (statut, wilaya, période, recherche par nom, téléphone, n° de commande ou de suivi), modification d'une commande, ajout à la main, liste noire |
 | **Centre de confirmation** | File d'appels (rappels dus en premier, puis les commandes les plus récentes : réglage `ORDRE_FILE`), fiche client avec historique et alerte, boutons Appeler et WhatsApp (message pré-rempli), correction de la commande avec recalcul des frais et du total, résultat en un clic : Confirmer, Pas de réponse, Rappeler plus tard, Annuler (avec motif) |
 | **Expéditions** | Commandes confirmées prêtes à partir (avec les problèmes à corriger avant l'envoi), **création des colis chez Ecotrack** en un clic avec n° de suivi écrit dans le classeur, **impression des bordereaux** Ecotrack (A4 ou étiquette 10×15) et **validation de l'expédition** (avec ou sans ramassage) |
-| **Suivi** | Statut de chaque colis relu toutes les 30 minutes, **alertes « à traiter »** (colis suspendu, retour en cours, sans mouvement depuis 26 h, créé mais jamais validé…), **où est l'argent** (chez le livreur, livré pas encaissé, encaissé pas payé, prêt à verser, payé) avec les versements, et **chronologie** détaillée de chaque colis |
+| **Suivi** | Statut de chaque colis relu toutes les 30 minutes, **alertes « à traiter »** (colis suspendu, retour en cours ou bloqué, sans mouvement selon l'étape, argent en retard…), **résultat de l'appel** (remarque au livreur, demande de retour), motif du livreur, **où est l'argent** et **chronologie** de chaque colis |
+| **Stock** | Catalogue par modèle, entrées, inventaire, historique (administrateur et magasinier) |
+| **Bénéfices** | Bénéfice des commandes, dépenses (publicité comprise), rentabilité par produit et par campagne (administrateur) |
+| **Statistiques** | Commandes et argent par période, comparés à la période d'avant : parcours des commandes, motifs, heures, wilayas, produits, équipe (avec la prime), publicité ; export pour Excel (administrateur) |
+| **Administration** | État de l'outil, connexions (Ecotrack, SMS, Shopify, Releasit), réglages en formulaires, équipe, clients, entretien du classeur (administrateur) |
 
 Ce qui se passe tout seul :
 
+- **Une seule tâche automatique chaque minute** fait le travail régulier, puis s'arrête tout de suite s'il n'y a rien à faire : commandes Releasit (chaque minute), SMS en attente, nouvelles lignes et Shopify (toutes les 5 minutes), statuts Ecotrack (toutes les 30 minutes). Une deuxième tâche fait l'entretien **chaque nuit à 3 h**. En cas de panne, **un e-mail part au propriétaire** (voir « État de l'outil »).
 - **Chaque minute**, les nouvelles commandes écrites par Releasit COD dans l'onglet RELEASIT sont recopiées dans Commandes (voir plus bas).
 - **Toutes les 5 minutes**, chaque nouvelle ligne de l'onglet Commandes (statut vide) est préparée :
   - le téléphone est remis au format `0550123456` ;
@@ -53,9 +58,11 @@ Cette commande peut être relancée à tout moment : elle ne supprime rien et co
 
 ### 3. Remplir les réglages
 
+Après l'installation, presque tout se règle dans l'application, page **Administration** (administrateur) : connexions, réglages, équipe, clients. Le menu **DZ Smart Shop** du classeur ne garde que le secours : ouvrir l'application, installer / réparer, archiver, restaurer une commande.
+
 - **Tarifs** : le prix de livraison de chaque wilaya, à domicile et en stop desk, pour Yalidine et Ecotrack.
-- **Équipe** : l'adresse Gmail et le prénom de chaque confirmatrice. Le prénom s'affiche dans l'application et dans la colonne Confirmatrice. Colonne **Rôle** : « Administrateur » (tout, dont les bénéfices), « Magasinier » (le stock, sans les bénéfices), vide pour une confirmatrice.
-- **Paramètres** : nom de la boutique, appels par jour et nombre de jours d'appels, délai de rappel, motifs d'annulation, modèle du message WhatsApp.
+- **Équipe** (**Administration › Équipe**, ou l'onglet Équipe) : l'adresse Gmail, le prénom et le rôle : « Administrateur » (tout), « Confirmatrice », « Magasinier » (en plus, le stock). Depuis l'application, le classeur est **partagé automatiquement** avec la personne ajoutée, et son accès est retiré quand on la retire. Le premier administrateur s'ajoute dans l'onglet Équipe du classeur.
+- **Réglages** (**Administration › Réglages**, ou l'onglet Paramètres) : nom de la boutique, appels, suivi, SMS, stock, bénéfices… en formulaires classés, avec vérification des valeurs.
 - **Produits** (facultatif) : vos produits et leurs prix, proposés lors de la saisie d'une commande.
 
 ### 4. Publier l'application
@@ -118,9 +125,9 @@ L'intégration suit la [documentation de l'API Ecotrack](https://documenter.getp
 ### Configuration (une seule fois)
 
 1. Collez le nouveau `dist/Code.gs` dans Apps Script, puis 💾 **Enregistrer**.
-2. Relancez **DZ Smart Shop › Installer / réparer le classeur**. Google demande une **nouvelle autorisation** (« se connecter à un service externe ») : acceptez. Quatre colonnes sont ajoutées à l'onglet Commandes (**Statut société**, **Dernier mouvement colis**, **N° de versement**, **Suivi traité le**), le réglage `SUIVI_ALERTE_HEURES` (26) apparaît dans l'onglet Paramètres, et la lecture automatique des statuts toutes les 30 minutes est installée.
-3. **DZ Smart Shop › Ecotrack › Enregistrer l'adresse et le jeton** : saisissez l'adresse de votre plateforme (ex. `https://monsociete.ecotrack.dz`) puis votre jeton API. Le jeton est gardé dans les **propriétés du script** : il n'est jamais écrit dans le classeur ni dans le code. Un test de connexion est fait tout de suite.
-4. **DZ Smart Shop › Ecotrack › Récupérer les tarifs** : remplit les colonnes « Ecotrack domicile » et « Ecotrack stop desk » de l'onglet Tarifs. Une case reste vide quand le service n'existe pas (stop desk à 0 chez Ecotrack, wilaya non desservie). Les colonnes Yalidine ne sont pas touchées, et vous pouvez toujours corriger un prix à la main.
+2. Relancez **DZ Smart Shop › Installer / réparer le classeur**. Google demande une **nouvelle autorisation** (« se connecter à un service externe ») : acceptez.
+3. Dans l'application : **Administration › Connexions › Ecotrack** : saisissez l'adresse de votre plateforme (ex. `https://monsociete.ecotrack.dz`) puis votre jeton API, et cliquez **Enregistrer et tester**. Le jeton est gardé dans les **propriétés du script** : il n'est jamais écrit dans le classeur ni dans le code, et la page n'en montre que la fin (« ••••1234 »). Pour changer seulement l'adresse, laissez le jeton vide.
+4. **Administration › Connexions › Récupérer les tarifs** : remplit les colonnes « Ecotrack domicile » et « Ecotrack stop desk » de l'onglet Tarifs. Une case reste vide quand le service n'existe pas (stop desk à 0 chez Ecotrack, wilaya non desservie). Les colonnes Yalidine ne sont pas touchées, et vous pouvez toujours corriger un prix à la main.
 5. **Déployer › Gérer les déploiements › ✏️ › Version : Nouvelle version** pour que l'application web utilise le nouveau code. Chaque confirmatrice devra accepter la nouvelle autorisation à sa prochaine ouverture.
 
 ### Au quotidien
@@ -267,18 +274,59 @@ Page **Bénéfices** (menu de gauche ; sur téléphone : **☰ Plus**), visible 
   - écrivez le même nom de campagne dans vos dépenses.
 - **Dépenses** : ajout rapide depuis le téléphone, et liste de la période.
 
+## Statistiques
+
+Page **Statistiques** (administrateur ; sur téléphone : **☰ Plus**).
+
+- **Période** : aujourd'hui, 7 jours, 30 jours, ce mois, le mois dernier, ou des dates précises. Chaque chiffre est **comparé à la période d'avant** (▲ / ▼ en % pour un nombre, en points pour un taux).
+- Les commandes comptent à leur **date de commande**, archives comprises.
+
+| Onglet | Contenu |
+|---|---|
+| **Vue d'ensemble** | Commandes, taux de confirmation, de livraison, retours, annulées, encaissé, bénéfice net ; parcours reçues → confirmées → expédiées → livrées ; graphique par jour |
+| **Commandes** | Motifs d'annulation, motifs du livreur (injoignable, refus…), commandes **par heure** et **par jour de la semaine** |
+| **Argent** | À recevoir, chez le livreur, **argent prévu** (en route × taux de livraison) ; encaissé, bénéfice, dépenses, bénéfice net, panier moyen, bénéfice par livrée, **perdu à cause des retours**, délai moyen de livraison ; graphique par jour |
+| **Wilayas** | Commandes, taux de confirmation et de livraison, retours, délai moyen, encaissé, bénéfice, perdu ; les wilayas avec beaucoup de retours sont **en rouge** |
+| **Produits** | Par produit et modèle : commandes, livrées, retours, taux de retour, encaissé, bénéfice |
+| **Équipe** | Par confirmatrice : commandes, confirmées, livrées, **taux de livraison**, **délai avant confirmation** (colonne « Confirmée le »), **prime** |
+| **Publicité** | Par source et par campagne : commandes, livrées, dépense, **coût par livrée**, bénéfice, net |
+
+- **Exporter** : chaque tableau se télécharge en fichier pour Excel.
+- **Prime des confirmatrices** (onglet Équipe) : un montant en dinars **par commande livrée**, avec sa date de début. Un nouveau montant ne change pas les jours d'avant (réglage `PRIMES`, ex. `2026-11-01=50; 2027-01-01=60`). La prime d'un mois se complète au fil des livraisons.
+- **Rapide** : chaque nuit, un résumé par jour est calculé dans l'onglet caché **Stats** ; la page lit seulement les jours de la période et calcule aujourd'hui en direct. Bouton **Recalculer** pour tout refaire tout de suite.
+
+## Administration et état de l'outil
+
+Page **Administration** (administrateur). Elle remplace le menu du classeur.
+
+| Onglet | Contenu |
+|---|---|
+| **État de l'outil** | Chaque tâche automatique (Releasit, SMS, nouvelles lignes, Shopify, statuts Ecotrack, entretien de nuit) : dernier passage, durée, erreur ; **consommation du jour** sur la limite de Google ; dernières erreurs du Journal ; **Réinstaller les tâches automatiques** |
+| **Connexions** | Ecotrack, SMS (httpSMS), Shopify, Releasit : enregistrer, tester, récupérer les tarifs, importer, transférer. Les clés ne sont **jamais affichées** (« ••••1234 ») ; laissez le champ vide pour garder l'actuelle |
+| **Réglages** | Tous les réglages en formulaires classés ; les **SMS en arabe avec aperçu** et le nombre de SMS (70 caractères par SMS en arabe) |
+| **Équipe** | Ajouter (avec partage du classeur), changer le rôle, retirer (avec retrait de l'accès) |
+| **Clients** | Liste noire (ajouter, retirer) et clients **signalés** (retirer le signalement) |
+| **Classeur** | Réparer, archiver et alléger maintenant, recalculer les statistiques, corbeille |
+
+**Les tâches automatiques** :
+
+- Il n'y en a plus que deux : **chaque minute** (tout le travail régulier) et **chaque nuit à 3 h** (entretien). Elles tournent **au nom du propriétaire** du classeur : lui seul peut les réinstaller.
+- Google limite leur temps de travail : environ **90 minutes par jour** pour un compte Gmail, 360 pour Google Workspace (réglage `LIMITE_MINUTES_JOUR`). La page affiche la consommation du jour.
+- **E-mail au propriétaire** (à lui seul) quand une tâche échoue **2 fois de suite**, quand elle ne passe plus (par exemple statuts Ecotrack pas relus depuis 3 h), ou à **80 %** de la limite. Une seule fois par problème, puis un e-mail « c'est réparé ».
+- L'administrateur voit un **bandeau rouge** en haut de l'application si une tâche est en panne ou si la tâche de chaque minute ne tourne plus.
+
 ## SMS automatiques (httpSMS)
 
 Les SMS partent de **votre téléphone Android**, avec l'application httpSMS et votre carte SIM.
 
 1. Installez l'application httpSMS sur le téléphone et connectez-la à votre compte.
 2. Sur httpsms.com, réglez éventuellement le nombre de SMS par minute et les heures d'envoi.
-3. Dans le classeur : **DZ Smart Shop › SMS (httpSMS) › Enregistrer la clé et le numéro**. Collez la **clé API de la page Settings** de httpsms.com (pas la « Phone API key »), puis le numéro de la carte SIM. Tout est gardé dans les propriétés du script, jamais dans le classeur.
+3. Dans l'application : **Administration › Connexions › SMS**. Collez la **clé API de la page Settings** de httpsms.com (pas la « Phone API key »), puis le numéro de la carte SIM. Tout est gardé dans les propriétés du script, jamais dans le classeur. Boutons **SMS de test** et **Envoyer maintenant**.
 4. **Envoyer un SMS de test** : il part de la carte SIM et arrive sur le même numéro.
 
 Fonctionnement :
 
-- **Un texte par statut**, en arabe, dans l'onglet Paramètres : `SMS_A_CONFIRMER`, `SMS_PAS_DE_REPONSE`, `SMS_CONFIRMEE`, `SMS_EXPEDIEE`, `SMS_EN_LIVRAISON`… **Texte vide = pas de SMS** : c'est le cas par défaut de Rappeler, Injoignable, Livrée, Retour et Annulée.
+- **Un texte par statut**, en arabe, dans **Administration › Réglages › SMS** (avec l'aperçu et le nombre de SMS) : `SMS_A_CONFIRMER`, `SMS_PAS_DE_REPONSE`, `SMS_CONFIRMEE`, `SMS_EXPEDIEE`, `SMS_EN_LIVRAISON`… **Texte vide = pas de SMS** : c'est le cas par défaut de Rappeler, Injoignable, Livrée, Retour et Annulée.
 - **Champs remplacés** : `{prenom}` `{client}` `{numero}` `{produit}` `{total}` `{suivi}` `{commune}` `{wilaya}` `{boutique}`.
 - Quand le statut change (centre de confirmation, Ecotrack, modification, nouvelle commande), le SMS part **dans la minute**, en arrière-plan.
 - Le SMS **« commande reçue »** part dans le **même passage** que l'arrivée de la commande depuis RELEASIT : en moyenne **30 secondes** après la commande, 1 minute au plus. Google ne permet pas de regarder l'onglet plus souvent.
@@ -323,8 +371,8 @@ C'est la voie la plus simple, **sans accès Shopify** : Releasit COD écrit lui-
 
 1. Dans le classeur, créez un onglet vide nommé **RELEASIT**.
 2. Dans Shopify : **Releasit COD Form › Intégrations › Google Sheets**. Connectez le compte Google du classeur, choisissez le classeur et l'onglet **RELEASIT**, et cochez au moins : n° de commande, date, nom, téléphone, wilaya, commune, adresse, produit et variante, quantité, prix, sous-total, frais de livraison, total, **type de livraison**.
-3. Collez la nouvelle version du code, puis **DZ Smart Shop › Installer / réparer le classeur** : le transfert automatique (chaque minute) s'active seulement si l'onglet RELEASIT existe.
-4. **DZ Smart Shop › Releasit › Vérifier les colonnes de l'onglet RELEASIT** : montre les colonnes reconnues, celles qui manquent, et si le transfert automatique est actif.
+3. Collez la nouvelle version du code, puis **DZ Smart Shop › Installer / réparer le classeur** : la tâche de chaque minute transfère les commandes dès que l'onglet RELEASIT existe.
+4. **Administration › Connexions › Releasit** : montre si l'onglet est trouvé, le dernier passage et les informations absentes, avec **Transférer maintenant**.
 
 ### Ce qui est repris
 
@@ -361,7 +409,7 @@ L'outil lit Shopify avec une « application » que vous créez pour votre boutiq
 
 1. Créez l'application et installez-la sur la boutique (voir les étapes dans la conversation, ou la documentation de Shopify : *Dev Dashboard*, ou *Paramètres › Applications › Développer des applications* si votre boutique le permet encore).
 2. Relancez **DZ Smart Shop › Installer / réparer le classeur** : colonnes **Campagne** et **ID Shopify**, et réglages `SHOPIFY_*`.
-3. **DZ Smart Shop › Shopify › Enregistrer la boutique et l'accès** : adresse de la boutique (`xxxx.myshopify.com`), puis le **jeton d'accès** (`shpat_…`) **ou** l'**identifiant client** suivi de son **secret** (l'outil demande alors lui-même un jeton à Shopify et le renouvelle). Ils sont gardés dans les propriétés du script, jamais dans le classeur. Un test vérifie la connexion, la permission, et **signale une boutique qui n'est pas en dinars algériens**.
+3. **Administration › Connexions › Shopify** : adresse de la boutique (`xxxx.myshopify.com`), puis le **jeton d'accès** (`shpat_…`) **ou** l'**identifiant client** suivi de son **secret** (l'outil demande alors lui-même un jeton à Shopify et le renouvelle). Ils sont gardés dans les propriétés du script, jamais dans le classeur. Un test vérifie la connexion, la permission, et **signale une boutique qui n'est pas en dinars algériens**.
 4. **Shopify › Importer les commandes maintenant** pour la première importation. L'enregistrement de l'accès active l'importation automatique (toutes les 5 minutes).
 
 ### Ce qui est importé
@@ -398,10 +446,12 @@ Ce que fait l'outil pour rester rapide :
   - « Confirmer » renvoie la file et les compteurs ;
   - une commande enregistrée met à jour sa ligne sans recharger toute la liste.
 - **Centre de confirmation** : la commande suivante est préparée à l'avance. Après « Confirmer », elle s'affiche tout de suite pendant que l'enregistrement se termine. Si l'enregistrement échoue, un message le dit et la commande revient dans la file. Un double clic ne traite jamais deux commandes.
-- **Tâches automatiques légères** : sans nouvelle ligne, le traitement automatique lit trois colonnes et ne bloque rien. La lecture des statuts Ecotrack ne bloque pas les clics pendant qu'elle attend Ecotrack.
+- **Tâches automatiques légères** : **une seule tâche chaque minute** (au lieu de cinq déclencheurs) ; quand il n'y a rien à faire, elle s'arrête tout de suite. Sans nouvelle ligne, le traitement lit trois colonnes et ne bloque rien. La lecture des statuts Ecotrack ne bloque pas les clics pendant qu'elle attend Ecotrack.
+- **Application plus légère** : les pages Stock, Bénéfices, Statistiques et Administration ne sont envoyées au navigateur **que quand on les ouvre** (une confirmatrice ne les reçoit jamais), et les pages sont allégées (commentaires et espaces retirés) dans `dist/Code.gs`. Page de départ : 177 Ko → 136 Ko.
+- **Statistiques rapides** : un résumé par jour, calculé chaque nuit ; la page lit seulement les jours de la période, et calcule aujourd'hui en direct.
 - **Onglet plein** : quand Commandes (ou le Journal) n'a plus de lignes libres, l'outil en ajoute, avec les listes déroulantes et les couleurs.
 
-**Chaque nuit vers 3 h** (et à la demande : menu **DZ Smart Shop › Archiver et alléger le classeur maintenant**) :
+**Chaque nuit vers 3 h** (et à la demande : **Administration › Classeur › Archiver et alléger maintenant**, ou le menu du classeur) :
 
 | Quoi | Règle | Réglage |
 |---|---|---|
@@ -409,6 +459,7 @@ Ce que fait l'outil pour rester rapide :
 | **Bilan des clients** | Pour chaque numéro, les commandes archivées sont comptées dans l'onglet Clients (colonnes *Livrées archivées*, *Retours archivés*, *Annulées archivées*) : les alertes « Fiable » et « Risque » restent justes. | |
 | **Journal** | Les lignes de plus de 90 jours sont effacées. | `JOURNAL_JOURS` (0 = tout garder, minimum 30) |
 | **Onglets allégés** | Lignes et colonnes vides en trop supprimées. L'onglet RELEASIT n'est jamais touché. | |
+| **Statistiques** | Résumé de chaque jour recalculé dans l'onglet caché **Stats**. | |
 
 - Le seuil de 100 jours dépasse la plus longue période affichée (90 jours dans Suivi) : rien ne disparaît des écrans.
 - Le **tableau de bord sur « Tout »** compte aussi les commandes archivées.
@@ -419,7 +470,7 @@ Ce que fait l'outil pour rester rapide :
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 113 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 122 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
@@ -437,6 +488,9 @@ apps-script/
   Tracking.gs   page Suivi : alertes, argent, versements, chronologie
   Labels.gs     bordereaux Ecotrack (PDF), « imprimé », validation de l'expédition
   FollowUp.gs   remarques du livreur, résultat de l'appel, demande de retour, client signalé
+  Health.gs     la tâche de chaque minute, l'état de l'outil, les e-mails de panne
+  Stats.gs      statistiques : résumés par jour (onglet caché Stats), primes
+  Admin.gs      page Administration, pages chargées à la demande
   Shopify.gs    importation des commandes Shopify (Releasit COD), wilayas en arabe
   Releasit.gs   transfert des commandes de l'onglet RELEASIT (écrites par Releasit COD)
   Rules.gs      verrouillage selon l'étape, annulation d'un colis Ecotrack, corbeille
@@ -449,7 +503,9 @@ apps-script/
   Setup.gs      création/réparation du classeur et du traitement automatique
   Index.html    page de l'application
   Styles.html   apparence (ordinateur et téléphone)
-  App.html      fonctionnement de l'interface
+  App.html      fonctionnement de l'interface (pages de tous les jours)
+  PageStock.html, PageProfit.html, PageStats.html, PageAdmin.html
+                pages chargées seulement quand on les ouvre
 dist/Code.gs    tout le code ci-dessus en un seul fichier (généré par npm run bundle)
 tests/          imitation de Google Apps Script, tests, données d'exemple, aperçu
 ```
@@ -460,7 +516,7 @@ tests/          imitation de Google Apps Script, tests, données d'exemple, aper
 2. **Liste des communes** d'Ecotrack en liste déroulante dans la confirmation, si Ecotrack fournit un point de terminaison pour cela.
 3. **SMS** : confirmation par réponse « 1 » / « 2 » du client, et accusé de réception des SMS (demande une adresse publique pour httpSMS).
 4. **Yalidine** (Ecotrack est fait, bordereaux compris) : création des colis, suivi des statuts et bordereaux.
-5. **Statistiques de livraison** (taux de livraison et de retour par wilaya, produit et confirmatrice ; délai moyen par wilaya), rapprochement des versements, résumé du matin par e-mail.
+5. **Sauvegarde automatique** du classeur chaque nuit dans Google Drive, rapprochement des versements d'Ecotrack, résumé du matin par e-mail.
 
 ## Limites connues
 

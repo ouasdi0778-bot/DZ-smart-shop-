@@ -116,8 +116,7 @@ test('setup : crée les onglets, en-têtes, réglages et le déclencheur', funct
   assert.deepStrictEqual(header, ORDER_COLUMNS.map(function (c) { return c.title; }));
   assert.strictEqual(sheet('Tarifs').getLastRow(), 59);
   assert.strictEqual(sheet('Paramètres').getLastRow(), DEFAULT_SETTINGS.length + 1);
-  assert.deepStrictEqual(triggerList(),
-    ['processNewRows/5', 'syncEcotrackStatuses/30', 'nightlyMaintenance/3h'], 'ni Releasit ni Shopify : rien d’inutile');
+  assert.deepStrictEqual(triggerList(), ['everyMinute/1', 'nightlyMaintenance/3h'], 'une seule tâche chaque minute, et l’entretien de nuit');
   var statusCol = header.indexOf('Statut') + 1;
   assert.ok(sheet('Commandes')._validations.some(function (v) { return v.col === statusCol; }));
   assert.strictEqual(sheet('Commandes')._cf.length, STATUS_LIST.length + 7);
@@ -133,7 +132,7 @@ test('setup : relancé deux fois, ne duplique rien', function () {
   assert.strictEqual(sheet('Paramètres').getRange(3, 2).getValue(), 5);
   assert.strictEqual(sheet('Tarifs').getLastRow(), 59);
   assert.strictEqual(sheet('Équipe').getLastRow(), 2);
-  assert.strictEqual(__mock.state.triggers.length, 3);
+  assert.strictEqual(__mock.state.triggers.length, 2);
   assert.strictEqual(sheet('Commandes')._cf.length, STATUS_LIST.length + 7);
 });
 
@@ -1126,6 +1125,309 @@ test('Créés, à valider : relus chez Ecotrack à l’ouverture (validés sur l
   assert.deepStrictEqual([order('#R1').status, order('#R2').status], ['Expédiée', 'Confirmée']);
   assert.strictEqual(PropertiesService.getScriptProperties().getProperty(ECO.PROP_LAST_SYNC), lastSync, 'pas compté comme une mise à jour complète');
   assert.strictEqual(api_refreshCreated().updated, 0);
+});
+
+/* ---------------- Tâche de chaque minute, état de l'outil, alertes ---------------- */
+
+function health() { return JSON.parse(__mock.state.props.HEALTH_V1 || '{}'); }
+/** Fait comme si une tâche était passée il y a `minutes` minutes. */
+function agedTask(key, minutes) {
+  var h = health();
+  h.tasks[key].at = new Date(Date.now() - minutes * 60000).toISOString();
+  __mock.state.props.HEALTH_V1 = JSON.stringify(h);
+}
+function asAdmin() {
+  __mock.setUser('admin@example.com');
+  sheet('Équipe').appendRow(['admin@example.com', 'Admin', 'Administrateur']);
+  userEdit('Équipe');
+}
+
+test('Tâche de chaque minute : fait seulement ce qui est dû, note l’état et le temps consommé', function () {
+  ecoSetup();
+  assert.strictEqual(__mock.state.props.OWNER_EMAIL, 'admin@example.com', 'propriétaire noté à l’installation');
+  var h = everyMinute();
+  assert.deepStrictEqual(Object.keys(h.tasks).sort(), ['ecotrack', 'newrows', 'releasit']);
+  assert.ok(h.tasks.releasit.off, 'pas d’onglet RELEASIT : tâche mise en pause');
+  assert.ok(h.releasitOffUntil, 'nouvel essai dans une heure');
+  assert.strictEqual(h.tasks.ecotrack.ok, true);
+  assert.strictEqual(h.runs, 1);
+  addConfirmed('#M1');
+  ship(['#M1']);
+  var calls = FAKE.count();
+  everyMinute();
+  assert.strictEqual(FAKE.count(), calls, 'rien de dû la minute suivante : aucun appel à Ecotrack');
+  agedTask('ecotrack', 31);
+  everyMinute();
+  assert.ok(FAKE.count() > calls, 'statuts relus après 30 minutes');
+  // SMS : seulement s'il y en a en attente.
+  saveSmsConfig_(HTTPSMS.key, '0550 12 34 56');
+  assert.ok(!everyMinute().tasks.sms, 'file vide : rien à faire');
+  FAKE.validate(trackingOf('#M1'));
+  syncEcotrackStatuses_();
+  assert.ok(smsQueue().length > 0);
+  atHour(12, function () { everyMinute(); });
+  assert.ok(health().tasks.sms.ok, 'SMS envoyés par la tâche de chaque minute');
+  assert.strictEqual(smsQueue().length, 0);
+
+  asAdmin();
+  var d = api_health();
+  assertSerializable(d, 'api_health');
+  assert.strictEqual(d.running, true);
+  assert.ok(d.today.minutes >= 0 && d.today.limit === 90);
+  var states = {};
+  d.tasks.forEach(function (t) { states[t.key] = t.state; });
+  assert.deepStrictEqual([states.ecotrack, states.releasit, states.shopify], ['ok', 'off', 'off']);
+  assert.deepStrictEqual([d.isOwner, d.triggers.minute, d.triggers.nightly], [true, true, true]);
+  assert.deepStrictEqual(api_bootstrap().health, { installed: true, late: false, problems: 0 });
+});
+
+test('Alertes : e-mail au propriétaire seulement, une fois par problème, puis « réparé »', function () {
+  ecoSetup();
+  addConfirmed('#M2');
+  ship(['#M2']);
+  everyMinute();
+  FAKE.down = true;
+  agedTask('ecotrack', 31);
+  everyMinute();
+  assert.strictEqual(__mock.state.mails.length, 0, 'un seul échec : pas encore d’e-mail');
+  agedTask('ecotrack', 31);
+  everyMinute();
+  assert.strictEqual(__mock.state.mails.length, 1);
+  var mail = __mock.state.mails[0];
+  assert.strictEqual(mail.to, 'admin@example.com');
+  assert.ok(/problème/.test(mail.subject) && /Statuts des colis Ecotrack : 2 échecs de suite/.test(mail.body), mail.body);
+  agedTask('ecotrack', 31);
+  everyMinute();
+  assert.strictEqual(__mock.state.mails.length, 1, 'pas de deuxième e-mail pour le même problème');
+  asAdmin();
+  assert.ok(api_health().problems.some(function (p) { return p.key === 'fail:ecotrack'; }));
+  assert.strictEqual(api_bootstrap().health.problems, 1);
+  FAKE.down = false;
+  agedTask('ecotrack', 31);
+  everyMinute();
+  assert.strictEqual(__mock.state.mails.length, 2);
+  assert.ok(/réparé/.test(__mock.state.mails[1].subject) && /Statuts des colis Ecotrack/.test(__mock.state.mails[1].body));
+
+  // Consommation proche de la limite de Google.
+  var h = health();
+  h.ms = 80 * 60000;
+  __mock.state.props.HEALTH_V1 = JSON.stringify(h);
+  everyMinute();
+  assert.ok(/Consommation du jour : 80 minutes sur environ 90/.test(__mock.state.mails[2].body), __mock.state.mails[2].body);
+  // La tâche ne tourne plus : signalé dans la page (pas par elle-même).
+  h = health();
+  h.minute = new Date(Date.now() - 20 * 60000).toISOString();
+  __mock.state.props.HEALTH_V1 = JSON.stringify(h);
+  assert.strictEqual(api_health().running, false);
+  assert.ok(api_health().problems.some(function (p) { return p.key === 'minute'; }));
+  assert.strictEqual(api_bootstrap().health.late, true);
+});
+
+test('Tâches automatiques : réinstallées par le propriétaire seulement ; entretien de nuit noté', function () {
+  ecoSetup();
+  asBoss();
+  assert.throws(function () { api_reinstallTriggers(); }, /Seul le propriétaire du classeur \(admin@example.com\)/);
+  assert.ok(/restent au nom du propriétaire/.test(api_repair().message));
+  assert.strictEqual(__mock.state.triggers.length, 2, 'pas de doublon');
+  asAdmin();
+  assert.ok(/réinstallées/.test(api_reinstallTriggers().message));
+  assert.deepStrictEqual(triggerList(), ['everyMinute/1', 'nightlyMaintenance/3h']);
+  var r = nightlyMaintenance();
+  assert.deepStrictEqual(r.errors, []);
+  var night = JSON.parse(__mock.state.props.HEALTH_NIGHT);
+  assert.deepStrictEqual([night.ok, night.fails], [true, 0]);
+  assert.ok(sheet('Stats') && sheet('Stats').isSheetHidden(), 'résumés des statistiques dans un onglet caché');
+  assert.ok(/statistiques recalculées/.test(api_archiveNow().message));
+});
+
+/* ---------------- Statistiques ---------------- */
+
+function daysAgo(n, hour) {
+  var d = new Date();
+  d.setDate(d.getDate() - n);
+  d.setHours(hour || 10, 0, 0, 0);
+  return d;
+}
+
+test('Statistiques : résumés par jour, aujourd’hui en direct, comparaison, wilayas, produits, équipe, publicité', function () {
+  baseSetup();
+  setCatalog([{ 'Produit': 'Coque', 'Modèle': 'A', 'Prix de vente': 1800, "Coût d'achat": 600, 'Stock': 50 }]);
+  var o = function (id, days, status, extra) {
+    var f = { 'Date': daysAgo(days, 14), 'Statut': status, 'Confirmatrice': 'Imane', 'Produit': 'Coque — A', 'Wilaya': '16 - Alger', 'Frais livraison': 400, 'Total': 2200, 'Prix': 1800 };
+    Object.keys(extra || {}).forEach(function (k) { f[k] = extra[k]; });
+    addOrder(id, f['Produit'], f);
+  };
+  o('#T1', 3, 'Livrée', { 'Source pub': 'facebook', 'Campagne': 'Promo', 'Livrée le': daysAgo(1, 14) });
+  o('#T2', 3, 'Livrée', { 'Source pub': 'facebook', 'Campagne': 'Promo' });
+  o('#T3', 2, 'Retour', { 'Wilaya': '31 - Oran', 'Remarque livreur': '12/11 10:00 · client a refusé' });
+  o('#T4', 2, 'Annulée', { 'Motif annulation': 'Trop cher', 'Confirmatrice': 'Sara' });
+  o('#T5', 40, 'Livrée', {});                   // période précédente (30 jours avant)
+  rebuildStats_();
+  assert.ok(sheet('Stats').getLastRow() >= 4);
+  o('#T6', 0, 'À confirmer', { 'Confirmatrice': '' }); // arrivée après le calcul de la nuit : comptée en direct
+  setSetting('PRIMES', daysAgo(10).toISOString().slice(0, 10) + '=50');
+  api_addExpense({ category: 'Publicité Facebook', campaign: 'Promo', amount: 1000, currency: 'DA', date: daysAgo(2).toISOString() });
+
+  asAdmin();
+  var s = api_stats('30');
+  assertSerializable(s, 'api_stats');
+  assert.deepStrictEqual([s.kpis.orders, s.kpis.delivered, s.kpis.returned, s.kpis.cancelled, s.kpis.pending], [5, 2, 1, 1, 1]);
+  assert.strictEqual(Math.round(s.kpis.deliveryRate * 100), 67);
+  assert.strictEqual(s.prev.delivered, 1, 'période précédente');
+  assert.strictEqual(s.series.length, 30);
+  assert.strictEqual(s.series[s.series.length - 1].orders, 1, 'aujourd’hui en direct');
+  assert.strictEqual(s.kpis.avgBasket, 2200);
+  assert.strictEqual(s.kpis.avgDeliveryHours, 48, '#T1 livré 2 jours après la commande');
+  var wil = {};
+  s.wilayas.forEach(function (w) { wil[w.name] = w; });
+  assert.deepStrictEqual([wil['16 - Alger'].delivered, wil['31 - Oran'].returned], [2, 1]);
+  assert.strictEqual(s.products[0].name, 'Coque — A');
+  var agents = {};
+  s.agents.forEach(function (a) { agents[a.name] = a; });
+  assert.strictEqual(agents.Imane.prime, 100, '2 livrées × 50 DA');
+  assert.strictEqual(agents.Sara.cancelled, 1);
+  var promo = s.campaigns.filter(function (c) { return c.name === 'Promo'; })[0];
+  assert.deepStrictEqual([promo.delivered, promo.spend, promo.costPerDelivered], [2, 1000, 500]);
+  assert.deepStrictEqual(s.cancelReasons, [{ name: 'Trop cher', count: 1 }]);
+  assert.deepStrictEqual(s.courierTags, [{ name: 'Refus', count: 1 }]);
+  assert.strictEqual(s.hours.length, 24);
+  assert.strictEqual(s.hours[14], 5, 'commandes passées à 14 h');
+  assert.strictEqual(s.weekdays.reduce(function (a, b) { return a + b; }, 0), 5);
+  assert.strictEqual(s.kpis.expenses, 1000);
+
+  // Prime : un nouveau montant ne change pas les jours d'avant.
+  var r = api_setPrime(80, ymd_(new Date()));
+  assert.strictEqual(r.primes.length, 2);
+  assert.strictEqual(api_stats('30').agents.filter(function (a) { return a.name === 'Imane'; })[0].prime, 100);
+  assert.strictEqual(api_stats('30').primeNow, 80);
+  // Périodes.
+  assert.strictEqual(api_stats('today').kpis.orders, 1);
+  var custom = api_stats('', ymd_(daysAgo(3)), ymd_(daysAgo(2)));
+  assert.deepStrictEqual([custom.range.days, custom.kpis.orders], [2, 4]);
+  assert.ok(/recalculés/.test(api_rebuildStats().message));
+  asAgent();
+  assert.throws(function () { api_stats('30'); }, /administrateur/);
+});
+
+test('Statistiques : la date de confirmation est notée (délai avant confirmation de l’équipe)', function () {
+  baseSetup();
+  addRaw({ 'N°': '#Q1', 'Date': new Date(Date.now() - 3 * 3600000), 'Client': 'Q', 'Téléphone': '0550001234', 'Wilaya': 'Alger', 'Prix': 2000 });
+  processNewRows();
+  asAgent();
+  api_recordCall('#Q1', 'confirm', {});
+  var row = findOrder_(readOrders_(), '#Q1');
+  assert.ok(row.confirmedAt instanceof Date);
+  var first = row.confirmedAt.getTime();
+  // Une deuxième confirmation (après modification) ne change pas la date.
+  var ctx = readOrders_();
+  writeFields_(ctx, findOrder_(ctx, '#Q1'), { status: 'À confirmer' });
+  ctx = readOrders_();
+  writeFields_(ctx, findOrder_(ctx, '#Q1'), { status: 'Confirmée' });
+  assert.strictEqual(findOrder_(readOrders_(), '#Q1').confirmedAt.getTime(), first);
+  asAdmin();
+  var s = api_stats('7');
+  var imane = s.agents.filter(function (a) { return a.name === 'Imane'; })[0];
+  assert.ok(imane && imane.avgConfirmHours >= 2.9, JSON.stringify(imane));
+});
+
+/* ---------------- Administration ---------------- */
+
+test('Administration : pages chargées à la demande, selon le rôle', function () {
+  baseSetup();
+  asAdmin();
+  ['stats', 'admin', 'benefices', 'stock'].forEach(function (p) { assert.strictEqual(typeof api_pageScript(p), 'string'); });
+  assert.throws(function () { api_pageScript('../Code'); }, /Page inconnue/);
+  asStockKeeper();
+  assert.strictEqual(typeof api_pageScript('stock'), 'string');
+  assert.throws(function () { api_pageScript('stats'); }, /administrateur/);
+  asAgent();
+  assert.throws(function () { api_pageScript('stock'); }, /magasinier/);
+  assert.throws(function () { api_adminOverview(); }, /administrateur/);
+  assert.throws(function () { api_settingsSave({ APPELS_PAR_JOUR: 5 }); }, /administrateur/);
+});
+
+test('Administration : connexions (clés jamais renvoyées), test, garder la clé actuelle', function () {
+  ecoSetup();
+  saveSmsConfig_(HTTPSMS.key, '0550 12 34 56');
+  asAdmin();
+  var o = api_adminOverview();
+  assertSerializable(o, 'api_adminOverview');
+  var text = JSON.stringify(o);
+  assert.ok(text.indexOf(FAKE.token) < 0 && text.indexOf(HTTPSMS.key) < 0, 'aucune clé complète dans la page');
+  assert.strictEqual(o.connections.ecotrack.token, '••••' + FAKE.token.slice(-4));
+  assert.strictEqual(o.connections.sms.from, '0550123456');
+  // Adresse modifiée, jeton vide : le jeton actuel est gardé ; le test passe.
+  var r = api_saveEcotrack('demo.ecotrack.dz', '');
+  assert.ok(r.ok && /Connexion réussie/.test(r.message), r.message);
+  assert.strictEqual(ecotrackConfig_().token, FAKE.token);
+  r = api_saveEcotrack(FAKE.host, 'MAUVAIS-JETON-1234567890');
+  assert.ok(!r.ok && /test échoue/.test(r.message));
+  api_saveEcotrack(FAKE.host, FAKE.token);
+  r = api_saveSms('', '0661 22 33 44');
+  assert.ok(/\+213661223344/.test(r.message));
+  assert.strictEqual(smsConfig_().key, HTTPSMS.key, 'clé actuelle gardée');
+  assert.throws(function () { api_saveShopify('ma-boutique', '', ''); }, /Collez le jeton/);
+  var journal = JSON.stringify(sheet('Journal').data);
+  assert.ok(journal.indexOf(FAKE.token) < 0 && journal.indexOf(HTTPSMS.key) < 0, 'jamais de clé dans le Journal');
+  assert.ok(/Connexion Ecotrack enregistrée/.test(journal));
+});
+
+test('Administration : réglages en formulaires, vérifiés, aperçu des SMS', function () {
+  baseSetup();
+  asAdmin();
+  var g = api_settingsGet();
+  assertSerializable(g, 'api_settingsGet');
+  var all = {};
+  g.groups.forEach(function (grp) { grp.items.forEach(function (it) { all[it.key] = it; }); });
+  assert.strictEqual(Object.keys(all).length, DEFAULT_SETTINGS.length, 'tous les réglages sont dans un groupe');
+  assert.deepStrictEqual([all.APPELS_PAR_JOUR.type, all.ANNULATION_AUTO.type, all.SMS_CONFIRMEE.type, all.ORDRE_FILE.type, all.MOTS_REFUS.type],
+    ['num', 'yesno', 'sms', 'choice', 'long']);
+  var smsGroup = g.groups.filter(function (x) { return x.title === 'SMS'; })[0];
+  assert.ok(smsGroup.items.some(function (it) { return it.key === 'SMS_LIVREUR_INJOIGNABLE'; }));
+  var r = api_settingsSave({ APPELS_PAR_JOUR: '4', ANNULATION_AUTO: 'non', ORDRE_FILE: 'anciennes', SMS_RETOUR: 'رجع طلبك {numero}' });
+  assert.ok(/4 réglages enregistrés/.test(r.message));
+  var s = getSettings_();
+  assert.deepStrictEqual([s.APPELS_PAR_JOUR, s.ANNULATION_AUTO, s.ORDRE_FILE, s.SMS_RETOUR], [4, false, 'anciennes', 'رجع طلبك {numero}']);
+  assert.throws(function () { api_settingsSave({ APPELS_PAR_JOUR: 'beaucoup' }); }, /nombre attendu/);
+  assert.throws(function () { api_settingsSave({ ORDRE_FILE: 'au hasard' }); }, /choisissez récentes ou anciennes/);
+  assert.throws(function () { api_settingsSave({ PAS_UN_REGLAGE: 1 }); }, /Réglage inconnu/);
+  var p = api_smsPreview('شكرا {prenom}، طلبك {numero} : {total} دج');
+  assert.deepStrictEqual([p.text, p.parts, p.perPart], ['شكرا Amine، طلبك #1234 : 4250 دج', 1, 70]);
+  assert.ok(logActions().indexOf('Réglage modifié') >= 0);
+});
+
+test('Administration : équipe (ajout, rôle, partage du classeur, retrait) et clients', function () {
+  baseSetup();
+  asAdmin();
+  var r = api_teamSave({ email: 'Nadia@Example.com', name: 'Nadia', role: 'Confirmatrice' });
+  assert.ok(/Nadia ajouté\(e\) comme confirmatrice/.test(r.message) && /partagé/.test(r.message), r.message);
+  assert.ok(__mock.ss().editors.indexOf('nadia@example.com') >= 0);
+  var nadia = r.team.members.filter(function (m) { return m.email === 'nadia@example.com'; })[0];
+  assert.deepStrictEqual([nadia.role, nadia.access], ['Confirmatrice', true]);
+  r = api_teamSave({ email: 'nadia@example.com', name: 'Nadia', role: 'Magasinier' });
+  assert.ok(/magasinier/.test(r.message));
+  __mock.setUser('nadia@example.com');
+  assert.strictEqual(api_bootstrap().user.stock, true, 'le nouveau rôle s’applique tout de suite');
+  asAdmin();
+  assert.throws(function () { api_teamSave({ email: 'admin@example.com', name: 'Admin', role: 'Confirmatrice' }); }, /votre propre rôle/);
+  assert.throws(function () { api_teamRemove('admin@example.com'); }, /vous retirer vous-même/);
+  assert.throws(function () { api_teamSave({ email: 'pas-une-adresse' }); }, /Adresse e-mail invalide/);
+  r = api_teamRemove('nadia@example.com');
+  assert.ok(/retiré/.test(r.message));
+  assert.ok(__mock.ss().editors.indexOf('nadia@example.com') < 0, 'accès au classeur retiré');
+
+  // Clients : liste noire et signalés.
+  api_setBlacklist('0555001199', true, 'Refus répétés');
+  addOrder('#K1', 'Coque', { 'Téléphone': '0661000222' });
+  processNewRows();
+  flagClient_(readOrders_(), { phone: '0661000222', client: 'Kamel' }, 'A refusé un colis (#K0, 01/11/2026)');
+  var c = api_clientsAdmin();
+  assert.deepStrictEqual(c.blacklist.map(function (x) { return x.phone; }), ['0555001199']);
+  assert.deepStrictEqual(c.flagged.map(function (x) { return [x.phone, x.flag]; }), [['0661000222', 'A refusé un colis (#K0, 01/11/2026)']]);
+  assert.strictEqual(order('#K1').alert, 'Signalé · a refusé un colis');
+  r = api_clearFlag('0661000222');
+  assert.deepStrictEqual(r.clients.flagged, []);
+  assert.notStrictEqual(order('#K1').alert, 'Signalé · a refusé un colis', 'l’alerte de la commande en attente est mise à jour');
 });
 
 /* ---------------- Suivi des colis ---------------- */
@@ -2137,8 +2439,7 @@ test('Releasit : déclencheur chaque minute, état affiché, menu, vérification
   releasitTab();
   saveShopifyConfig_(SHOP_DOMAIN, SHOPIFY.token, '');
   setup();
-  assert.deepStrictEqual(triggerList(),
-    ['transferReleasitOrders/1', 'importShopifyOrders/5', 'processNewRows/5', 'syncEcotrackStatuses/30', 'nightlyMaintenance/3h']);
+  assert.deepStrictEqual(triggerList(), ['everyMinute/1', 'nightlyMaintenance/3h'], 'Releasit et Shopify passent par la tâche de chaque minute');
 
   var st = api_importStatus();
   assert.deepStrictEqual([st.releasit.found, st.releasit.missing, st.releasit.lastError, st.shopify.configured], [true, [], '', true]);
@@ -2965,10 +3266,9 @@ test('Paramètres : « 8-21 » jamais modifié devient « 0-24 » une seule fois
 test('SMS : statut venu d’Ecotrack (n° de suivi dans le texte), déclencheur, état affiché, SMS de test', function () {
   ecoSetup();
   setup();
-  assert.ok(triggerList().indexOf('sendSmsQueue/1') < 0, 'pas configuré : pas de déclencheur');
   saveSmsConfig_(HTTPSMS.key, '0550123456');
   setup();
-  assert.ok(triggerList().indexOf('sendSmsQueue/1') >= 0);
+  assert.deepStrictEqual(triggerList(), ['everyMinute/1', 'nightlyMaintenance/3h'], 'les SMS passent par la tâche de chaque minute');
   addConfirmed('#X9', { 'Téléphone': '0661457892' });
   ship(['#X9']);
   FAKE.validate(trackingOf('#X9'));

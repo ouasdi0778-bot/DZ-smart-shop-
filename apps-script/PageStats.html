@@ -1,0 +1,346 @@
+/**
+ * Page Statistiques (administrateur) : chargée seulement quand on ouvre la page.
+ * Un seul appel au serveur par période (api_stats) ; changer d'onglet ne rappelle pas le serveur.
+ * Les graphiques sont dessinés ici (SVG), sans outil extérieur.
+ */
+(function (DZ) {
+  'use strict';
+  var S = DZ.S;
+  var view = DZ.view;
+  var call = DZ.call;
+  var h = DZ.h;
+  var $ = DZ.$;
+  var toast = DZ.toast;
+  var errText = DZ.errText;
+  var errorBox = DZ.errorBox;
+  var money = DZ.money;
+  var plural = DZ.plural;
+  var fmtDate = DZ.fmtDate;
+
+  var ST = S.stats || (S.stats = { period: '30', from: '', to: '', tab: 'overview', data: null });
+  var TABS = [['overview', 'Vue d’ensemble'], ['orders', 'Commandes'], ['money', 'Argent'], ['wilayas', 'Wilayas'], ['products', 'Produits'], ['team', 'Équipe'], ['ads', 'Publicité']];
+  var PERIODS = [['today', 'Aujourd’hui'], ['7', '7 jours'], ['30', '30 jours'], ['month', 'Ce mois'], ['lastmonth', 'Mois dernier'], ['custom', 'Dates…']];
+  var DAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+
+  function rate(r) { return r === null || r === undefined ? '—' : Math.round(r * 100) + ' %'; }
+  function num(n) { return String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
+  function dayText(d) { return d ? d.split('-').reverse().join('/') : ''; }
+  /** Durée lisible : « 5 h », « 2,5 j ». */
+  function dur(hours) {
+    if (hours === null || hours === undefined) return '—';
+    return hours < 48 ? Math.round(hours * 10) / 10 + ' h' : String(Math.round(hours / 24 * 10) / 10).replace('.', ',') + ' j';
+  }
+
+  /** Évolution par rapport à la période d'avant : % pour un nombre, points pour un taux. */
+  function delta(cur, prev, kind, goodWhenUp) {
+    if (cur === null || cur === undefined || prev === null || prev === undefined) return '';
+    var diff;
+    var text;
+    if (kind === 'rate') {
+      diff = Math.round((cur - prev) * 100);
+      if (!diff) return '<span class="delta">=</span>';
+      text = (diff > 0 ? '+' : '') + diff + ' pts';
+    } else {
+      if (!prev) return '';
+      diff = Math.round((cur - prev) / Math.abs(prev) * 100);
+      if (!diff) return '<span class="delta">=</span>';
+      text = (diff > 0 ? '+' : '') + diff + ' %';
+    }
+    var good = goodWhenUp === false ? diff < 0 : diff > 0;
+    return '<span class="delta ' + (good ? 'up' : 'down') + '">' + (diff > 0 ? '▲ ' : '▼ ') + text + '</span>';
+  }
+
+  function kpi(label, value, note, deltaHtml) {
+    return '<div class="kpi"><span class="label">' + h(label) + '</span><span class="value">' + value + '</span>' +
+      '<span class="note">' + (deltaHtml || '') + (note ? ' ' + note : '') + '</span></div>';
+  }
+
+  /* ---------------- Graphiques (SVG) ---------------- */
+
+  /** Barres groupées par jour : series = [{ label, key, color }]. */
+  function barChart(rows, series, opts) {
+    opts = opts || {};
+    if (!rows.length) return '';
+    var W = 640;
+    var H = opts.height || 160;
+    var pad = 22;
+    var max = 1;
+    rows.forEach(function (r) { series.forEach(function (s) { max = Math.max(max, Number(r[s.key]) || 0); }); });
+    var slot = (W - pad) / rows.length;
+    var bw = Math.max(Math.min(slot / (series.length + 0.6), 18), 1.5);
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + (H + 18) + '" class="chart" role="img" aria-label="' + h(opts.title || 'Graphique') + '">';
+    svg += '<line x1="' + pad + '" y1="' + H + '" x2="' + W + '" y2="' + H + '" class="axis"/>';
+    svg += '<text x="0" y="10" class="tick">' + h(opts.money ? num(max) : num(max)) + '</text>';
+    rows.forEach(function (r, i) {
+      var x0 = pad + i * slot + (slot - bw * series.length) / 2;
+      series.forEach(function (s, k) {
+        var v = Number(r[s.key]) || 0;
+        var bh = Math.max(v, 0) / max * (H - 14); // une perte (valeur négative) n'a pas de barre ; elle reste dans l'infobulle
+        svg += '<rect x="' + (x0 + k * bw).toFixed(1) + '" y="' + (H - bh).toFixed(1) + '" width="' + (bw - 1).toFixed(1) + '" height="' + bh.toFixed(1) + '" fill="' + s.color + '"><title>' +
+          h((r.label || dayText(r.day)) + ' · ' + s.label + ' : ' + (opts.money ? money(v) : num(v))) + '</title></rect>';
+      });
+      if (opts.labels || i === 0 || i === rows.length - 1 || (rows.length > 10 && i % Math.ceil(rows.length / 6) === 0)) {
+        svg += '<text x="' + (pad + i * slot + slot / 2).toFixed(1) + '" y="' + (H + 14) + '" class="tick" text-anchor="middle">' + h(r.label || dayText(r.day).slice(0, 5)) + '</text>';
+      }
+    });
+    svg += '</svg>';
+    return '<div class="chart-wrap">' + svg + '<div class="legend">' + series.map(function (s) {
+      return '<span><i style="background:' + s.color + '"></i>' + h(s.label) + '</span>';
+    }).join('') + '</div></div>';
+  }
+
+  /** Barres horizontales : [{ name, count }]. */
+  function hBars(list, empty) {
+    if (!list.length) return '<p class="empty">' + h(empty || 'Rien sur la période.') + '</p>';
+    var max = Math.max.apply(null, list.map(function (x) { return x.count; }).concat([1]));
+    return '<div class="hbars">' + list.slice(0, 12).map(function (x) {
+      return '<div class="hbar"><span class="hbar-label">' + h(x.name) + '</span><span class="hbar-track"><span style="width:' + Math.max(x.count / max * 100, 2).toFixed(1) + '%"></span></span><span class="hbar-n">' + num(x.count) + '</span></div>';
+    }).join('') + '</div>';
+  }
+
+  /* ---------------- Tableaux et export ---------------- */
+
+  var TABLES = {};
+  /** cols = [[titre, fonction(ligne) → texte, numérique ?]] */
+  function dataTable(id, cols, rows, opts) {
+    opts = opts || {};
+    TABLES[id] = { cols: cols, rows: rows };
+    if (!rows.length) return '<p class="empty">Rien sur la période.</p>';
+    return '<div class="quick" style="justify-content:flex-end;margin-bottom:6px"><button type="button" class="btn" style="min-height:34px" data-act="stats-export" data-table="' + id + '">Exporter</button></div>' +
+      '<div class="table-wrap"><table class="data cards"><thead><tr>' + cols.map(function (c) { return '<th scope="col"' + (c[2] ? ' class="num"' : '') + '>' + h(c[0]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      rows.map(function (r) {
+        return '<tr' + (opts.bad && opts.bad(r) ? ' class="row-bad"' : '') + '>' + cols.map(function (c) {
+          return '<td data-label="' + h(c[0]) + '"' + (c[2] ? ' class="num"' : '') + '>' + h(c[1](r)) + '</td>';
+        }).join('') + '</tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+
+  /** CSV pour Excel (point-virgule, accents gardés). */
+  function exportTable(id) {
+    var t = TABLES[id];
+    if (!t) return;
+    var esc = function (v) { v = String(v == null ? '' : v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    var lines = [t.cols.map(function (c) { return esc(c[0]); }).join(';')].concat(t.rows.map(function (r) {
+      return t.cols.map(function (c) { return esc(c[1](r)); }).join(';');
+    }));
+    var url = URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+    var a = document.createElement('a');
+    var d = ST.data;
+    a.href = url;
+    a.download = 'statistiques-' + id + '-' + (d ? d.range.from + '_' + d.range.to : 'export') + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); a.parentNode.removeChild(a); }, 1000);
+  }
+
+  /* ---------------- Page ---------------- */
+
+  function pageStats() {
+    view.innerHTML = '<div id="stats"><p class="loading">Chargement…</p></div>';
+    loadStats();
+  }
+
+  function loadStats() {
+    var t = ++S.token;
+    var box = $('#stats-body');
+    if (box) box.innerHTML = '<p class="loading">Calcul…</p>';
+    var custom = ST.period === 'custom';
+    return call('api_stats', custom ? '' : ST.period, custom ? ST.from : '', custom ? ST.to : '').then(function (d) {
+      if (t !== S.token || S.route !== 'stats') return;
+      ST.data = d;
+      renderStats();
+    }).catch(function (e) {
+      if (t === S.token && S.route === 'stats') $('#stats').innerHTML = errorBox(e);
+    });
+  }
+
+  function renderStats() {
+    var d = ST.data;
+    var box = $('#stats');
+    if (!d || !box) return;
+    var html = '<div class="page-head"><div><h1>Statistiques</h1><p class="sub">Du ' + dayText(d.range.from) + ' au ' + dayText(d.range.to) +
+      ' · comparé au ' + dayText(d.range.prevFrom) + '–' + dayText(d.range.prevTo) +
+      (d.builtAt ? ' · calcul complet ' + h(DZ.ago(d.builtAt)) + ', aujourd’hui en direct' : '') + '</p></div>' +
+      '<button type="button" class="btn" data-act="stats-rebuild">Recalculer</button></div>';
+    html += '<div class="chips" role="group" aria-label="Période">' + PERIODS.map(function (p) {
+      return '<button type="button" class="chip" data-act="stats-period" data-period="' + p[0] + '" aria-pressed="' + (ST.period === p[0]) + '">' + p[1] + '</button>';
+    }).join('') + '</div>';
+    if (ST.period === 'custom') {
+      html += '<div class="quick" style="align-items:flex-end;margin-top:10px">' +
+        DZ.field('Du', '<input type="date" id="stats-from" value="' + h(ST.from || d.range.from) + '">') +
+        DZ.field('Au', '<input type="date" id="stats-to" value="' + h(ST.to || d.range.to) + '">') +
+        '<button type="button" class="btn primary" data-act="stats-custom">Afficher</button></div>';
+    }
+    html += '<div class="chips tabs" role="tablist" aria-label="Onglets" style="margin-top:12px">' + TABS.map(function (t) {
+      return '<button type="button" class="chip" role="tab" data-act="stats-tab" data-tab="' + t[0] + '" aria-selected="' + (ST.tab === t[0]) + '" aria-pressed="' + (ST.tab === t[0]) + '">' + t[1] + '</button>';
+    }).join('') + '</div>';
+    html += '<div id="stats-body" class="stack" style="margin-top:14px">' + (RENDER[ST.tab] || RENDER.overview)(d) + '</div>';
+    box.innerHTML = html;
+  }
+
+  var GREEN = '#146C2E';
+  var INK = '#2A2F3A';
+  var RED = '#A12626';
+  var BLUE = '#1E4FA8';
+
+  var RENDER = {
+    overview: function (d) {
+      var k = d.kpis;
+      var p = d.prev;
+      var html = '<section class="card"><div class="grid-kpi">' +
+        kpi('Commandes', num(k.orders), '', delta(k.orders, p.orders)) +
+        kpi('Taux de confirmation', rate(k.confirmRate), num(k.confirmed) + ' confirmées', delta(k.confirmRate, p.confirmRate, 'rate')) +
+        kpi('Taux de livraison', rate(k.deliveryRate), num(k.delivered) + ' livrées / ' + num(k.delivered + k.returned) + ' terminées', delta(k.deliveryRate, p.deliveryRate, 'rate')) +
+        kpi('Retours', num(k.returned), rate(k.returnRate), delta(k.returned, p.returned, null, false)) +
+        kpi('Annulées', num(k.cancelled), rate(k.cancelRate), delta(k.cancelled, p.cancelled, null, false)) +
+        kpi('Encaissé', money(k.revenue), '', delta(k.revenue, p.revenue)) +
+        kpi('Bénéfice net', '<span class="' + (k.net < 0 ? 'neg' : 'pos') + '">' + money(k.net) + '</span>', 'après dépenses', delta(k.net, p.net)) +
+        '</div></section>';
+      // Parcours des commandes
+      var steps = [['Reçues', k.orders], ['Confirmées', k.confirmed], ['Expédiées', k.shipped], ['Livrées', k.delivered]];
+      html += '<section class="card"><h2>Parcours des commandes</h2><div class="flow">' + steps.map(function (s) {
+        var w = k.orders ? s[1] / k.orders * 100 : 0;
+        return '<div class="flow-row"><span class="flow-label">' + s[0] + '</span><span class="flow-track"><span style="width:' + Math.max(w, 1).toFixed(1) + '%"></span></span>' +
+          '<span class="flow-n">' + num(s[1]) + ' <span class="small">' + (k.orders ? Math.round(w) + ' %' : '') + '</span></span></div>';
+      }).join('') + '</div><p class="small" style="margin-top:8px">En cours : ' + num(k.inProgress) + ' · en attente de confirmation : ' + num(k.pending) +
+        ' · retours : ' + num(k.returned) + ' · annulées : ' + num(k.cancelled) + '</p></section>';
+      html += '<section class="card"><h2>Par jour</h2>' + barChart(d.series, [
+        { key: 'orders', label: 'Commandes', color: INK }, { key: 'delivered', label: 'Livrées', color: GREEN }, { key: 'returned', label: 'Retours', color: RED }
+      ], { title: 'Commandes par jour' }) + '</section>';
+      return html;
+    },
+    orders: function (d) {
+      var hours = (d.hours.length ? d.hours : new Array(24).fill(0)).map(function (n, i) { return { label: i + 'h', n: n }; });
+      var week = d.weekdays.map(function (n, i) { return { label: DAYS[i], n: n }; });
+      return '<section class="card"><h2>Motifs d’annulation</h2>' + hBars(d.cancelReasons, 'Aucune annulation sur la période.') + '</section>' +
+        '<section class="card"><h2>Motifs du livreur (retours et colis suspendus)</h2>' + hBars(d.courierTags, 'Aucune remarque du livreur sur la période.') + '</section>' +
+        '<section class="card"><h2>Commandes par heure</h2><p class="small">Pour placer les confirmatrices et la publicité aux bonnes heures.</p>' +
+        barChart(hours, [{ key: 'n', label: 'Commandes', color: BLUE }], { labels: false, title: 'Commandes par heure' }) + '</section>' +
+        '<section class="card"><h2>Commandes par jour de la semaine</h2>' + barChart(week, [{ key: 'n', label: 'Commandes', color: BLUE }], { labels: true, title: 'Commandes par jour de la semaine' }) + '</section>';
+    },
+    money: function (d) {
+      var k = d.kpis;
+      var p = d.prev;
+      var m = d.money;
+      var html = '<section class="card"><h2>Maintenant</h2><div class="grid-kpi">' +
+        kpi('À recevoir', money(m.toReceive), 'colis livrés, argent pas encore versé') +
+        kpi('Chez le livreur', money(m.enRoute), 'colis en route') +
+        kpi('Argent prévu', m.expected === null ? '—' : money(m.expected), 'en route × votre taux de livraison (' + rate(m.deliveryRate) + ')') +
+        '</div></section>';
+      html += '<section class="card"><h2>La période</h2><div class="grid-kpi">' +
+        kpi('Encaissé', money(k.revenue), '', delta(k.revenue, p.revenue)) +
+        kpi('Bénéfice des commandes', money(k.ordersProfit), '', delta(k.ordersProfit, p.ordersProfit)) +
+        kpi('Dépenses', money(k.expenses), 'publicité comprise', delta(k.expenses, p.expenses, null, false)) +
+        kpi('Bénéfice net', '<span class="' + (k.net < 0 ? 'neg' : 'pos') + '">' + money(k.net) + '</span>', '', delta(k.net, p.net)) +
+        kpi('Panier moyen', k.avgBasket === null ? '—' : money(k.avgBasket), 'par commande livrée', delta(k.avgBasket, p.avgBasket)) +
+        kpi('Bénéfice par livrée', k.profitPerDelivered === null ? '—' : money(k.profitPerDelivered), '', delta(k.profitPerDelivered, p.profitPerDelivered)) +
+        kpi('Perdu à cause des retours', money(k.lostToReturns), plural(k.returned, 'retour', 'retours'), delta(k.lostToReturns, p.lostToReturns, null, false)) +
+        kpi('Délai moyen de livraison', dur(k.avgDeliveryHours), 'de la commande à la livraison') +
+        '</div>' +
+        '<p class="small" style="margin-top:10px">Encaissé ' + money(k.revenue) + ' = ventes ' + money(k.sales) + ' + livraison payée par les clients. Coûts : livraison nette ' + money(k.deliveryNet) +
+        ', achat ' + money(k.productCost) + ', retours ' + money(k.returnFees) + ', emballage ' + money(k.packaging) + '.</p></section>';
+      html += '<section class="card"><h2>Par jour</h2>' + barChart(d.series, [
+        { key: 'revenue', label: 'Encaissé', color: INK }, { key: 'profit', label: 'Bénéfice', color: GREEN }
+      ], { money: true, title: 'Argent par jour' }) + '</section>';
+      return html;
+    },
+    wilayas: function (d) {
+      var bad = d.wilayas.filter(function (w) { return w.bad; });
+      return '<section class="card"><h2>Par wilaya</h2>' +
+        (bad.length ? '<div class="lock-box warn"><p>Beaucoup de retours : ' + bad.map(function (w) { return h(w.name) + ' (' + rate(w.returnRate) + ')'; }).join(', ') + '. Confirmez plus sérieusement ces commandes.</p></div>' : '') +
+        dataTable('wilayas', [
+          ['Wilaya', function (r) { return r.name; }],
+          ['Commandes', function (r) { return num(r.orders); }, true],
+          ['Confirmation', function (r) { return rate(r.confirmRate); }, true],
+          ['Livraison', function (r) { return rate(r.deliveryRate); }, true],
+          ['Retours', function (r) { return num(r.returned); }, true],
+          ['Délai moyen', function (r) { return dur(r.avgHours); }, true],
+          ['Encaissé', function (r) { return money(r.revenue); }, true],
+          ['Bénéfice', function (r) { return money(r.profit); }, true],
+          ['Perdu (retours)', function (r) { return money(r.lost); }, true]
+        ], d.wilayas, { bad: function (r) { return r.bad; } }) + '</section>';
+    },
+    products: function (d) {
+      return '<section class="card"><h2>Par produit et modèle</h2><p class="small">Une commande de plusieurs articles est partagée selon les quantités.</p>' +
+        dataTable('produits', [
+          ['Produit', function (r) { return r.name; }],
+          ['Commandes', function (r) { return num(r.orders); }, true],
+          ['Livrées', function (r) { return num(r.delivered); }, true],
+          ['Retours', function (r) { return num(r.returned); }, true],
+          ['Taux de retour', function (r) { return rate(r.returnRate); }, true],
+          ['Encaissé', function (r) { return money(r.revenue); }, true],
+          ['Bénéfice', function (r) { return money(r.profit); }, true]
+        ], d.products) + '</section>';
+    },
+    team: function (d) {
+      var today = new Date();
+      var iso = today.getFullYear() + '-' + ('0' + (today.getMonth() + 1)).slice(-2) + '-' + ('0' + today.getDate()).slice(-2);
+      var html = '<section class="card"><h2>Par confirmatrice</h2>' +
+        dataTable('equipe', [
+          ['Confirmatrice', function (r) { return r.name; }],
+          ['Commandes', function (r) { return num(r.orders); }, true],
+          ['Confirmées', function (r) { return num(r.confirmed) + ' (' + rate(r.confirmRate) + ')'; }, true],
+          ['Livrées', function (r) { return num(r.delivered); }, true],
+          ['Taux de livraison', function (r) { return rate(r.deliveryRate); }, true],
+          ['Délai avant confirmation', function (r) { return dur(r.avgConfirmHours); }, true],
+          ['Prime', function (r) { return money(r.prime); }, true]
+        ], d.agents) + '<p class="small" style="margin-top:8px">La prime compte les commandes de la période qui sont livrées : le total se complète au fil des livraisons.</p></section>';
+      html += '<section class="card"><h2>Prime par commande livrée</h2>' +
+        '<p>Montant actuel : <strong>' + money(d.primeNow) + '</strong> par commande livrée.</p>' +
+        '<div class="quick" style="align-items:flex-end;margin-top:8px">' +
+        DZ.field('Nouveau montant (DA)', '<input type="number" min="0" step="10" id="prime-amount" value="' + h(d.primeNow || '') + '">') +
+        DZ.field('À partir du', '<input type="date" id="prime-from" value="' + iso + '">') +
+        '<button type="button" class="btn primary" data-act="stats-prime">Enregistrer</button></div>' +
+        (d.primes.length ? '<p class="small" style="margin-top:10px">Historique : ' + d.primes.map(function (p) { return money(p.amount) + ' depuis le ' + dayText(p.from); }).join(' · ') +
+          '. Les jours d’avant gardent l’ancien montant.</p>' : '<p class="small" style="margin-top:10px">Pas encore de prime.</p>') + '</section>';
+      return html;
+    },
+    ads: function (d) {
+      var cols = function () {
+        return [
+          [' ', function (r) { return r.name; }],
+          ['Commandes', function (r) { return num(r.orders); }, true],
+          ['Livrées', function (r) { return num(r.delivered); }, true],
+          ['Taux de livraison', function (r) { return rate(r.deliveryRate); }, true],
+          ['Dépense', function (r) { return money(r.spend); }, true],
+          ['Coût par livrée', function (r) { return r.costPerDelivered === null ? '—' : money(r.costPerDelivered); }, true],
+          ['Bénéfice', function (r) { return money(r.profit); }, true],
+          ['Net (après pub)', function (r) { return money(r.net); }, true]
+        ];
+      };
+      var src = cols(); src[0][0] = 'Source';
+      var cp = cols(); cp[0][0] = 'Campagne';
+      return '<section class="card"><h2>Par source</h2>' + dataTable('sources', src, d.sources) + '</section>' +
+        '<section class="card"><h2>Par campagne</h2><p class="small">La dépense vient de l’onglet Dépenses (catégories de publicité, colonne Campagne).</p>' + dataTable('campagnes', cp, d.campaigns) + '</section>';
+    }
+  };
+
+  Object.assign(DZ.ACTIONS, {
+    'stats-period': function (el) {
+      ST.period = el.getAttribute('data-period');
+      if (ST.period === 'custom') { renderStats(); return; }
+      loadStats();
+    },
+    'stats-custom': function () {
+      ST.from = ($('#stats-from') || {}).value || '';
+      ST.to = ($('#stats-to') || {}).value || '';
+      if (!ST.from || !ST.to) { toast('Choisissez les deux dates.', true); return; }
+      loadStats();
+    },
+    'stats-tab': function (el) { ST.tab = el.getAttribute('data-tab'); renderStats(); },
+    'stats-export': function (el) { exportTable(el.getAttribute('data-table')); },
+    'stats-rebuild': function (el) {
+      el.disabled = true;
+      toast('Recalcul des statistiques…');
+      call('api_rebuildStats').then(function (r) { toast(r.message); loadStats(); }).catch(function (e) { el.disabled = false; toast(errText(e), true); });
+    },
+    'stats-prime': function (el) {
+      var amount = ($('#prime-amount') || {}).value;
+      var from = ($('#prime-from') || {}).value;
+      if (amount === '' || !from) { toast('Indiquez le montant et la date.', true); return; }
+      el.disabled = true;
+      call('api_setPrime', amount, from).then(function (r) { toast(r.message); loadStats(); }).catch(function (e) { el.disabled = false; toast(errText(e), true); });
+    }
+  });
+  DZ.modules.stats = { page: pageStats, fmtDate: fmtDate };
+})(window.DZ);

@@ -190,6 +190,35 @@
   .label-bar .chips { align-items: center; }
   .check-line { display: flex; align-items: center; gap: 10px; min-height: 44px; }
   .courier-note { color: #5B34A8; }
+  .health-banner { background: #FBE7E7; color: #7A1F1F; padding: 10px 16px; font-weight: 600; font-size: 14px; }
+  .health-banner a { color: inherit; }
+  .delta { font-weight: 600; font-size: 12px; color: var(--muted); }
+  .delta.up { color: #146C2E; }
+  .delta.down { color: #A12626; }
+  .chart-wrap { width: 100%; }
+  .chart { width: 100%; height: auto; display: block; }
+  .chart .axis { stroke: #D5D9E0; stroke-width: 1; }
+  .chart .tick { font-size: 10px; fill: #6B7280; }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .hbars, .flow { display: grid; gap: 8px; }
+  .hbar, .flow-row { display: grid; grid-template-columns: minmax(90px, 32%) 1fr auto; gap: 10px; align-items: center; font-size: 13px; }
+  .hbar-label, .flow-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hbar-track, .flow-track { height: 12px; background: #EEF0F3; border-radius: 6px; overflow: hidden; }
+  .hbar-track span, .flow-track span { display: block; height: 100%; background: #1E4FA8; border-radius: 6px; }
+  .flow-track span { background: #146C2E; }
+  .hbar-n, .flow-n { font-weight: 600; min-width: 48px; text-align: right; }
+  tr.row-bad td { background: #FDF1F1; }
+  .tabs { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; }
+  .tabs .chip { flex: 0 0 auto; }
+  .settings-group summary { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; cursor: pointer; list-style: none; }
+  .settings-group summary::-webkit-details-marker { display: none; }
+  .settings-group summary h2 { margin: 0; }
+  .settings-group[open] summary { margin-bottom: 10px; }
+  .settings-form { display: grid; gap: 14px; }
+  .setting-key { font-size: 11px; color: var(--muted); }
+  .setting-desc { font-weight: 400; color: var(--ink-2); font-size: 13px; }
+  .sms-preview { display: block; background: #F3F0FA; border-radius: 10px; padding: 8px 10px; font-weight: 400; color: var(--ink); font-size: 13px; }
   .follow-choices { display: grid; gap: 8px; margin: 6px 0 4px; }
   .follow-choice { display: flex; gap: 12px; align-items: flex-start; text-align: left; width: 100%; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--surface); color: var(--ink); cursor: pointer; font: inherit; }
   .follow-choice .icon { font-size: 20px; line-height: 1.2; }

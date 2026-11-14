@@ -1,0 +1,377 @@
+/**
+ * Page Administration (administrateur) : chargée seulement quand on ouvre la page.
+ * État de l'outil, connexions, réglages, équipe, clients, classeur.
+ * Les clés et jetons ne sont jamais affichés : seulement leur fin (« ••••1234 »).
+ */
+(function (DZ) {
+  'use strict';
+  var S = DZ.S;
+  var view = DZ.view;
+  var call = DZ.call;
+  var h = DZ.h;
+  var $ = DZ.$;
+  var $all = DZ.$all;
+  var toast = DZ.toast;
+  var errText = DZ.errText;
+  var errorBox = DZ.errorBox;
+  var plural = DZ.plural;
+  var fmtDate = DZ.fmtDate;
+  var field = DZ.field;
+  var ago = DZ.ago;
+
+  var AD = S.admin || (S.admin = { tab: 'etat', data: null, settings: null, team: null, clients: null, open: {} });
+  var TABS = [['etat', 'État de l’outil'], ['connexions', 'Connexions'], ['reglages', 'Réglages'], ['equipe', 'Équipe'], ['clients', 'Clients'], ['classeur', 'Classeur']];
+  var STATE = {
+    ok: ['#DDF0E4', '#146C2E', 'Marche'], warn: ['#FFF3DC', '#8A5200', 'Dernier passage en erreur'], bad: ['#FBE7E7', '#A12626', 'En panne'],
+    off: ['#EEF0F3', '#3D4350', 'Pas utilisé'], wait: ['#E6EEFB', '#1E4FA8', 'Pas encore passé']
+  };
+
+  function badge(state) {
+    var s = STATE[state] || STATE.wait;
+    return '<span class="pill" style="background:' + s[0] + ';color:' + s[1] + '">' + s[2] + '</span>';
+  }
+  function every(n) { return n === 1 ? 'chaque minute' : n === 1440 ? 'chaque nuit (3 h)' : 'toutes les ' + n + ' minutes'; }
+  function busy(el, on) { if (el) el.disabled = !!on; }
+
+  function pageAdmin() {
+    view.innerHTML = '<div id="admin"><p class="loading">Chargement…</p></div>';
+    loadOverview();
+  }
+
+  function loadOverview() {
+    var t = ++S.token;
+    return call('api_adminOverview').then(function (d) {
+      if (t !== S.token || S.route !== 'admin') return;
+      AD.data = d;
+      renderAdmin();
+    }).catch(function (e) {
+      if (t === S.token && S.route === 'admin') $('#admin').innerHTML = errorBox(e);
+    });
+  }
+
+  function renderAdmin() {
+    var box = $('#admin');
+    if (!box || !AD.data) return;
+    var html = '<div class="page-head"><div><h1>Administration</h1><p class="sub">Version ' + h(AD.data.version) + ' · réservé à l’administrateur</p></div></div>' +
+      '<div class="chips tabs" role="tablist" aria-label="Onglets">' + TABS.map(function (t) {
+        return '<button type="button" class="chip" role="tab" data-act="admin-tab" data-tab="' + t[0] + '" aria-selected="' + (AD.tab === t[0]) + '" aria-pressed="' + (AD.tab === t[0]) + '">' + t[1] + '</button>';
+      }).join('') + '</div><div id="admin-body" class="stack" style="margin-top:14px"></div>';
+    box.innerHTML = html;
+    renderTab();
+  }
+
+  function renderTab() {
+    var body = $('#admin-body');
+    if (!body) return;
+    var fn = TAB_RENDER[AD.tab] || TAB_RENDER.etat;
+    body.innerHTML = fn();
+  }
+
+  /* ---------------- État de l'outil ---------------- */
+
+  function renderHealth() {
+    var d = AD.data.health;
+    var pctUsed = d.today.limit ? Math.min(d.today.minutes / d.today.limit * 100, 100) : 0;
+    var html = '<section class="card"><div class="detail-head"><div><h2>Tâches automatiques</h2><p class="muted">' +
+      (d.running ? '✅ La tâche de chaque minute tourne (dernier passage ' + h(ago(d.minute)) + ').'
+        : d.minute ? '⚠ La tâche de chaque minute ne tourne plus depuis ' + h(ago(d.minute).replace(/^il y a /, '')) + '.' : '⚠ Les tâches automatiques n’ont jamais tourné.') +
+      '</p></div><button type="button" class="btn" data-act="admin-refresh">Actualiser</button></div>';
+    if (d.problems.length) {
+      html += '<div class="lock-box warn"><p>' + d.problems.map(function (p) { return '⚠ ' + h(p.text); }).join('<br>') + '</p></div>';
+    }
+    html += '<div class="table-wrap" style="border:0"><table class="data cards"><thead><tr><th>Tâche</th><th>Rythme</th><th>État</th><th>Dernier passage</th><th>Durée</th></tr></thead><tbody>' +
+      d.tasks.map(function (t) {
+        return '<tr><td data-label="Tâche" class="multi"><strong>' + h(t.label) + '</strong>' + (t.err ? '<div class="small" style="color:#A12626">' + h(t.err) + '</div>' : '') +
+          (t.note ? '<div class="small">' + h(t.note) + '</div>' : '') + '</td>' +
+          '<td data-label="Rythme">' + every(t.every) + '</td><td data-label="État">' + badge(t.state) + '</td>' +
+          '<td data-label="Dernier passage">' + (t.at ? h(ago(t.at)) : '—') + '</td>' +
+          '<td data-label="Durée" class="num">' + (t.at ? (t.ms < 1000 ? '< 1 s' : Math.round(t.ms / 1000) + ' s') : '—') + '</td></tr>';
+      }).join('') + '</tbody></table></div></section>';
+    html += '<section class="card"><h2>Consommation du jour</h2><p><strong>' + h(d.today.minutes) + ' min</strong> sur environ ' + h(d.today.limit) + ' permises par Google · ' +
+      plural(d.today.runs, 'passage', 'passages') + '</p><div class="progress" style="height:10px"><span style="width:' + pctUsed.toFixed(1) + '%;background:' +
+      (pctUsed >= 80 ? '#A12626' : pctUsed >= 50 ? '#8A5200' : '#146C2E') + '"></span></div>' +
+      '<p class="small" style="margin-top:8px">Un e-mail part au propriétaire (' + h(d.owner || '—') + ') à 80 %, ou si une tâche tombe en panne : une seule fois par problème, puis « c’est réparé ». La limite se règle dans Réglages › Entretien (LIMITE_MINUTES_JOUR).</p></section>';
+    html += '<section class="card"><h2>Les tâches tournent au nom du propriétaire</h2><p>' + h(d.owner || 'Propriétaire inconnu') + (d.isOwner ? ' (vous)' : '') + '</p>' +
+      (d.triggers.checked ? '<p class="small">' + (d.triggers.minute && d.triggers.nightly ? 'Les deux tâches sont installées (chaque minute, et chaque nuit).' : '⚠ Une tâche manque : réinstallez-les.') +
+        (d.triggers.old ? ' Il reste ' + d.triggers.old + ' ancienne(s) tâche(s) : la réinstallation les remplace.' : '') + '</p>' : '') +
+      '<div class="quick" style="margin-top:8px"><button type="button" class="btn" data-act="admin-reinstall"' + (d.isOwner ? '' : ' disabled title="Seul le propriétaire peut le faire"') + '>Réinstaller les tâches automatiques</button></div></section>';
+    if (d.errors.length) {
+      html += '<section class="card"><h2>Dernières erreurs (Journal)</h2>' + d.errors.map(function (e) {
+        return '<div class="result-row"><span class="grow"><strong>' + h(e.action) + '</strong> · ' + h(e.who) + ' · <span class="small">' + fmtDate(e.date) + '</span><br><span class="small">' + h(e.detail) + '</span></span></div>';
+      }).join('') + '</section>';
+    }
+    return html;
+  }
+
+  /* ---------------- Connexions ---------------- */
+
+  function lastLine(lastRun, lastError) {
+    return (lastRun ? 'Dernier passage ' + h(ago(lastRun)) + '. ' : '') + (lastError ? '<span style="color:#A12626">Erreur : ' + h(lastError) + '</span>' : '');
+  }
+
+  function renderConnections() {
+    var c = AD.data.connections;
+    var secret = function (name, label, current) {
+      return field(label + (current ? ' (actuel : ' + current + ')' : ''), '<input type="password" name="' + name + '" autocomplete="off" placeholder="' + (current ? 'Laisser vide pour garder l’actuel' : 'Coller ici') + '">', 'full');
+    };
+    var text = function (name, label, value, ph) { return field(label, '<input name="' + name + '" value="' + h(value || '') + '" placeholder="' + h(ph || '') + '">', 'full'); };
+    var html = '';
+    html += '<section class="card"><div class="detail-head"><div><h2>Ecotrack (livraison)</h2><p class="muted">' +
+      (c.ecotrack.configured ? '✅ Connecté à ' + h(c.ecotrack.url.replace(/^https?:\/\//, '')) : 'Pas encore configuré') + '</p></div></div>' +
+      '<p class="small">' + lastLine(c.ecotrack.lastSync, c.ecotrack.lastError) + '</p>' +
+      '<form class="form-grid" id="f-ecotrack" onsubmit="return false">' + text('url', 'Adresse de votre plateforme', c.ecotrack.url, 'https://monsociete.ecotrack.dz') +
+      secret('token', 'Jeton API', c.ecotrack.token) + '</form>' +
+      '<div class="quick" style="margin-top:10px"><button type="button" class="btn primary" data-act="admin-save-ecotrack">Enregistrer et tester</button>' +
+      (c.ecotrack.configured ? '<button type="button" class="btn" data-act="admin-call" data-fn="api_ecotrackTest">Tester</button>' +
+        '<button type="button" class="btn" data-act="admin-call" data-fn="api_ecotrackSyncFees">Récupérer les tarifs</button>' +
+        '<button type="button" class="btn" data-act="admin-call" data-fn="api_ecotrackSyncStatuses">Mettre à jour les statuts</button>' : '') + '</div></section>';
+
+    html += '<section class="card"><div class="detail-head"><div><h2>SMS (httpSMS)</h2><p class="muted">' +
+      (c.sms.configured ? '✅ Les SMS partent du ' + h(c.sms.from) + ' · ' + h(c.sms.hours) + ' · ' + plural(c.sms.waiting, 'SMS en attente', 'SMS en attente') : 'Pas encore configuré') + '</p></div></div>' +
+      '<p class="small">' + lastLine(c.sms.lastRun, c.sms.lastError) + (c.sms.statuses && c.sms.statuses.length ? ' SMS actifs : ' + h(c.sms.statuses.join(', ')) + '.' : '') + '</p>' +
+      '<form class="form-grid" id="f-sms" onsubmit="return false">' + text('from', 'Numéro de la carte SIM (téléphone avec httpSMS)', c.sms.from, '0550 12 34 56') +
+      secret('key', 'Clé API (page Settings de httpsms.com)', c.sms.key) + '</form>' +
+      '<div class="quick" style="margin-top:10px"><button type="button" class="btn primary" data-act="admin-save-sms">Enregistrer</button>' +
+      (c.sms.configured ? '<button type="button" class="btn" data-act="admin-call" data-fn="api_smsTest">SMS de test</button>' +
+        '<button type="button" class="btn" data-act="admin-call" data-fn="api_smsSendNow">Envoyer maintenant</button>' : '') + '</div>' +
+      '<p class="small" style="margin-top:8px">Les textes des SMS se modifient dans Réglages › SMS.</p></section>';
+
+    html += '<section class="card"><div class="detail-head"><div><h2>Shopify</h2><p class="muted">' +
+      (c.shopify.configured ? '✅ Boutique ' + h(c.shopify.shop) : 'Pas configuré (facultatif : Releasit suffit)') + '</p></div></div>' +
+      '<p class="small">' + lastLine(c.shopify.lastRun, c.shopify.lastError) + '</p>' +
+      '<form class="form-grid" id="f-shopify" onsubmit="return false">' + text('shop', 'Adresse de la boutique', c.shopify.shop, 'ma-boutique.myshopify.com') +
+      secret('key', 'Jeton d’accès (shpat_…) ou identifiant client', c.shopify.key) +
+      field('Secret (seulement avec un identifiant client)', '<input type="password" name="secret" autocomplete="off" placeholder="Facultatif">', 'full') + '</form>' +
+      '<div class="quick" style="margin-top:10px"><button type="button" class="btn primary" data-act="admin-save-shopify">Enregistrer et tester</button>' +
+      (c.shopify.configured ? '<button type="button" class="btn" data-act="admin-call" data-fn="api_shopifyTest">Tester</button>' +
+        '<button type="button" class="btn" data-act="admin-call" data-fn="api_shopifyImport">Importer maintenant</button>' : '') + '</div></section>';
+
+    html += '<section class="card"><div class="detail-head"><div><h2>Releasit COD (onglet RELEASIT)</h2><p class="muted">' +
+      (c.releasit.found ? '✅ Onglet trouvé : les commandes arrivent chaque minute' : '⚠ Onglet « RELEASIT » introuvable dans le classeur') + '</p></div></div>' +
+      '<p class="small">' + lastLine(c.releasit.lastRun, c.releasit.lastError) +
+      (c.releasit.missing && c.releasit.missing.length ? ' Informations absentes : ' + h(c.releasit.missing.join(', ')) + '.' : '') + '</p>' +
+      '<div class="quick" style="margin-top:10px"><button type="button" class="btn" data-act="admin-call" data-fn="api_releasitTransfer">Transférer maintenant</button></div></section>';
+    return html;
+  }
+
+  function formData(id) {
+    var out = {};
+    $all('#' + id + ' [name]').forEach(function (el) { out[el.name] = el.value; });
+    return out;
+  }
+
+  function saveConnection(fn, args, el) {
+    busy(el, true);
+    toast('Enregistrement…');
+    call.apply(null, [fn].concat(args)).then(function (r) {
+      busy(el, false);
+      toast(r.message, r.ok === false);
+      if (r.connections) AD.data.connections = r.connections;
+      renderTab();
+    }).catch(function (e) { busy(el, false); toast(errText(e), true); });
+  }
+
+  /* ---------------- Réglages ---------------- */
+
+  /** Aperçu d'un SMS (calculé ici, sans appel au serveur). */
+  function smsPreview(text) {
+    var sample = { prenom: 'Amine', client: 'Amine Kaci', numero: '#1234', produit: 'Montre sport — Noire', total: '4250', suivi: 'ECN123456789', commune: 'Béjaïa', wilaya: 'Béjaïa', boutique: S.boot.shop };
+    var out = String(text || '').replace(/\{(\w+)\}/g, function (m, k) { return Object.prototype.hasOwnProperty.call(sample, k) ? sample[k] : m; }).replace(/\s+/g, ' ').trim();
+    var arabic = /[؀-ۿ]/.test(out);
+    var per = arabic ? 70 : 160;
+    return { text: out, info: out ? out.length + ' caractères · ' + plural(Math.ceil(out.length / per), 'SMS', 'SMS') + (arabic ? ' (arabe : 70 caractères par SMS)' : '') : 'Vide : pas de SMS' };
+  }
+
+  function settingControl(it) {
+    var name = ' name="' + h(it.key) + '" data-setting';
+    if (it.type === 'yesno') return '<select' + name + '><option' + (/^(non|no|false|0)$/i.test(it.value) ? '' : ' selected') + '>OUI</option><option' + (/^(non|no|false|0)$/i.test(it.value) ? ' selected' : '') + '>NON</option></select>';
+    if (it.type === 'choice') return '<select' + name + '>' + it.choices.map(function (c) { return '<option' + (c === it.value ? ' selected' : '') + '>' + h(c) + '</option>'; }).join('') + '</select>';
+    if (it.type === 'num') return '<input type="number" step="any" min="0"' + name + ' value="' + h(it.value) + '">';
+    if (it.type === 'sms') {
+      var p = smsPreview(it.value);
+      return '<textarea rows="3" dir="auto"' + name + ' data-sms>' + h(it.value) + '</textarea><span class="sms-preview" dir="auto">' + h(p.text) + '</span><span class="small sms-info">' + h(p.info) + '</span>';
+    }
+    if (it.type === 'long') return '<textarea rows="2" dir="auto"' + name + '>' + h(it.value) + '</textarea>';
+    return '<input' + name + ' value="' + h(it.value) + '">';
+  }
+
+  function renderSettings() {
+    if (!AD.settings) {
+      call('api_settingsGet').then(function (r) { AD.settings = r; if (AD.tab === 'reglages') renderTab(); }).catch(function (e) { var b = $('#admin-body'); if (b) b.innerHTML = errorBox(e); });
+      return '<p class="loading">Chargement…</p>';
+    }
+    return '<p class="small">Les réglages sont rangés par thème. Chaque groupe s’enregistre à part. Pour les SMS : champs {prenom} {client} {numero} {produit} {total} {suivi} {commune} {wilaya} {boutique} ; texte vide = pas de SMS.</p>' +
+      AD.settings.groups.map(function (g, gi) {
+        return '<details class="card settings-group"' + (AD.open[gi] ? ' open' : '') + ' data-group="' + gi + '"><summary><h2>' + h(g.title) + '</h2><span class="small">' + plural(g.items.length, 'réglage', 'réglages') + '</span></summary>' +
+          '<form class="settings-form" id="sg-' + gi + '" onsubmit="return false">' + g.items.map(function (it) {
+            return '<label class="field full setting"><span class="setting-key mono">' + h(it.key) + '</span><span class="setting-desc">' + h(it.description) + '</span>' + settingControl(it) + '</label>';
+          }).join('') + '</form><div class="quick" style="justify-content:flex-end;margin-top:10px"><button type="button" class="btn primary" data-act="admin-save-settings" data-group="' + gi + '">Enregistrer « ' + h(g.title) + ' »</button></div></details>';
+      }).join('');
+  }
+
+  function saveSettings(el) {
+    var gi = Number(el.getAttribute('data-group'));
+    var g = AD.settings.groups[gi];
+    var changes = {};
+    $all('#sg-' + gi + ' [data-setting]').forEach(function (input) {
+      var item = g.items.filter(function (it) { return it.key === input.name; })[0];
+      if (item && String(input.value) !== String(item.value)) changes[input.name] = input.value;
+    });
+    if (!Object.keys(changes).length) { toast('Rien n’a changé dans ce groupe.'); return; }
+    busy(el, true);
+    call('api_settingsSave', changes).then(function (r) {
+      busy(el, false);
+      AD.settings = r.settings;
+      toast(r.message);
+      renderTab();
+    }).catch(function (e) { busy(el, false); toast(errText(e), true); });
+  }
+
+  /* ---------------- Équipe ---------------- */
+
+  function renderTeam() {
+    if (!AD.team) {
+      call('api_teamList').then(function (r) { AD.team = r; if (AD.tab === 'equipe') renderTab(); }).catch(function (e) { var b = $('#admin-body'); if (b) b.innerHTML = errorBox(e); });
+      return '<p class="loading">Chargement…</p>';
+    }
+    var t = AD.team;
+    var roleSelect = function (m) {
+      return '<select data-team-role="' + h(m.email) + '"' + (m.email === t.me ? ' disabled title="Votre propre rôle"' : '') + '>' + t.roles.map(function (r) {
+        return '<option' + (r === m.role ? ' selected' : '') + '>' + h(r) + '</option>';
+      }).join('') + '</select>';
+    };
+    var html = '<section class="card"><h2>Équipe · ' + t.members.length + '</h2><p class="small">Administrateur : tout (bénéfices, statistiques, administration). Confirmatrice : commandes, confirmation, expéditions, suivi. Magasinier : en plus, la page Stock.</p>' +
+      '<div class="table-wrap" style="border:0"><table class="data cards"><thead><tr><th>Personne</th><th>Rôle</th><th>Accès au classeur</th><th></th></tr></thead><tbody>' +
+      t.members.map(function (m) {
+        return '<tr><td data-label="Personne" class="multi"><strong>' + h(m.name) + '</strong>' + (m.email === t.me ? ' (vous)' : '') + (m.email === String(t.owner).toLowerCase() ? ' · propriétaire' : '') +
+          '<div class="small">' + h(m.email) + '</div></td><td data-label="Rôle">' + roleSelect(m) + '</td>' +
+          '<td data-label="Accès">' + (m.access === null ? '—' : m.access ? '✅ partagé' : '⚠ pas partagé') + '</td>' +
+          '<td data-label="">' + (m.email === t.me || m.email === String(t.owner).toLowerCase() ? '' : '<button type="button" class="btn danger" style="min-height:36px" data-act="admin-team-remove" data-email="' + h(m.email) + '">Retirer</button>') + '</td></tr>';
+      }).join('') + '</tbody></table></div></section>';
+    html += '<section class="card"><h2>Ajouter une personne</h2><form class="form-grid" id="f-team" onsubmit="return false">' +
+      field('Adresse Gmail', '<input type="email" name="email" placeholder="prenom@gmail.com">') +
+      field('Prénom', '<input name="name" placeholder="Prénom">') +
+      field('Rôle', '<select name="role">' + t.roles.map(function (r) { return '<option' + (r === 'Confirmatrice' ? ' selected' : '') + '>' + h(r) + '</option>'; }).join('') + '</select>') +
+      '</form><div class="quick" style="margin-top:10px"><button type="button" class="btn primary" data-act="admin-team-add">Ajouter et partager le classeur</button></div>' +
+      '<p class="small" style="margin-top:8px">Google lui envoie un e-mail d’invitation. Elle ouvre ensuite le lien de l’application avec cette adresse.</p></section>';
+    return html;
+  }
+
+  function teamCall(fn, args, el) {
+    busy(el, true);
+    call.apply(null, [fn].concat(args)).then(function (r) {
+      busy(el, false);
+      AD.team = r.team;
+      toast(r.message);
+      renderTab();
+    }).catch(function (e) { busy(el, false); toast(errText(e), true); renderTab(); });
+  }
+
+  /* ---------------- Clients ---------------- */
+
+  function renderClients() {
+    if (!AD.clients) {
+      call('api_clientsAdmin').then(function (r) { AD.clients = r; if (AD.tab === 'clients') renderTab(); }).catch(function (e) { var b = $('#admin-body'); if (b) b.innerHTML = errorBox(e); });
+      return '<p class="loading">Chargement…</p>';
+    }
+    var c = AD.clients;
+    return '<section class="card"><h2>Liste noire · ' + c.blacklist.length + '</h2><p class="small">Leurs commandes arrivent avec l’alerte « Liste noire » et ne reçoivent pas de SMS.</p>' +
+      (c.blacklist.length ? c.blacklist.map(function (x) {
+        return '<div class="result-row"><span class="grow"><strong class="mono">' + h(x.phone) + '</strong>' + (x.name ? ' · ' + h(x.name) : '') + (x.note ? '<br><span class="small">' + h(x.note) + '</span>' : '') + '</span>' +
+          '<button type="button" class="btn" style="min-height:36px" data-act="admin-black-off" data-phone="' + h(x.phone) + '">Retirer</button></div>';
+      }).join('') : '<p class="empty">Personne en liste noire.</p>') +
+      '<form class="form-grid" id="f-black" onsubmit="return false" style="margin-top:10px">' + field('Téléphone', '<input name="phone" inputmode="tel" placeholder="0550 12 34 56">') +
+      field('Motif', '<input name="note" placeholder="Ex. refus répétés">') + '</form>' +
+      '<div class="quick" style="margin-top:8px"><button type="button" class="btn" data-act="admin-black-on">Ajouter à la liste noire</button></div></section>' +
+      '<section class="card"><h2>Clients signalés · ' + c.flagged.length + '</h2><p class="small">Signalés après un refus (page Suivi › Résultat de l’appel). Leurs commandes affichent « Signalé · a refusé un colis » ; elles ne sont pas bloquées.</p>' +
+      (c.flagged.length ? c.flagged.map(function (x) {
+        return '<div class="result-row"><span class="grow"><strong class="mono">' + h(x.phone) + '</strong>' + (x.name ? ' · ' + h(x.name) : '') + '<br><span class="small">' + h(x.flag) + '</span></span>' +
+          '<button type="button" class="btn" style="min-height:36px" data-act="admin-flag-off" data-phone="' + h(x.phone) + '">Retirer le signalement</button></div>';
+      }).join('') : '<p class="empty">Aucun client signalé.</p>') + '</section>';
+  }
+
+  /* ---------------- Classeur ---------------- */
+
+  function renderSheet() {
+    var item = function (title, text, act, label, danger) {
+      return '<div class="result-row"><span class="grow"><strong>' + h(title) + '</strong><br><span class="small">' + h(text) + '</span></span>' +
+        '<button type="button" class="btn' + (danger ? ' danger' : '') + '" data-act="' + act + '">' + h(label) + '</button></div>';
+    };
+    return '<section class="card"><h2>Entretien du classeur</h2>' +
+      item('Réparer le classeur', 'Ajoute les onglets, colonnes, listes et réglages qui manquent. Sans danger : rien n’est effacé.', 'admin-repair', 'Réparer') +
+      item('Archiver et alléger maintenant', 'Ce que fait l’entretien de chaque nuit : annulations automatiques, archivage, Journal raccourci, statistiques recalculées.', 'admin-archive', 'Lancer') +
+      item('Recalculer les statistiques', 'Refait tout de suite les résumés par jour (sinon : chaque nuit).', 'admin-stats', 'Recalculer') +
+      '<div class="result-row"><span class="grow"><strong>Corbeille</strong><br><span class="small">Commandes supprimées, avec « Restaurer ».</span></span>' +
+      '<button type="button" class="btn" data-act="goto" data-route="commandes" data-status="trash">Ouvrir</button></div>' +
+      '</section><p class="small">Le menu « DZ Smart Shop » du classeur reste en secours : Ouvrir l’application, Installer / réparer, Archiver, Restaurer une commande.</p>';
+  }
+
+  var TAB_RENDER = { etat: renderHealth, connexions: renderConnections, reglages: renderSettings, equipe: renderTeam, clients: renderClients, classeur: renderSheet };
+
+  function simple(fn, el, after) {
+    busy(el, true);
+    call(fn).then(function (r) { busy(el, false); toast(r.message); if (after) after(r); }).catch(function (e) { busy(el, false); toast(errText(e), true); });
+  }
+
+  Object.assign(DZ.ACTIONS, {
+    'admin-tab': function (el) { AD.tab = el.getAttribute('data-tab'); renderAdmin(); },
+    'admin-refresh': function (el) { busy(el, true); loadOverview(); },
+    'admin-reinstall': function (el) { simple('api_reinstallTriggers', el, function (r) { AD.data.health = r.health; renderTab(); }); },
+    'admin-call': function (el) { simple(el.getAttribute('data-fn'), el, function () { if (AD.tab === 'connexions') loadOverview(); }); },
+    'admin-save-ecotrack': function (el) { var f = formData('f-ecotrack'); saveConnection('api_saveEcotrack', [f.url, f.token], el); },
+    'admin-save-sms': function (el) { var f = formData('f-sms'); saveConnection('api_saveSms', [f.key, f.from], el); },
+    'admin-save-shopify': function (el) { var f = formData('f-shopify'); saveConnection('api_saveShopify', [f.shop, f.key, f.secret], el); },
+    'admin-save-settings': saveSettings,
+    'admin-team-add': function (el) { var f = formData('f-team'); teamCall('api_teamSave', [{ email: f.email, name: f.name, role: f.role }], el); },
+    'admin-team-remove': function (el) {
+      var email = el.getAttribute('data-email');
+      DZ.confirmModal('Retirer ' + email + ' ?', 'Elle n’aura plus accès à l’application ni au classeur.', 'admin-team-remove-go', 'Retirer');
+      AD.removing = email;
+    },
+    'admin-team-remove-go': function () { DZ.closeModal(); teamCall('api_teamRemove', [AD.removing], null); },
+    'admin-black-on': function (el) {
+      var f = formData('f-black');
+      busy(el, true);
+      call('api_setBlacklist', f.phone, true, f.note).then(function () { busy(el, false); toast('Ajouté à la liste noire.'); AD.clients = null; renderTab(); })
+        .catch(function (e) { busy(el, false); toast(errText(e), true); });
+    },
+    'admin-black-off': function (el) {
+      busy(el, true);
+      call('api_setBlacklist', el.getAttribute('data-phone'), false, '').then(function () { toast('Retiré de la liste noire.'); AD.clients = null; renderTab(); })
+        .catch(function (e) { busy(el, false); toast(errText(e), true); });
+    },
+    'admin-flag-off': function (el) {
+      busy(el, true);
+      call('api_clearFlag', el.getAttribute('data-phone')).then(function (r) { toast(r.message); AD.clients = r.clients; renderTab(); })
+        .catch(function (e) { busy(el, false); toast(errText(e), true); });
+    },
+    'admin-repair': function (el) { simple('api_repair', el, function () { AD.settings = null; }); },
+    'admin-archive': function (el) { toast('Entretien en cours…'); simple('api_archiveNow', el); },
+    'admin-stats': function (el) { simple('api_rebuildStats', el); }
+  });
+
+  /** Champs de la page : aperçu des SMS, changement de rôle, groupe de réglages ouvert. */
+  function onChange(e) {
+    if (e.target.hasAttribute('data-team-role')) {
+      var email = e.target.getAttribute('data-team-role');
+      var m = (AD.team.members || []).filter(function (x) { return x.email === email; })[0];
+      teamCall('api_teamSave', [{ email: email, name: m ? m.name : '', role: e.target.value }], e.target);
+      return true;
+    }
+    return false;
+  }
+  document.addEventListener('input', function (e) {
+    if (!e.target.hasAttribute || !e.target.hasAttribute('data-sms')) return;
+    var p = smsPreview(e.target.value);
+    var wrap = e.target.parentNode;
+    var prev = wrap.querySelector('.sms-preview');
+    var info = wrap.querySelector('.sms-info');
+    if (prev) prev.textContent = p.text;
+    if (info) info.textContent = p.info;
+  });
+  document.addEventListener('toggle', function (e) {
+    if (e.target.classList && e.target.classList.contains('settings-group')) AD.open[e.target.getAttribute('data-group')] = e.target.open;
+  }, true);
+
+  DZ.modules.admin = { page: pageAdmin, onChange: onChange };
+})(window.DZ);

@@ -116,6 +116,8 @@
     return this;
   };
   Sheet.prototype.setFrozenRows = function (n) { this.frozen = n; return this; };
+  Sheet.prototype.hideSheet = function () { this.hidden = true; return this; };
+  Sheet.prototype.isSheetHidden = function () { return !!this.hidden; };
   Sheet.prototype.setColumnWidth = function () { return this; };
   Sheet.prototype.getConditionalFormatRules = function () { return this._cf.slice(); };
   Sheet.prototype.setConditionalFormatRules = function (rules) { this._cf = rules.slice(); return this; };
@@ -123,7 +125,12 @@
   function Spreadsheet() {
     this.sheets = [new Sheet(this, 'Feuille 1')];
     this.toasts = [];
+    this.editors = ['admin@example.com'];
   }
+  Spreadsheet.prototype.addEditor = function (email) { if (this.editors.indexOf(email) < 0) this.editors.push(email); return this; };
+  Spreadsheet.prototype.removeEditor = function (email) { this.editors = this.editors.filter(function (e) { return e !== email; }); return this; };
+  Spreadsheet.prototype.getEditors = function () { return this.editors.map(function (e) { return { getEmail: function () { return e; } }; }); };
+  Spreadsheet.prototype.getOwner = function () { return { getEmail: function () { return 'admin@example.com'; } }; };
   Spreadsheet.prototype.getId = function () { return 'mock-spreadsheet'; };
   Spreadsheet.prototype.getSheetByName = function (n) {
     for (var i = 0; i < this.sheets.length; i++) if (this.sheets[i].name === n) return this.sheets[i];
@@ -176,6 +183,7 @@
     state.sleeps = [];
     state.prompts = [];
     state.alertAnswer = 'OK';
+    state.mails = [];
     if (g.__fakeEcotrack) g.__fakeEcotrack.reset();
     if (g.__fakeShopify) g.__fakeShopify.reset();
     if (g.__fakeHttpsms) g.__fakeHttpsms.reset();
@@ -234,6 +242,7 @@
     getScriptProperties: function () {
       return {
         getProperty: function (k) { return Object.prototype.hasOwnProperty.call(state.props, k) ? state.props[k] : null; },
+        getProperties: function () { return Object.assign({}, state.props); },
         setProperty: function (k, v) { state.props[k] = String(v); },
         deleteProperty: function (k) { delete state.props[k]; }
       };
@@ -249,6 +258,11 @@
         removeAll: function (keys) { keys.forEach(function (k) { delete state.cache[k]; }); }
       };
     }
+  };
+
+  g.MailApp = {
+    sendEmail: function (to, subject, body) { state.mails.push({ to: to, subject: subject, body: body }); },
+    getRemainingDailyQuota: function () { return 100 - state.mails.length; }
   };
 
   g.ScriptApp = {

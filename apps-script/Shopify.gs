@@ -538,8 +538,7 @@ function menuShopifySetup() {
   }
   try {
     saveShopifyConfig_(first.getResponseText(), key, secret);
-    installTriggers_(); // l'importation automatique ne tourne que si Shopify est configuré
-    ui.alert('Shopify', api_shopifyTest().message + '\n\nL’importation automatique se fait toutes les 5 minutes. Pour importer tout de suite : DZ Smart Shop › Shopify › Importer les commandes maintenant.', ui.ButtonSet.OK);
+    ui.alert('Shopify', api_shopifyTest().message + '\n\nL’importation automatique se fait toutes les 5 minutes.', ui.ButtonSet.OK);
   } catch (e) {
     ui.alert('Shopify : échec', String(e && e.message ? e.message : e), ui.ButtonSet.OK);
   }

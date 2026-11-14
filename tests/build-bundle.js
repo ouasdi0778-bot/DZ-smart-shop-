@@ -11,8 +11,31 @@ var path = require('path');
 var ROOT = path.join(__dirname, '..');
 var SRC = path.join(ROOT, 'apps-script');
 var OUT = path.join(ROOT, 'dist', 'Code.gs');
-var ORDER = ['Config.gs', 'Utils.gs', 'Orders.gs', 'Ecotrack.gs', 'Tracking.gs', 'Labels.gs', 'FollowUp.gs', 'Shopify.gs', 'Releasit.gs', 'Rules.gs', 'Maintenance.gs', 'Stock.gs', 'Profit.gs', 'Sms.gs', 'Calls.gs', 'Api.gs', 'Setup.gs'];
-var HTML = ['Index', 'Styles', 'App'];
+var ORDER = ['Config.gs', 'Utils.gs', 'Orders.gs', 'Ecotrack.gs', 'Tracking.gs', 'Labels.gs', 'FollowUp.gs', 'Health.gs', 'Stats.gs', 'Admin.gs', 'Shopify.gs', 'Releasit.gs', 'Rules.gs', 'Maintenance.gs', 'Stock.gs', 'Profit.gs', 'Sms.gs', 'Calls.gs', 'Api.gs', 'Setup.gs'];
+var HTML = ['Index', 'Styles', 'App', 'PageStock', 'PageProfit', 'PageStats', 'PageAdmin'];
+
+/**
+ * Allège les pages envoyées au navigateur : retire les commentaires sur leur
+ * propre ligne, l'indentation et les lignes vides (le code n'est pas modifié).
+ */
+function minify(text) {
+  var out = [];
+  var inComment = false;
+  text.split('\n').forEach(function (line) {
+    var t = line.trim();
+    if (inComment) {
+      if (t.indexOf('*/') >= 0) inComment = false;
+      return;
+    }
+    if (!t || t.indexOf('//') === 0) return;
+    if (t.indexOf('/*') === 0) {
+      if (t.indexOf('*/') < 0) { inComment = true; return; }
+      if (t.slice(-2) === '*/') return;
+    }
+    out.push(t);
+  });
+  return out.join('\n');
+}
 
 function build() {
   var version = (fs.readFileSync(path.join(SRC, 'Config.gs'), 'utf8').match(/APP_VERSION = '([^']+)'/) || [])[1] || '';
@@ -40,13 +63,13 @@ function build() {
   parts.push('/* ======================= Pages HTML ======================= */', '');
   parts.push('var HTML_FILES_ = {');
   parts.push(HTML.map(function (name) {
-    return '  ' + name + ': ' + JSON.stringify(fs.readFileSync(path.join(SRC, name + '.html'), 'utf8'));
+    return '  ' + name + ': ' + JSON.stringify(minify(fs.readFileSync(path.join(SRC, name + '.html'), 'utf8')));
   }).join(',\n'));
   parts.push('};', '');
   return parts.join('\n');
 }
 
-module.exports = { build: build, OUT: OUT };
+module.exports = { build: build, OUT: OUT, minify: minify, HTML: HTML };
 
 if (require.main === module) {
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
