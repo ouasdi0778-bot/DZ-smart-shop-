@@ -57,18 +57,35 @@ function adminLog_(user, action, detail) {
 /* ------------------------------------------------------------------ */
 
 var LAZY_PAGES_ = {
-  stock: { file: 'PageStock', access: 'stock' },
-  benefices: { file: 'PageProfit', access: 'admin' },
-  stats: { file: 'PageStats', access: 'admin' },
-  admin: { file: 'PageAdmin', access: 'admin' }
+  stock: { file: 'PageStock', access: 'stock', fn: 'api_stockPage' },
+  benefices: { file: 'PageProfit', access: 'admin', fn: 'api_profit' },
+  stats: { file: 'PageStats', access: 'admin', fn: 'api_stats' },
+  admin: { file: 'PageAdmin', access: 'admin', fn: 'api_adminOverview' }
 };
 
-/** Code d'une page lourde, envoyé seulement quand on l'ouvre (et seulement si on y a droit). */
-function api_pageScript(name) {
+/**
+ * Code d'une page lourde, envoyé seulement quand on l'ouvre (et seulement si on y a droit),
+ * avec ses premières données (spec = { fn, args }) : un seul aller-retour.
+ */
+function api_pageScript(name, spec) {
   var page = LAZY_PAGES_[name];
   if (!page) throw new Error('Page inconnue.');
   if (page.access === 'admin') requireAdmin_(); else requireStockAccess_();
-  return include(page.file);
+  var out = { code: include(page.file), preload: null };
+  if (spec && spec.fn === page.fn) {
+    var args = Array.isArray(spec.args) ? JSON.parse(JSON.stringify(spec.args)) : [];
+    try {
+      out.preload = { key: spec.fn + '|' + JSON.stringify(args), data: globalApi_(spec.fn).apply(null, args) };
+    } catch (e) {
+      out.preload = null; // la page demandera ses données elle-même et affichera l'erreur
+    }
+  }
+  return out;
+}
+
+function globalApi_(fn) {
+  var map = { api_stockPage: api_stockPage, api_profit: api_profit, api_stats: api_stats, api_adminOverview: api_adminOverview };
+  return map[fn];
 }
 
 /* ------------------------------------------------------------------ */
@@ -105,9 +122,15 @@ function connectionsData_() {
 }
 
 /** Page Administration : tout ce qu'il faut pour la première vue (état et connexions). */
+/** Administration : mesurée (Administration › État de l'outil). */
 function api_adminOverview() {
+  var a = arguments;
+  return timed_('Administration', function () { return adminOverviewApi_.apply(null, a); });
+}
+
+function adminOverviewApi_() {
   requireAdmin_();
-  return { health: healthData_(), connections: connectionsData_(), version: APP_VERSION };
+  return { health: healthData_(), connections: connectionsData_(), version: APP_VERSION, perf: readPerf_() };
 }
 
 /** Ecotrack : adresse et jeton (jeton vide = garder l'actuel), puis test. */

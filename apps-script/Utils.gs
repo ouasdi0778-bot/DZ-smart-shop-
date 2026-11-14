@@ -99,9 +99,13 @@ function periodStart_(period, now) {
 function withLock_(fn) {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(20000)) throw new Error('Le classeur est occupé, réessayez dans quelques secondes.');
+  LOCK_DEPTH_++;
   try {
     return withLogBatch_(fn);
   } finally {
+    LOCK_DEPTH_--;
+    // Ce qui a été fait sous le verrou a peut-être modifié les commandes : la copie en mémoire est oubliée.
+    if (!LOCK_DEPTH_) invalidateOrdersCache_();
     // Les SMS des statuts changés sont mis en file d'attente (envoyés en arrière-plan).
     try { flushSmsPending_(); } catch (e) { /* ne bloque jamais l'action */ }
     lock.releaseLock();

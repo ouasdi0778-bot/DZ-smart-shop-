@@ -371,7 +371,13 @@ function readStockMoves_(limit) {
 }
 
 /** Page Stock (administrateur et magasinier). */
+/** Stock : mesurée (Administration › État de l'outil). */
 function api_stockPage() {
+  var a = arguments;
+  return timed_('Stock', function () { return stockPageApi_.apply(null, a); });
+}
+
+function stockPageApi_() {
   var user = requireStockAccess_();
   var settings = getSettings_();
   var d = stockData_(readOrders_(), settings);

@@ -301,7 +301,13 @@ function api_parcelHistory(id) {
  * Données de la page Suivi. days = période de l'argent « payé » et des
  * versements : 7, 30 ou 90 jours.
  */
-function api_trackingOverview(days) {
+/** Suivi : mesurée (Administration › État de l'outil). */
+function api_trackingOverview() {
+  var a = arguments;
+  return timed_('Suivi', function () { return trackingOverviewApi_.apply(null, a); });
+}
+
+function trackingOverviewApi_(days) {
   days = [7, 30, 90].indexOf(Number(days)) >= 0 ? Number(days) : 30;
   var cfg = ecotrackConfig_();
   var settings = getSettings_();

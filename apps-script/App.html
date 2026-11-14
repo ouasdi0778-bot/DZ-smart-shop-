@@ -36,7 +36,10 @@
     cooldown: 0,      // évite qu'un double clic traite aussi la commande suivante
     profit: { period: '30', tab: 'resume', data: null },
     stock: { data: null },
-    pendingTotal: 0   // commandes ni confirmées ni annulées (compteur « 5 / 12 »)
+    pendingTotal: 0,  // commandes ni confirmées ni annulées (compteur « 5 / 12 »)
+    dash: {},         // tableau de bord déjà reçu, par période (affiché tout de suite au retour sur la page)
+    listKey: '',      // filtre de la dernière liste reçue (S.list)
+    nav: null         // { route, t0 } : mesure du temps de la page ouverte
   };
   var TZ = 'Africa/Algiers';
   var ALERT = {
@@ -46,6 +49,29 @@
     'new': { bg: '#E6EEFB', fg: '#1E4FA8' }
   };
   var view = document.getElementById('view');
+
+  /* Petite barre en haut de l'écran pendant qu'une page se met à jour en arrière-plan. */
+  var syncing = 0;
+  function syncStart() { syncing++; document.body.classList.add('syncing'); }
+  function syncEnd() { syncing = Math.max(0, syncing - 1); if (!syncing) document.body.classList.remove('syncing'); }
+
+  /** Temps entre le clic sur la page et ses données à jour, gardé sur cet appareil (page Administration). */
+  var PERF_KEY = 'dz-smart-shop:temps-pages';
+  function perfDone(route) {
+    var n = S.nav;
+    if (!n || n.route !== route) return;
+    S.nav = null;
+    var ms = Math.round(performance.now() - n.t0);
+    try {
+      var all = JSON.parse(window.localStorage.getItem(PERF_KEY) || '{}');
+      var p = all[route] || { n: 0, total: 0, last: 0 };
+      p.n = Math.min(p.n + 1, 50);
+      p.total = p.n === 50 ? Math.round(p.total / 50 * 49) + ms : p.total + ms;
+      p.last = ms;
+      all[route] = p;
+      window.localStorage.setItem(PERF_KEY, JSON.stringify(all));
+    } catch (e) { /* navigation privée : pas de mesure */ }
+  }
 
   /** Appelle une fonction du serveur (Api.gs) et renvoie une promesse. */
   function call(fn) {
@@ -103,9 +129,18 @@
   }
   function wilayaName(w) { return String(w || '').replace(/^\d+\s*-\s*/, ''); }
 
+  /** Icône (dessin du « sprite » de Index.html). */
+  function icon(name, cls) {
+    return '<svg class="ic' + (cls ? ' ' + cls : '') + '" aria-hidden="true"><use href="#i-' + name + '"/></svg>';
+  }
+  var STATUS_ICON = {
+    'À confirmer': 'clock', 'Pas de réponse': 'noanswer', 'Rappeler': 'calendar', 'Injoignable': 'noanswer', 'Confirmée': 'check',
+    'Expédiée': 'suivi', 'En livraison': 'courier', 'Livrée': 'home', 'Retour': 'return', 'Annulée': 'x'
+  };
+
   function pill(status) {
     var st = (S.boot && S.boot.styles[status]) || { bg: '#EEF0F3', fg: '#3D4350' };
-    return '<span class="pill" style="background:' + st.bg + ';color:' + st.fg + '">' + h(status || '—') + '</span>';
+    return '<span class="pill" style="background:' + st.bg + ';color:' + st.fg + '">' + (STATUS_ICON[status] ? icon(STATUS_ICON[status]) : '') + h(status || '—') + '</span>';
   }
   function alertPill(text, level) {
     if (!text) return '';
@@ -138,7 +173,8 @@
   var toastTimer = null;
   function toast(msg, isError) {
     var t = $('#toast');
-    t.textContent = msg;
+    var busy = /…$/.test(String(msg || ''));
+    t.innerHTML = (busy ? '' : icon(isError ? 'alert' : 'ok')) + '<span>' + h(msg) + '</span>';
     t.className = 'show' + (isError ? ' error' : '');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { t.className = ''; }, isError ? 6000 : 3200);
@@ -190,6 +226,7 @@
   function go() {
     var r = currentRoute();
     S.route = r;
+    S.nav = { route: r, t0: performance.now() };
     $all('[data-route]').forEach(function (a) {
       var on = a.getAttribute('data-route') === r;
       a.classList.toggle('active', on);
@@ -238,7 +275,7 @@
     $all('[data-health-count]').forEach(function (el) { el.textContent = n; el.hidden = !n; });
     if (!banner) return;
     if (!hl || (!hl.late && !n)) { banner.hidden = true; return; }
-    banner.innerHTML = '⚠ ' + (hl.late ? 'Les tâches automatiques ne tournent plus.' : plural(n, 'problème détecté', 'problèmes détectés') + ' dans les tâches automatiques.') +
+    banner.innerHTML = '' + icon('alert') + '' + (hl.late ? 'Les tâches automatiques ne tournent plus.' : plural(n, 'problème détecté', 'problèmes détectés') + ' dans les tâches automatiques.') +
       ' <a href="#/admin">Voir l’état de l’outil</a>';
     banner.hidden = false;
   }
@@ -263,21 +300,40 @@
         return '<button type="button" data-act="period" data-period="' + p[0] + '" aria-pressed="' + (S.period === p[0]) + '">' + p[1] + '</button>';
       }).join('') + '</div></div>' +
       '<div id="dash"><p class="loading">Chargement…</p></div>';
-    call('api_dashboard', S.period).then(function (d) {
-      if (t === S.token) renderDashboard(d);
+    var period = S.period;
+    if (S.dash[period]) renderDashboard(S.dash[period]); // dernières données tout de suite, mises à jour juste après
+    syncStart();
+    call('api_dashboard', period).then(function (d) {
+      syncEnd();
+      S.dash[period] = d;
+      if (t === S.token) { renderDashboard(d); perfDone('tableau'); }
     }).catch(function (e) {
-      if (t === S.token) $('#dash').innerHTML = errorBox(e);
+      syncEnd();
+      if (t === S.token && !S.dash[period]) $('#dash').innerHTML = errorBox(e);
     });
+  }
+
+  /** Petite courbe des 7 derniers jours (le dernier point = aujourd'hui). */
+  function spark(values) {
+    if (!values || !values.length) return '';
+    var max = Math.max.apply(null, values.concat([1]));
+    var W = 84;
+    var H = 26;
+    var pts = values.map(function (v, i) { return (4 + i * (W - 8) / (values.length - 1)).toFixed(1) + ',' + (H - 4 - v / max * (H - 8)).toFixed(1); });
+    var last = pts[pts.length - 1].split(',');
+    return '<svg class="spark" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="7 derniers jours : ' + values.join(', ') + '">' +
+      '<polyline points="' + pts.join(' ') + '"/><circle cx="' + last[0] + '" cy="' + last[1] + '" r="2.6"/></svg>';
   }
 
   function renderDashboard(d) {
     var st = S.boot.styles;
+    var sp = d.spark || {};
     var kpis = [
-      ['Commandes reçues', d.received, plural(d.waiting, 'commande en attente', 'commandes en attente')],
-      ['Taux de confirmation', pct(d.confirmed, d.decided), d.confirmed + ' confirmées sur ' + d.decided + ' traitées'],
-      ['Taux de livraison', pct(d.delivered, d.delivered + d.returned), d.delivered + ' livrées · ' + d.returned + ' retours'],
-      ['Montant livré', money(d.revenueDelivered), 'Commandes livrées sur la période'],
-      ['Argent en route', money(d.inTransitAmount), plural(d.inTransitCount, 'colis pas encore livré', 'colis pas encore livrés')]
+      ['Commandes reçues', d.received, plural(d.waiting, 'commande en attente', 'commandes en attente'), 'commandes', sp.received],
+      ['Taux de confirmation', pct(d.confirmed, d.decided), d.confirmed + ' confirmées sur ' + d.decided + ' traitées', 'confirmation', sp.confirmed],
+      ['Taux de livraison', pct(d.delivered, d.delivered + d.returned), d.delivered + ' livrées · ' + d.returned + ' retours', 'home', sp.delivered],
+      ['Montant livré', money(d.revenueDelivered), 'Commandes livrées sur la période', 'benefices', sp.revenue],
+      ['Argent en route', money(d.inTransitAmount), plural(d.inTransitCount, 'colis pas encore livré', 'colis pas encore livrés'), 'suivi', null]
     ];
     var funnel = [
       ['Reçues', d.received, '#EEF0F3', '#3D4350'],
@@ -299,7 +355,8 @@
 
     var html = '<div class="stack">';
     html += '<section class="grid-kpi" aria-label="Chiffres clés">' + kpis.map(function (k) {
-      return '<div class="card kpi"><span class="label">' + h(k[0]) + '</span><span class="value">' + h(k[1]) + '</span><span class="note">' + h(k[2]) + '</span></div>';
+      return '<div class="card kpi"><span class="label"><span class="kpi-ic">' + icon(k[3]) + '</span>' + h(k[0]) + '</span>' +
+        '<span class="kpi-row"><span class="value">' + h(k[1]) + '</span>' + spark(k[4]) + '</span><span class="note">' + h(k[2]) + '</span></div>';
     }).join('') + '</section>';
 
     html += '<section class="card"><h2>Parcours des commandes</h2><div class="funnel">' + funnel.map(function (f) {
@@ -360,7 +417,7 @@
     var periods = [['today', 'Aujourd’hui'], ['7', '7 derniers jours'], ['30', '30 derniers jours'], ['all', 'Tout']];
     view.innerHTML =
       '<div class="page-head"><div><h1>Commandes</h1><p class="sub">Commandes pas encore confirmées. Une commande confirmée passe dans <strong>Expédier</strong>, puis <strong>Suivi</strong>. La recherche trouve toutes les commandes.</p></div>' +
-      '<button type="button" class="btn primary" data-act="new-order">+ Nouvelle commande</button></div>' +
+      '<button type="button" class="btn primary" data-act="new-order">' + icon('plus') + 'Nouvelle commande</button></div>' +
       '<div id="shop-status"></div>' +
       '<div class="chips" id="chips" role="group" aria-label="Filtrer par statut"></div>' +
       '<div class="filters">' +
@@ -371,8 +428,16 @@
         }).join('') + '</select>') +
       '</div>' +
       '<div id="orders-list"><p class="loading">Chargement…</p></div>';
+    if (S.list && S.listKey === listKey()) {
+      renderChips(S.list.counts);
+      renderOrderList(S.list);
+      if (S.list.importStatus) renderShopStatus(S.list.importStatus);
+    }
     loadOrders(true);
   }
+
+  /** Le filtre d'une liste (sans les options d'ouverture de page). */
+  function listKey() { return JSON.stringify(listArgs(false)); }
 
   /* Arrivée automatique des commandes (Releasit, Shopify) : état, et transfert à la demande. */
   function statusCard(inner) {
@@ -425,14 +490,20 @@
   function loadOrders(first) {
     var t = ++S.token;
     if (S.filter.status === 'trash' && !String(S.filter.q || '').trim()) { loadTrash(t); return; }
+    var key = listKey();
+    syncStart();
     call('api_listOrders', listArgs(first)).then(function (res) {
+      syncEnd();
       if (t !== S.token || S.route !== 'commandes') return;
       S.list = res;
+      S.listKey = key;
+      perfDone('commandes');
       renderChips(res.counts);
       renderOrderList(res);
       if (res.importStatus) renderShopStatus(res.importStatus);
       if (res.arrived) { toast(arrivedText(res.arrived)); if (res.menuCounts) applyCounts(res.menuCounts); }
     }).catch(function (e) {
+      syncEnd();
       if (t === S.token) $('#orders-list').innerHTML = errorBox(e);
     });
   }
@@ -450,7 +521,7 @@
           return [h(o.id) + '<div class="small">' + fmtDate(o.date) + '</div>', h(o.client) + '<div class="small">' + h(fmtPhone(o.phone)) + '</div>',
             h(o.product), money(o.total), pill(o.status),
             h(fmtDate(o.deletedAt)) + '<div class="small">par ' + h(o.deletedBy || '—') + (o.reason ? ' · ' + h(o.reason) : '') + '</div>',
-            '<button type="button" class="btn" style="min-height:36px" data-act="trash-restore" data-id="' + h(o.id) + '">Restaurer</button>'];
+            '<button type="button" class="btn" style="min-height:36px" data-act="trash-restore" data-id="' + h(o.id) + '">' + icon('return') + 'Restaurer</button>'];
         }), [3]);
     }).catch(function (e) {
       if (t === S.token) $('#orders-list').innerHTML = errorBox(e);
@@ -471,8 +542,8 @@
       return c[0] === 'todo' || c[0] === S.filter.status || counts[c[0]];
     }).map(function (c) { return chip(c, counts[c[0]]); }).join('') +
       '<span class="chip-sep" aria-hidden="true"></span>' +
-      chip(['Annulée', '✕ Annulées'], counts['Annulée']) +
-      (S.boot.user.admin ? chip(['trash', '🗑 Corbeille'], null) : '');
+      chip(['Annulée', 'Annulées'], counts['Annulée']) +
+      (S.boot.user.admin ? chip(['trash', 'Corbeille'], null) : '');
   }
 
   function renderOrderList(res) {
@@ -486,9 +557,15 @@
       return '<th scope="col">' + t + '</th>';
     }).join('') + '</tr></thead><tbody>';
     res.rows.forEach(function (o) {
-      html += '<tr class="clickable" data-act="open-order" data-id="' + h(o.id) + '">' +
+      var stc = (S.boot.styles[o.status] || {}).fg || '#CFD4DB';
+      html += '<tr class="clickable compact" style="--st:' + stc + '" data-act="open-order" data-id="' + h(o.id) + '">' +
+        '<td class="m-sum" data-label=""><span class="l1"><span>' + h(o.client || '—') + '</span><span class="num">' + money(o.total) + '</span></span>' +
+          '<span class="l2">' + pill(o.status) + '<span>' + h(wilayaName(o.wilaya)) + '</span><span>· ' + h(o.id) + '</span>' +
+          (o.locked ? '<span class="lock-icon">' + icon('lock') + '</span>' : '') +
+          (o.alertLevel === 'bad' || o.alertLevel === 'warn' ? alertPill(o.alert, o.alertLevel) : '') +
+          (o.status === 'Annulée' && o.cancelReason ? '<span style="color:#A12626">Motif : ' + h(o.cancelReason) + '</span>' : '') + '</span></td>' +
         '<td data-label="N°" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button>' +
-          (o.locked ? ' <span class="lock-icon" title="Verrouillée" aria-label="Verrouillée">🔒</span>' : '') + '<div class="small">' + fmtDate(o.date) + '</div></td>' +
+          (o.locked ? ' <span class="lock-icon" title="Verrouillée" aria-label="Verrouillée">' + icon('lock') + '</span>' : '') + '<div class="small">' + fmtDate(o.date) + '</div></td>' +
         '<td data-label="Client" class="multi">' + h(o.client) + '<div class="small">' + h(fmtPhone(o.phone)) + '</div></td>' +
         '<td data-label="Wilaya" class="multi">' + h(o.wilaya) + '<div class="small">' + h(o.commune) + '</div></td>' +
         '<td data-label="Produit">' + h(o.product) + (o.qty > 1 ? ' ×' + o.qty : '') + '</td>' +
@@ -556,8 +633,8 @@
         field('Motif du déverrouillage (obligatoire)', input('forceReason', '', ' data-role="force-reason" placeholder="Ex. adresse corrigée à la demande d’Ecotrack"'), 'full');
     }
     if (!r.locked) return '';
-    return '<div class="lock-box"><p>🔒 ' + h(r.reason) + '</p>' +
-      (r.canPrintLabel ? '<button type="button" class="btn" data-act="label-one" data-id="' + h(o.id) + '">🖨 Bordereau</button>' +
+    return '<div class="lock-box"><p>' + icon('lock') + '' + h(r.reason) + '</p>' +
+      (r.canPrintLabel ? '<button type="button" class="btn" data-act="label-one" data-id="' + h(o.id) + '">' + icon('printer') + 'Bordereau</button>' +
         (o.label && (o.label.printed || o.label.reprint) ? '<span class="small">' + (o.label.reprint ? 'Bordereau à réimprimer (colis recréé)' : 'Imprimé le ' + h(o.label.at) + (o.label.by ? ' · ' + h(o.label.by) : '')) + '</span>' : '') : '') +
       (r.canCancelParcel ? '<button type="button" class="btn danger" data-act="parcel-cancel-ask" data-id="' + h(o.id) + '" data-tracking="' + h(o.tracking) + '">Annuler le colis</button>' : '') +
       (r.canReopen ? '<button type="button" class="btn" data-act="order-reopen" data-id="' + h(o.id) + '">Remettre à confirmer</button>' : '') +
@@ -603,7 +680,7 @@
       '<div class="modal-actions">' +
         (data.phoneValid ? '<button type="button" class="btn ' + (data.blacklisted ? '' : 'danger') + '" data-act="toggle-blacklist" data-phone="' + h(o.phone) + '" data-on="' + (!data.blacklisted) + '">' +
           (data.blacklisted ? 'Retirer de la liste noire' : 'Mettre en liste noire') + '</button>' : '') +
-        (r.canDelete ? '<button type="button" class="btn danger" data-act="order-delete-ask" data-id="' + h(o.id) + '">Supprimer</button>' : '') +
+        (r.canDelete ? '<button type="button" class="btn danger" data-act="order-delete-ask" data-id="' + h(o.id) + '">' + icon('trash') + 'Supprimer</button>' : '') +
         '<button type="button" class="btn" data-act="close-modal">Fermer</button>' +
         '<button type="button" class="btn primary" data-act="save-order" data-id="' + h(o.id) + '">' + (locked ? 'Enregistrer les notes' : 'Enregistrer') + '</button>' +
       '</div>'
@@ -699,7 +776,7 @@
     if (!items || !items.length) return '';
     var short = items.filter(function (it) { return it.short; });
     var html = short.map(function (it) {
-      return '<div class="stock-warn">⚠ Stock insuffisant : ' + h(it.model || it.product) + ' — disponible ' + Math.max(it.available, 0) +
+      return '<div class="stock-warn">' + icon('alert') + 'Stock insuffisant : ' + h(it.model || it.product) + ' — disponible ' + Math.max(it.available, 0) +
         (it.reserved ? ' (' + it.reserved + ' réservé' + (it.reserved > 1 ? 's' : '') + ')' : '') + ', demandé ' + it.qty + '</div>';
     }).join('');
     if (!short.length && S.boot.user.admin) {
@@ -837,8 +914,14 @@
         '<section class="queue" id="queue" aria-label="File d’appels"><p class="loading">Chargement…</p></section>' +
         '<section class="detail" id="detail"></section>' +
       '</div>';
-    S.currentId = null;
     S.prefetch = null;
+    var cached = S.queue && S.queue.due && S.queue.due.length && S.current && S.current.order && S.current.order.id === S.queue.due[0].id;
+    if (S.queue) {
+      renderQueue();
+      if (cached) { S.currentId = S.current.order.id; markCurrent(); renderDetail(); } else { S.currentId = null; }
+    } else {
+      S.currentId = null;
+    }
     loadQueue(true, true);
   }
 
@@ -853,8 +936,11 @@
 
   function loadQueue(selectFirst, sync) {
     var opts = sync ? (selectFirst ? { sync: true, first: true } : { sync: true }) : null;
+    syncStart();
     return (opts ? call('api_queue', opts) : call('api_queue')).then(function (q) {
+      syncEnd();
       if (S.route !== 'confirmation') return;
+      perfDone('confirmation');
       if (q.arrived) toast(arrivedText(q.arrived));
       if (q.menuCounts) applyCounts(q.menuCounts);
       setQueue(q);
@@ -863,7 +949,12 @@
       var ids = q.due.concat(q.later).map(function (x) { return x.id; });
       if (selectFirst || !S.currentId || ids.indexOf(S.currentId) < 0) {
         if (!selectFirst && S.currentId && !S.busy) toast('La commande ' + S.currentId + ' a été traitée par une autre personne.');
-        if (q.firstDetail && q.due.length && q.firstDetail.order.id === q.due[0].id) {
+        var shown = q.due.length && S.currentId === q.due[0].id && $('#d-form') && S.current && q.firstDetail &&
+          q.firstDetail.order.id === S.currentId && q.firstDetail.order.updated === S.current.order.updated;
+        if (shown) {
+          // La fiche affichée (dernières données) est toujours à jour : on la garde, pour ne pas effacer une saisie.
+          S.current = q.firstDetail;
+        } else if (q.firstDetail && q.due.length && q.firstDetail.order.id === q.due[0].id) {
           // Fiche jointe à la file : affichée sans nouvel aller-retour.
           S.currentId = q.due[0].id; S.current = q.firstDetail; ++S.detailToken;
           markCurrent(); renderDetail();
@@ -871,7 +962,8 @@
         else renderEmptyDetail();
       }
     }).catch(function (e) {
-      if (S.route === 'confirmation') $('#queue').innerHTML = errorBox(e);
+      syncEnd();
+      if (S.route === 'confirmation' && !S.queue) $('#queue').innerHTML = errorBox(e);
     });
   }
 
@@ -893,7 +985,7 @@
         '</span></button>';
     };
     var html = '<div class="q-top"><span class="queue-title">À appeler · ' + q.due.length + '</span>' +
-      '<button type="button" class="btn" style="min-height:36px;padding:0 10px" data-act="refresh-queue">Actualiser</button></div>';
+      '<button type="button" class="btn" style="min-height:36px;padding:0 10px" data-act="refresh-queue">' + icon('refresh') + 'Actualiser</button></div>';
     html += q.due.length ? q.due.map(item).join('') : '<p class="small">Personne à appeler pour le moment.</p>';
     if (q.later.length) html += '<span class="queue-title">Rappels programmés · ' + q.later.length + '</span>' + q.later.map(item).join('');
     $('#queue').innerHTML = html;
@@ -939,10 +1031,10 @@
       : 'Première commande avec ce numéro';
     var dueCount = S.queue ? S.queue.due.length : 0;
     var callBtn = d.phoneValid
-      ? '<a class="btn primary" href="tel:' + h(o.phone) + '" target="_top">Appeler</a>'
+      ? '<a class="btn primary" href="tel:' + h(o.phone) + '" target="_top">' + icon('confirmation') + 'Appeler</a>'
       : '<span class="btn" aria-disabled="true">Numéro invalide</span>';
     var waBtn = d.intlPhone
-      ? '<a class="btn" id="d-wa" href="#" target="_blank" rel="noopener">WhatsApp</a>'
+      ? '<a class="btn" id="d-wa" href="#" target="_blank" rel="noopener">' + icon('whatsapp') + 'WhatsApp</a>'
       : '';
 
     $('#detail').innerHTML =
@@ -968,10 +1060,10 @@
       '</div>' +
       '<div class="card"><h3>Résultat de l’appel</h3>' +
         '<div class="outcomes">' +
-          '<button type="button" class="btn primary big" data-act="confirm">Confirmer</button>' +
-          '<button type="button" class="btn big" data-act="no_answer">Pas de réponse</button>' +
-          '<button type="button" class="btn warn big" data-act="show-callback">Rappeler plus tard</button>' +
-          '<button type="button" class="btn danger big" data-act="show-cancel">Annuler</button>' +
+          '<button type="button" class="btn primary big" data-act="confirm">' + icon('check') + 'Confirmer</button>' +
+          '<button type="button" class="btn big" data-act="no_answer">' + icon('noanswer') + 'Pas de réponse</button>' +
+          '<button type="button" class="btn warn big" data-act="show-callback">' + icon('calendar') + 'Rappeler plus tard</button>' +
+          '<button type="button" class="btn danger big" data-act="show-cancel">' + icon('x') + 'Annuler</button>' +
         '</div><div id="d-panel"></div>' +
       '</div>' +
       '<div class="card"><h3>Message WhatsApp</h3><p class="message" id="d-msg"></p>' +
@@ -1127,15 +1219,19 @@
   function pageShipping() {
     view.innerHTML =
       '<div class="page-head"><div><h1>Expéditions</h1><p class="sub">Envoi à Ecotrack, bordereaux et validation de l’expédition</p></div>' +
-      '<button type="button" class="btn" data-act="ship-reload">Actualiser</button></div>' +
+      '<button type="button" class="btn" data-act="ship-reload">' + icon('refresh') + 'Actualiser</button></div>' +
       '<div id="ship"><p class="loading">Chargement…</p></div>';
+    if (S.ship.data) renderShipping();
     loadShipping();
   }
 
   function loadShipping() {
     var t = ++S.token;
+    syncStart();
     return call('api_shippingList').then(function (d) {
+      syncEnd();
       if (t !== S.token || S.route !== 'expeditions') return;
+      perfDone('expeditions');
       S.ship.data = d;
       var ready = {};
       d.toShip.forEach(function (o) { if (!o.problems.length) ready[o.id] = true; });
@@ -1146,7 +1242,8 @@
       renderShipping();
       maybeRefreshCreated(d);
     }).catch(function (e) {
-      if (t === S.token && S.route === 'expeditions') $('#ship').innerHTML = errorBox(e);
+      syncEnd();
+      if (t === S.token && S.route === 'expeditions' && !S.ship.data) $('#ship').innerHTML = errorBox(e);
     });
   }
 
@@ -1186,7 +1283,7 @@
       if (okCount) {
         html += '<p style="margin-bottom:8px">Ces colis sont <strong>créés</strong> chez Ecotrack mais <strong>pas encore expédiés</strong> : ' +
           'imprimez les bordereaux, puis validez l’expédition (onglet « Créés, à valider »).</p>' +
-          '<div class="quick" style="margin-bottom:8px"><button type="button" class="btn primary" data-act="labels-from-results">🖨 Imprimer les bordereaux de ces colis</button></div>';
+          '<div class="quick" style="margin-bottom:8px"><button type="button" class="btn primary" data-act="labels-from-results">' + icon('printer') + 'Imprimer les bordereaux de ces colis</button></div>';
       }
       html += sh.results.map(function (r) {
         return '<div class="result-row"><span class="pill" style="background:' + (r.ok ? '#DDF0E4;color:#146C2E' : '#FBE7E7;color:#A12626') + '">' + (r.ok ? 'Créé' : 'Refusé') + '</span>' +
@@ -1245,7 +1342,7 @@
         '<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
         '<td data-label="État">' + (ok ? '<span class="pill" style="background:#DDF0E4;color:#146C2E">Prête</span>' :
           '<span class="problems">' + o.problems.map(function (p) { return '<span>' + h(p) + '</span>'; }).join('') + '</span>') + '</td>' +
-        '<td data-label=""><span class="quick"><button type="button" class="btn" style="min-height:36px" data-act="open-order" data-id="' + h(o.id) + '">Modifier</button>' +
+        '<td data-label=""><span class="quick"><button type="button" class="btn" style="min-height:36px" data-act="open-order" data-id="' + h(o.id) + '">' + icon('edit') + 'Modifier</button>' +
           (manualCarriers().length ? '<button type="button" class="btn" style="min-height:36px" data-act="manual-ship-ask" data-id="' + h(o.id) + '">Expédiée (autre société)</button>' : '') + '</span></td></tr>';
     });
     return html + '</tbody></table></div>' +
@@ -1275,9 +1372,9 @@
       '<button type="button" class="chip" data-act="label-format" data-format="A4" aria-pressed="' + (fmt === 'A4') + '">A4 · 4 par feuille</button>' +
       '<button type="button" class="chip" data-act="label-format" data-format="10x15" aria-pressed="' + (fmt === '10x15') + '">Étiquette 10×15</button></div>' +
       '<div class="quick">' +
-      '<button type="button" class="btn primary" data-act="labels-print"' + ((!n || sh.printing) ? ' disabled' : '') + '>🖨 Imprimer les bordereaux (' + n + ')</button>' +
+      '<button type="button" class="btn primary" data-act="labels-print"' + ((!n || sh.printing) ? ' disabled' : '') + '>' + icon('printer') + 'Imprimer les bordereaux (' + n + ')</button>' +
       (d.canValidate ? '<button type="button" class="btn" data-act="validate-ask"' + ((!n || sh.vbusy) ? ' disabled' : '') + '>' +
-        (sh.vbusy ? 'Validation en cours…' : '✓ Valider l’expédition (' + n + ')') + '</button>' : '') +
+        (sh.vbusy ? 'Validation en cours…' : '' + icon('check') + 'Valider l’expédition (' + n + ')') + '</button>' : '') +
       '</div></section>';
     if (!list.length) return html + '<div class="card"><p class="empty">Tous les bordereaux sont imprimés.</p></div>';
     html += '<div class="table-wrap"><table class="data cards"><thead><tr>' +
@@ -1308,7 +1405,7 @@
   function labelBadge(l) {
     l = l || {};
     if (l.reprint) return '<span class="pill" style="background:#FFF3DC;color:#8A5200">À réimprimer</span><div class="small">colis recréé : nouveau n° de suivi</div>';
-    if (l.printed) return '<span class="pill" style="background:#DDF0E4;color:#146C2E">🖨 Imprimé</span><div class="small">le ' + h(l.at) + (l.by ? ' · ' + h(l.by) : '') + '</div>';
+    if (l.printed) return '<span class="pill" style="background:#DDF0E4;color:#146C2E">' + icon('printer') + 'Imprimé</span><div class="small">le ' + h(l.at) + (l.by ? ' · ' + h(l.by) : '') + '</div>';
     return '<span class="pill" style="background:#EEF0F3;color:#3D4350">Pas imprimé</span>';
   }
 
@@ -1486,7 +1583,7 @@
       failedList(failed) +
       '<div class="modal-actions">' +
       '<a class="btn" href="' + h(url) + '" download="' + h(name) + '" data-label-download>Télécharger</a>' +
-      '<button type="button" class="btn primary" data-act="labels-open">🖨 Ouvrir et imprimer</button></div>');
+      '<button type="button" class="btn primary" data-act="labels-open">' + icon('printer') + 'Ouvrir et imprimer</button></div>');
   }
 
   /** Note « imprimé » (une fois par PDF) dès que vous l'ouvrez, l'imprimez ou le téléchargez. */
@@ -1522,7 +1619,7 @@
     showModal(modalHead('Valider l’expédition ?') +
       '<p>' + plural(ids.length, 'colis va être validé', 'colis vont être validés') + ' chez Ecotrack. Ensuite, <strong>plus de modification ni d’annulation possible</strong> : ' +
       'en cas de problème, il faudra faire une demande de retour.</p>' +
-      (notPrinted ? '<div class="lock-box warn"><p>⚠ ' + plural(notPrinted, 'colis n’a pas', 'colis n’ont pas') + ' de bordereau imprimé dans l’outil.</p></div>' : '') +
+      (notPrinted ? '<div class="lock-box warn"><p>' + icon('alert') + '' + plural(notPrinted, 'colis n’a pas', 'colis n’ont pas') + ' de bordereau imprimé dans l’outil.</p></div>' : '') +
       '<label class="check-line" style="margin:14px 0"><input type="checkbox" class="check" id="v-pickup"' + (d.pickup ? ' checked' : '') + '> ' +
       'Demander le ramassage <span class="small">(décoché : vous déposez les colis à l’agence)</span></label>' +
       '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Annuler</button>' +
@@ -1673,18 +1770,23 @@
 
   function pageTracking() {
     view.innerHTML = '<div id="track"><p class="loading">Chargement…</p></div>';
+    if (S.track.data && S.track.data.days === S.track.days) renderTracking();
     loadTracking();
   }
 
   function loadTracking() {
     var t = ++S.token;
+    syncStart();
     return call('api_trackingOverview', S.track.days).then(function (d) {
+      syncEnd();
       if (t !== S.token || S.route !== 'suivi') return;
+      perfDone('suivi');
       S.track.data = d;
       setAlertCount(d.alerts.filter(function (a) { return a.level !== 'info'; }).length);
       renderTracking();
     }).catch(function (e) {
-      if (t === S.token && S.route === 'suivi') $('#track').innerHTML = errorBox(e);
+      syncEnd();
+      if (t === S.token && S.route === 'suivi' && !S.track.data) $('#track').innerHTML = errorBox(e);
     });
   }
 
@@ -1696,7 +1798,7 @@
     var toReceive = m.delivered.amount + m.cashed.amount + m.ready.amount;
     var html = '<div class="page-head"><div><h1>Suivi des colis</h1><p class="sub">' +
       (d.lastSync ? 'Statuts relus ' + h(ago(d.lastSync)) + ' · automatiquement toutes les 30 minutes' : 'Statuts pas encore relus') + '</p></div>' +
-      '<button type="button" class="btn primary" data-act="track-sync">Actualiser les statuts</button></div>';
+      '<button type="button" class="btn primary" data-act="track-sync">' + icon('refresh') + 'Actualiser les statuts</button></div>';
     html += '<div class="stack">';
     if (!d.configured) {
       html += '<div class="card"><h2>Ecotrack n’est pas encore configuré</h2><p class="sub">Enregistrez l’adresse et le jeton dans le classeur (menu DZ Smart Shop › Ecotrack), puis créez vos premiers colis dans la page Expéditions.</p></div>';
@@ -1731,7 +1833,7 @@
           '<span class="grow"><strong>' + h(a.title) + '</strong> · <button type="button" class="link-btn" data-act="open-order" data-id="' + h(a.id) + '">' + h(a.id) + '</button> · ' + h(a.client) + ' · ' + h(wilayaName(a.wilaya)) +
           (a.tagLabel ? ' ' + tagPill(a.tag, a.tagLabel) : '') +
           '<br><span class="small" style="color:var(--ink-2)">' + h(a.detail) + '</span>' +
-          (a.courierNote ? '<br><span class="small courier-note">🛵 Livreur : ' + h(a.courierNote) + '</span>' : '') +
+          (a.courierNote ? '<br><span class="small courier-note">' + icon('courier') + 'Livreur : ' + h(a.courierNote) + '</span>' : '') +
           (a.calls && !a.proposeReturn ? '<br><span class="small strong">' + plural(a.calls, 'appel sans réponse', 'appels sans réponse') + '</span>' : '') +
           '<br><span class="small mono">' + h(a.tracking) + ' · ' + h(a.carrierLabel || 'statut pas encore lu') + ' · depuis ' + h(ago(a.since).replace(/^il y a /, '')) + '</span>' +
           (a.proposeReturn ? '<span class="lock-box warn" style="margin-top:8px"><p>' + plural(a.calls, 'appel', 'appels') + ' sans réponse : demander le retour du colis ?</p>' +
@@ -1739,9 +1841,9 @@
             '<button type="button" class="btn" style="min-height:40px" data-act="follow-quick" data-result="informed" data-id="' + h(a.id) + '">Laisser le livreur réessayer</button></span>' : '') +
           '</span>' +
           '<span class="quick">' +
-            (/^0\d{8,9}$/.test(String(a.phone).replace(/\D/g, '')) ? '<a class="btn" style="min-height:40px" href="tel:' + h(a.phone) + '" target="_top">Appeler</a>' : '') +
-            (wa ? '<a class="btn" style="min-height:40px" href="' + h(wa) + '" target="_blank" rel="noopener">WhatsApp</a>' : '') +
-            '<button type="button" class="btn" style="min-height:40px" data-act="track-history" data-id="' + h(a.id) + '">Chronologie</button>' +
+            (/^0\d{8,9}$/.test(String(a.phone).replace(/\D/g, '')) ? '<a class="btn" style="min-height:40px" href="tel:' + h(a.phone) + '" target="_top">' + icon('confirmation') + 'Appeler</a>' : '') +
+            (wa ? '<a class="btn" style="min-height:40px" href="' + h(wa) + '" target="_blank" rel="noopener">' + icon('whatsapp') + 'WhatsApp</a>' : '') +
+            '<button type="button" class="btn" style="min-height:40px" data-act="track-history" data-id="' + h(a.id) + '">' + icon('clock') + 'Chronologie</button>' +
             (a.callable
               ? '<button type="button" class="btn primary" style="min-height:40px" data-act="follow-open" data-id="' + h(a.id) + '">Résultat de l’appel</button>'
               : '<button type="button" class="btn" style="min-height:40px" data-act="track-done" data-id="' + h(a.id) + '">Marquer comme traité</button>') +
@@ -1786,7 +1888,7 @@
               (p.courierNote && (p.group === 'suspended' || p.group === 'returning') ? '<div class="small courier-note">' + (p.tagLabel ? tagPill('', p.tagLabel) + ' ' : '') + h(p.courierNote) + '</div>' : '') + '</td>' +
             '<td data-label="Depuis">' + h(hoursText(p.ageHours)) + '</td>' +
             '<td data-label="Total" class="num strong">' + money(p.total) + '</td>' +
-            '<td data-label=""><button type="button" class="btn" style="min-height:36px" data-act="track-history" data-id="' + h(p.id) + '">Chronologie</button></td></tr>';
+            '<td data-label=""><button type="button" class="btn" style="min-height:36px" data-act="track-history" data-id="' + h(p.id) + '">' + icon('clock') + 'Chronologie</button></td></tr>';
         }).join('') + '</tbody></table></div>';
     }
     return html + '</section>';
@@ -1817,7 +1919,7 @@
     if (!d.remarksOk) return html + '<p class="small">Remarques non disponibles : ' + h(d.remarksError || 'erreur') + '</p>';
     if (!d.remarks.length) return html + '<p class="small">Aucune remarque sur ce colis.</p>';
     return html + '<div class="remarks">' + d.remarks.map(function (r) {
-      return '<div class="remark' + (r.mine ? ' mine' : '') + '"><span class="small strong">' + (r.mine ? 'Vous' : '🛵 ' + h(r.author || 'Livreur')) + '</span>' +
+      return '<div class="remark' + (r.mine ? ' mine' : '') + '"><span class="small strong">' + (r.mine ? 'Vous' : '' + icon('courier') + '' + h(r.author || 'Livreur')) + '</span>' +
         (r.tagLabel ? ' ' + tagPill(r.tag, r.tagLabel) : '') +
         '<div>' + h(r.mine ? r.text.replace(/^Vendeur\s*:\s*/, '') : r.text) + '</div>' +
         '<span class="small">' + (r.date ? fmtDate(r.date) : h(r.dateText || '')) + '</span></div>';
@@ -1844,19 +1946,19 @@
     if (!a) return;
     S.follow = { id: id };
     showModal(modalHead('Résultat de l’appel · ' + h(id), '<p class="small">' + h(a.client) + ' · ' + h(fmtPhone(a.phone)) + ' · ' + h(wilayaName(a.wilaya)) + '</p>') +
-      (a.courierNote ? '<p class="small courier-note" style="margin-bottom:10px">🛵 Livreur : ' + h(a.courierNote) + '</p>' : '') +
+      (a.courierNote ? '<p class="small courier-note" style="margin-bottom:10px">' + icon('courier') + 'Livreur : ' + h(a.courierNote) + '</p>' : '') +
       '<div class="follow-choices">' +
-      followChoice('informed', '✅', 'Prévenu, il attend le livreur', 'L’alerte se ferme.') +
-      followChoice('postpone', '📅', 'Reporter la livraison', 'Remarque au livreur avec le jour et l’heure ; l’alerte revient ce jour-là si le colis n’est pas livré.') +
-      followChoice('address', '📍', 'Nouvelle adresse ou nouveau téléphone', 'Remarque au livreur, et ligne dans les notes de la commande.') +
-      followChoice('refused', '❌', 'Il refuse le colis', (a.canReturn ? 'Demande de retour chez Ecotrack, et client signalé' : 'Client signalé') + ' « a refusé un colis » (sans liste noire).') +
-      followChoice('no_answer', '📵', 'Pas de réponse', a.calls ? 'Appel ' + (a.calls + 1) + ' sur 3.'
+      followChoice('informed', 'ok', 'Prévenu, il attend le livreur', 'L’alerte se ferme.') +
+      followChoice('postpone', 'calendar', 'Reporter la livraison', 'Remarque au livreur avec le jour et l’heure ; l’alerte revient ce jour-là si le colis n’est pas livré.') +
+      followChoice('address', 'pin', 'Nouvelle adresse ou nouveau téléphone', 'Remarque au livreur, et ligne dans les notes de la commande.') +
+      followChoice('refused', 'x', 'Il refuse le colis', (a.canReturn ? 'Demande de retour chez Ecotrack, et client signalé' : 'Client signalé') + ' « a refusé un colis » (sans liste noire).') +
+      followChoice('no_answer', 'noanswer', 'Pas de réponse', a.calls ? 'Appel ' + (a.calls + 1) + ' sur 3.'
         : 'Rappel dans 2 h (3 essais)' + (a.canReturn ? ' ; un SMS part au client au premier appel sans réponse.' : '.')) +
       '</div><div id="follow-form"></div>');
   }
 
-  function followChoice(result, icon, title, note) {
-    return '<button type="button" class="follow-choice" data-act="follow-pick" data-result="' + result + '"><span class="icon" aria-hidden="true">' + icon + '</span>' +
+  function followChoice(result, iconName, title, note) {
+    return '<button type="button" class="follow-choice" data-act="follow-pick" data-result="' + result + '"><span class="icon" aria-hidden="true">' + icon(iconName) + '</span>' +
       '<span><strong>' + h(title) + '</strong><br><span class="small">' + h(note) + '</span></span></button>';
   }
 
@@ -1964,10 +2066,10 @@
   function showMoreMenu() {
     var u = S.boot.user;
     showModal(modalHead('Plus') + '<div class="more-list">' +
-      (u.admin ? '<a href="#/benefices">Bénéfices<div class="small" style="font-weight:400">Résumé, produits, publicité, dépenses</div></a>' : '') +
-      (u.stock ? '<a href="#/stock">Stock<div class="small" style="font-weight:400">Produits, entrées, inventaire, historique</div></a>' : '') +
-      (u.admin ? '<a href="#/stats">Statistiques<div class="small" style="font-weight:400">Commandes, argent, wilayas, produits, équipe</div></a>' : '') +
-      (u.admin ? '<a href="#/admin">Administration<div class="small" style="font-weight:400">État de l’outil, connexions, réglages, équipe</div></a>' : '') +
+      (u.admin ? '<a href="#/benefices">' + icon('benefices') + 'Bénéfices<div class="small" style="font-weight:400">Résumé, produits, publicité, dépenses</div></a>' : '') +
+      (u.stock ? '<a href="#/stock">' + icon('stock') + 'Stock<div class="small" style="font-weight:400">Produits, entrées, inventaire, historique</div></a>' : '') +
+      (u.admin ? '<a href="#/stats">' + icon('stats') + 'Statistiques<div class="small" style="font-weight:400">Commandes, argent, wilayas, produits, équipe</div></a>' : '') +
+      (u.admin ? '<a href="#/admin">' + icon('admin') + 'Administration<div class="small" style="font-weight:400">État de l’outil, connexions, réglages, équipe</div></a>' : '') +
       '</div>');
   }
 
@@ -1986,12 +2088,26 @@
   /* ================================================================ */
 
   var moduleLoading = {};
-  function loadModule(name) {
+  /** Les premières données d'une page lourde (mêmes arguments que la page demandera). */
+  function moduleSpec(name) {
+    if (name === 'stock') return { fn: 'api_stockPage', args: [] };
+    if (name === 'benefices') return { fn: 'api_profit', args: [S.profit.period] };
+    if (name === 'admin') return { fn: 'api_adminOverview', args: [] };
+    if (name === 'stats') {
+      var st = S.stats || { period: '30', from: '', to: '' };
+      var custom = st.period === 'custom';
+      return { fn: 'api_stats', args: [custom ? '' : st.period, custom ? st.from : '', custom ? st.to : ''] };
+    }
+    return null;
+  }
+
+  function loadModule(name, withData) {
     if (DZ.modules[name]) return Promise.resolve(DZ.modules[name]);
     if (moduleLoading[name]) return moduleLoading[name];
-    moduleLoading[name] = call('api_pageScript', name).then(function (code) {
+    moduleLoading[name] = call('api_pageScript', name, withData ? moduleSpec(name) : null).then(function (res) {
       var tag = document.createElement('script');
-      tag.text = code;
+      tag.text = typeof res === 'string' ? res : res.code;
+      if (res && res.preload) S.preloaded[res.preload.key] = res.preload.data;
       document.body.appendChild(tag);
       if (!DZ.modules[name]) throw new Error('Page illisible : rechargez l’application.');
       return DZ.modules[name];
@@ -2002,7 +2118,8 @@
   function openModule(name) {
     if (DZ.modules[name]) { DZ.modules[name].page(); return; }
     view.innerHTML = '<p class="loading">Chargement…</p>';
-    loadModule(name).then(function (m) { if (S.route === name) m.page(); })
+    syncStart();
+    loadModule(name, true).then(function (m) { syncEnd(); if (S.route === name) m.page(); }, function (e) { syncEnd(); throw e; })
       .catch(function (e) { if (S.route === name) view.innerHTML = errorBox(e); });
   }
 
@@ -2053,6 +2170,11 @@
   DZ['tagPill'] = tagPill;
   DZ['localInput'] = localInput;
   DZ['go'] = go;
+  DZ['icon'] = icon;
+  DZ['syncStart'] = syncStart;
+  DZ['syncEnd'] = syncEnd;
+  DZ['perfDone'] = perfDone;
+  DZ['PERF_KEY'] = PERF_KEY;
   DZ['table'] = table;
 
   var ACTIONS = {
@@ -2253,6 +2375,37 @@
     if (e.key === 'Escape' && modalOpen()) closeModal();
   });
 
+  /**
+   * Prépare en arrière-plan les pages principales pas encore vues (un seul appel au serveur),
+   * puis, pour l'administrateur et le magasinier, le code de leurs pages lourdes.
+   */
+  function preloadPages() {
+    var specs = [];
+    if (!S.dash[S.period]) specs.push({ fn: 'api_dashboard', args: [S.period] });
+    if (!S.list) specs.push({ fn: 'api_listOrders', args: [listArgs(false)] });
+    if (!S.queue && S.route !== 'confirmation') specs.push({ fn: 'api_queue', args: [] });
+    if (!S.ship.data) specs.push({ fn: 'api_shippingList', args: [] });
+    if (!S.track.data) specs.push({ fn: 'api_trackingOverview', args: [S.track.days] });
+    var then = function () {
+      var u = S.boot.user;
+      var names = [].concat(u.admin ? ['stats', 'admin', 'benefices'] : []).concat(u.stock ? ['stock'] : []);
+      names.reduce(function (p, n) { return p.then(function () { return loadModule(n).catch(function () {}); }); }, Promise.resolve());
+    };
+    if (!specs.length) { then(); return; }
+    call('api_preloadPages', specs).then(function (list) {
+      list.forEach(function (r, i) {
+        if (!r || !r.data) return;
+        var s = specs[i];
+        if (s.fn === 'api_dashboard' && !S.dash[s.args[0]]) S.dash[s.args[0]] = r.data;
+        else if (s.fn === 'api_listOrders' && !S.list) { S.list = r.data; S.listKey = JSON.stringify(s.args[0]); }
+        else if (s.fn === 'api_queue' && !S.queue && S.route !== 'confirmation') setQueue(r.data);
+        else if (s.fn === 'api_shippingList' && !S.ship.data) S.ship.data = r.data;
+        else if (s.fn === 'api_trackingOverview' && !S.track.data) S.track.data = r.data;
+      });
+      then();
+    }).catch(function () { /* simple préparation : sans effet si elle échoue */ });
+  }
+
   function tick() {
     if (document.visibilityState !== 'visible' || S.busy || modalOpen()) return;
     if (S.route === 'confirmation') { if (!Object.keys(S.pending).length) loadQueue(false, true); }
@@ -2278,6 +2431,7 @@
     showHealth(b.health);
     window.addEventListener('hashchange', go);
     go();
+    setTimeout(preloadPages, 1500);
     if (!b.counts) refreshCount();
     setInterval(tick, 60000);
   }).catch(function (e) {

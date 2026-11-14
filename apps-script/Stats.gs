@@ -309,7 +309,13 @@ function statsRange_(period, from, to) {
   return { from: addDayDays_(today, -(n - 1)), to: today };
 }
 
-function api_stats(period, from, to) {
+/** Statistiques : mesurée (Administration › État de l'outil). */
+function api_stats() {
+  var a = arguments;
+  return timed_('Statistiques', function () { return statsApi_.apply(null, a); });
+}
+
+function statsApi_(period, from, to) {
   requireAdmin_();
   var settings = getSettings_();
   var p = PropertiesService.getScriptProperties();

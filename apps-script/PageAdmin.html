@@ -18,6 +18,7 @@
   var fmtDate = DZ.fmtDate;
   var field = DZ.field;
   var ago = DZ.ago;
+  var icon = DZ.icon;
 
   var AD = S.admin || (S.admin = { tab: 'etat', data: null, settings: null, team: null, clients: null, open: {} });
   var TABS = [['etat', 'État de l’outil'], ['connexions', 'Connexions'], ['reglages', 'Réglages'], ['equipe', 'Équipe'], ['clients', 'Clients'], ['classeur', 'Classeur']];
@@ -35,17 +36,22 @@
 
   function pageAdmin() {
     view.innerHTML = '<div id="admin"><p class="loading">Chargement…</p></div>';
+    if (AD.data) renderAdmin();
     loadOverview();
   }
 
   function loadOverview() {
     var t = ++S.token;
+    DZ.syncStart();
     return call('api_adminOverview').then(function (d) {
+      DZ.syncEnd();
       if (t !== S.token || S.route !== 'admin') return;
       AD.data = d;
+      DZ.perfDone('admin');
       renderAdmin();
     }).catch(function (e) {
-      if (t === S.token && S.route === 'admin') $('#admin').innerHTML = errorBox(e);
+      DZ.syncEnd();
+      if (t === S.token && S.route === 'admin' && !AD.data) $('#admin').innerHTML = errorBox(e);
     });
   }
 
@@ -73,11 +79,11 @@
     var d = AD.data.health;
     var pctUsed = d.today.limit ? Math.min(d.today.minutes / d.today.limit * 100, 100) : 0;
     var html = '<section class="card"><div class="detail-head"><div><h2>Tâches automatiques</h2><p class="muted">' +
-      (d.running ? '✅ La tâche de chaque minute tourne (dernier passage ' + h(ago(d.minute)) + ').'
-        : d.minute ? '⚠ La tâche de chaque minute ne tourne plus depuis ' + h(ago(d.minute).replace(/^il y a /, '')) + '.' : '⚠ Les tâches automatiques n’ont jamais tourné.') +
-      '</p></div><button type="button" class="btn" data-act="admin-refresh">Actualiser</button></div>';
+      (d.running ? '' + icon('ok') + 'La tâche de chaque minute tourne (dernier passage ' + h(ago(d.minute)) + ').'
+        : d.minute ? '' + icon('alert') + 'La tâche de chaque minute ne tourne plus depuis ' + h(ago(d.minute).replace(/^il y a /, '')) + '.' : '' + icon('alert') + 'Les tâches automatiques n’ont jamais tourné.') +
+      '</p></div><button type="button" class="btn" data-act="admin-refresh">' + icon('refresh') + 'Actualiser</button></div>';
     if (d.problems.length) {
-      html += '<div class="lock-box warn"><p>' + d.problems.map(function (p) { return '⚠ ' + h(p.text); }).join('<br>') + '</p></div>';
+      html += '<div class="lock-box warn"><p>' + d.problems.map(function (p) { return '' + icon('alert') + '' + h(p.text); }).join('<br>') + '</p></div>';
     }
     html += '<div class="table-wrap" style="border:0"><table class="data cards"><thead><tr><th>Tâche</th><th>Rythme</th><th>État</th><th>Dernier passage</th><th>Durée</th></tr></thead><tbody>' +
       d.tasks.map(function (t) {
@@ -92,14 +98,41 @@
       (pctUsed >= 80 ? '#A12626' : pctUsed >= 50 ? '#8A5200' : '#146C2E') + '"></span></div>' +
       '<p class="small" style="margin-top:8px">Un e-mail part au propriétaire (' + h(d.owner || '—') + ') à 80 %, ou si une tâche tombe en panne : une seule fois par problème, puis « c’est réparé ». La limite se règle dans Réglages › Entretien (LIMITE_MINUTES_JOUR).</p></section>';
     html += '<section class="card"><h2>Les tâches tournent au nom du propriétaire</h2><p>' + h(d.owner || 'Propriétaire inconnu') + (d.isOwner ? ' (vous)' : '') + '</p>' +
-      (d.triggers.checked ? '<p class="small">' + (d.triggers.minute && d.triggers.nightly ? 'Les deux tâches sont installées (chaque minute, et chaque nuit).' : '⚠ Une tâche manque : réinstallez-les.') +
+      (d.triggers.checked ? '<p class="small">' + (d.triggers.minute && d.triggers.nightly ? 'Les deux tâches sont installées (chaque minute, et chaque nuit).' : '' + icon('alert') + 'Une tâche manque : réinstallez-les.') +
         (d.triggers.old ? ' Il reste ' + d.triggers.old + ' ancienne(s) tâche(s) : la réinstallation les remplace.' : '') + '</p>' : '') +
       '<div class="quick" style="margin-top:8px"><button type="button" class="btn" data-act="admin-reinstall"' + (d.isOwner ? '' : ' disabled title="Seul le propriétaire peut le faire"') + '>Réinstaller les tâches automatiques</button></div></section>';
+    html += perfSection();
     if (d.errors.length) {
       html += '<section class="card"><h2>Dernières erreurs (Journal)</h2>' + d.errors.map(function (e) {
         return '<div class="result-row"><span class="grow"><strong>' + h(e.action) + '</strong> · ' + h(e.who) + ' · <span class="small">' + fmtDate(e.date) + '</span><br><span class="small">' + h(e.detail) + '</span></span></div>';
       }).join('') + '</section>';
     }
+    return html;
+  }
+
+  var PAGE_NAMES = { tableau: 'Tableau de bord', commandes: 'Commandes', confirmation: 'Confirmation', expeditions: 'Expédier', suivi: 'Suivi',
+    stock: 'Stock', benefices: 'Bénéfices', stats: 'Statistiques', admin: 'Administration' };
+  function secs(ms) { return ms === null || ms === undefined ? '—' : (ms < 1000 ? ms + ' ms' : String(Math.round(ms / 100) / 10).replace('.', ',') + ' s'); }
+
+  /** Temps des pages : côté Google (toutes les personnes, 6 dernières heures) et sur cet appareil. */
+  function perfSection() {
+    var server = AD.data.perf || [];
+    var device = {};
+    try { device = JSON.parse(window.localStorage.getItem(DZ.PERF_KEY) || '{}'); } catch (e) { device = {}; }
+    var rows = Object.keys(PAGE_NAMES).map(function (r) {
+      var s = server.filter(function (x) { return x.label === PAGE_NAMES[r]; })[0];
+      var dv = device[r];
+      return { name: PAGE_NAMES[r], server: s ? s.avg : null, serverMax: s ? s.max : null, n: s ? s.n : 0, device: dv && dv.n ? Math.round(dv.total / dv.n) : null };
+    }).filter(function (x) { return x.server !== null || x.device !== null; });
+    var extra = server.filter(function (x) { return ['Démarrage', 'Préchargement', 'Fiche commande'].indexOf(x.label) >= 0; });
+    var html = '<section class="card"><h2>Temps des pages</h2><p class="small">« Google » : temps de calcul sur le serveur (moyenne des 6 dernières heures, toutes les personnes). ' +
+      '« Cet appareil » : du clic jusqu’aux données à jour, réseau compris. Une page déjà vue s’affiche tout de suite, puis se met à jour.</p>';
+    if (!rows.length && !extra.length) return html + '<p class="empty">Pas encore de mesure : ouvrez quelques pages.</p></section>';
+    html += '<div class="table-wrap" style="border:0"><table class="data cards"><thead><tr><th>Page</th><th class="num">Google (moyenne)</th><th class="num">Google (le plus long)</th><th class="num">Cet appareil</th></tr></thead><tbody>' +
+      rows.concat(extra.map(function (x) { return { name: x.label, server: x.avg, serverMax: x.max, device: null }; })).map(function (r) {
+        return '<tr><td data-label="Page">' + h(r.name) + '</td><td data-label="Google (moyenne)" class="num">' + secs(r.server) + '</td>' +
+          '<td data-label="Google (le plus long)" class="num">' + secs(r.serverMax) + '</td><td data-label="Cet appareil" class="num">' + secs(r.device) + '</td></tr>';
+      }).join('') + '</tbody></table></div></section>';
     return html;
   }
 
@@ -117,7 +150,7 @@
     var text = function (name, label, value, ph) { return field(label, '<input name="' + name + '" value="' + h(value || '') + '" placeholder="' + h(ph || '') + '">', 'full'); };
     var html = '';
     html += '<section class="card"><div class="detail-head"><div><h2>Ecotrack (livraison)</h2><p class="muted">' +
-      (c.ecotrack.configured ? '✅ Connecté à ' + h(c.ecotrack.url.replace(/^https?:\/\//, '')) : 'Pas encore configuré') + '</p></div></div>' +
+      (c.ecotrack.configured ? '' + icon('ok') + 'Connecté à ' + h(c.ecotrack.url.replace(/^https?:\/\//, '')) : 'Pas encore configuré') + '</p></div></div>' +
       '<p class="small">' + lastLine(c.ecotrack.lastSync, c.ecotrack.lastError) + '</p>' +
       '<form class="form-grid" id="f-ecotrack" onsubmit="return false">' + text('url', 'Adresse de votre plateforme', c.ecotrack.url, 'https://monsociete.ecotrack.dz') +
       secret('token', 'Jeton API', c.ecotrack.token) + '</form>' +
@@ -127,7 +160,7 @@
         '<button type="button" class="btn" data-act="admin-call" data-fn="api_ecotrackSyncStatuses">Mettre à jour les statuts</button>' : '') + '</div></section>';
 
     html += '<section class="card"><div class="detail-head"><div><h2>SMS (httpSMS)</h2><p class="muted">' +
-      (c.sms.configured ? '✅ Les SMS partent du ' + h(c.sms.from) + ' · ' + h(c.sms.hours) + ' · ' + plural(c.sms.waiting, 'SMS en attente', 'SMS en attente') : 'Pas encore configuré') + '</p></div></div>' +
+      (c.sms.configured ? '' + icon('ok') + 'Les SMS partent du ' + h(c.sms.from) + ' · ' + h(c.sms.hours) + ' · ' + plural(c.sms.waiting, 'SMS en attente', 'SMS en attente') : 'Pas encore configuré') + '</p></div></div>' +
       '<p class="small">' + lastLine(c.sms.lastRun, c.sms.lastError) + (c.sms.statuses && c.sms.statuses.length ? ' SMS actifs : ' + h(c.sms.statuses.join(', ')) + '.' : '') + '</p>' +
       '<form class="form-grid" id="f-sms" onsubmit="return false">' + text('from', 'Numéro de la carte SIM (téléphone avec httpSMS)', c.sms.from, '0550 12 34 56') +
       secret('key', 'Clé API (page Settings de httpsms.com)', c.sms.key) + '</form>' +
@@ -137,7 +170,7 @@
       '<p class="small" style="margin-top:8px">Les textes des SMS se modifient dans Réglages › SMS.</p></section>';
 
     html += '<section class="card"><div class="detail-head"><div><h2>Shopify</h2><p class="muted">' +
-      (c.shopify.configured ? '✅ Boutique ' + h(c.shopify.shop) : 'Pas configuré (facultatif : Releasit suffit)') + '</p></div></div>' +
+      (c.shopify.configured ? '' + icon('ok') + 'Boutique ' + h(c.shopify.shop) : 'Pas configuré (facultatif : Releasit suffit)') + '</p></div></div>' +
       '<p class="small">' + lastLine(c.shopify.lastRun, c.shopify.lastError) + '</p>' +
       '<form class="form-grid" id="f-shopify" onsubmit="return false">' + text('shop', 'Adresse de la boutique', c.shopify.shop, 'ma-boutique.myshopify.com') +
       secret('key', 'Jeton d’accès (shpat_…) ou identifiant client', c.shopify.key) +
@@ -147,7 +180,7 @@
         '<button type="button" class="btn" data-act="admin-call" data-fn="api_shopifyImport">Importer maintenant</button>' : '') + '</div></section>';
 
     html += '<section class="card"><div class="detail-head"><div><h2>Releasit COD (onglet RELEASIT)</h2><p class="muted">' +
-      (c.releasit.found ? '✅ Onglet trouvé : les commandes arrivent chaque minute' : '⚠ Onglet « RELEASIT » introuvable dans le classeur') + '</p></div></div>' +
+      (c.releasit.found ? '' + icon('ok') + 'Onglet trouvé : les commandes arrivent chaque minute' : '' + icon('alert') + 'Onglet « RELEASIT » introuvable dans le classeur') + '</p></div></div>' +
       '<p class="small">' + lastLine(c.releasit.lastRun, c.releasit.lastError) +
       (c.releasit.missing && c.releasit.missing.length ? ' Informations absentes : ' + h(c.releasit.missing.join(', ')) + '.' : '') + '</p>' +
       '<div class="quick" style="margin-top:10px"><button type="button" class="btn" data-act="admin-call" data-fn="api_releasitTransfer">Transférer maintenant</button></div></section>';
@@ -245,7 +278,7 @@
       t.members.map(function (m) {
         return '<tr><td data-label="Personne" class="multi"><strong>' + h(m.name) + '</strong>' + (m.email === t.me ? ' (vous)' : '') + (m.email === String(t.owner).toLowerCase() ? ' · propriétaire' : '') +
           '<div class="small">' + h(m.email) + '</div></td><td data-label="Rôle">' + roleSelect(m) + '</td>' +
-          '<td data-label="Accès">' + (m.access === null ? '—' : m.access ? '✅ partagé' : '⚠ pas partagé') + '</td>' +
+          '<td data-label="Accès">' + (m.access === null ? '—' : m.access ? '' + icon('ok') + 'partagé' : '' + icon('alert') + 'pas partagé') + '</td>' +
           '<td data-label="">' + (m.email === t.me || m.email === String(t.owner).toLowerCase() ? '' : '<button type="button" class="btn danger" style="min-height:36px" data-act="admin-team-remove" data-email="' + h(m.email) + '">Retirer</button>') + '</td></tr>';
       }).join('') + '</tbody></table></div></section>';
     html += '<section class="card"><h2>Ajouter une personne</h2><form class="form-grid" id="f-team" onsubmit="return false">' +

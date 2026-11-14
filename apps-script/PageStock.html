@@ -24,6 +24,7 @@
   var showModal = DZ.showModal;
   var closeModal = DZ.closeModal;
   var modalHead = DZ.modalHead;
+  var icon = DZ.icon;
 
   /* ================================================================ */
   /* Stock (administrateur et magasinier)                             */
@@ -31,16 +32,21 @@
 
   function pageStock() {
     view.innerHTML = '<div id="stock"><p class="loading">Chargement…</p></div>';
+    if (S.stock.data) renderStock();
     loadStockPage();
   }
 
   function loadStockPage() {
     var t = ++S.token;
+    DZ.syncStart();
     return call('api_stockPage').then(function (d) {
+      DZ.syncEnd();
       if (t !== S.token || S.route !== 'stock') return;
+      DZ.perfDone('stock');
       S.stock.data = d;
       renderStock();
     }).catch(function (e) {
+      DZ.syncEnd();
       if (t === S.token && S.route === 'stock') $('#stock').innerHTML = errorBox(e);
     });
   }
@@ -66,7 +72,7 @@
     if (!box || !d) return;
     var t = d.totals;
     var html = '<div class="page-head"><div><h1>Stock</h1><p class="sub">Une commande confirmée réserve ses produits ; le stock baisse quand le colis part et remonte quand le retour est reçu.</p></div>' +
-      '<div class="quick"><button type="button" class="btn primary" data-act="product-new">+ Produit</button>' +
+      '<div class="quick"><button type="button" class="btn primary" data-act="product-new">' + icon('plus') + 'Produit</button>' +
       '<button type="button" class="btn" data-act="stock-entry">Entrée de marchandise</button>' +
       '<button type="button" class="btn" data-act="stock-inventory">Inventaire</button></div></div><div class="stack">';
     html += '<section class="grid-kpi" aria-label="Chiffres du stock">' + [
@@ -98,7 +104,7 @@
             '<td data-label="Coût d’achat" class="num">' + (m.cost === null ? '<span class="neg">à remplir</span>' : money(m.cost)) + '</td>' +
             '<td data-label="Prix de vente" class="num">' + (m.price === null ? '—' : money(m.price)) + '</td>' +
             '<td data-label=""><span class="quick">' +
-              '<button type="button" class="btn" style="min-height:36px" data-act="model-edit" data-key="' + h(m.key) + '">Modifier</button>' +
+              '<button type="button" class="btn" style="min-height:36px" data-act="model-edit" data-key="' + h(m.key) + '">' + icon('edit') + 'Modifier</button>' +
               '<button type="button" class="btn" style="min-height:36px" data-act="model-history" data-key="' + h(m.key) + '">Historique</button></span></td></tr>';
         }).join('') + '</tbody></table></div></section>';
     });

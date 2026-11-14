@@ -255,7 +255,9 @@
         get: function (k) { return Object.prototype.hasOwnProperty.call(state.cache, k) ? state.cache[k] : null; },
         put: function (k, v) { state.cache[k] = String(v); },
         remove: function (k) { delete state.cache[k]; },
-        removeAll: function (keys) { keys.forEach(function (k) { delete state.cache[k]; }); }
+        removeAll: function (keys) { keys.forEach(function (k) { delete state.cache[k]; }); },
+        getAll: function (keys) { var out = {}; keys.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(state.cache, k)) out[k] = state.cache[k]; }); return out; },
+        putAll: function (values) { Object.keys(values).forEach(function (k) { state.cache[k] = String(values[k]); }); }
       };
     }
   };

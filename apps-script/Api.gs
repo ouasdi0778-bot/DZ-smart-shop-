@@ -41,6 +41,7 @@ function include(name) {
 function onEdit(e) {
   try {
     var name = e && e.range ? e.range.getSheet().getName() : '';
+    if (name === SHEET.ORDERS) invalidateOrdersCache_();
     var keys = configKeysFor_(name);
     if (keys.length) clearConfigCache_(keys);
   } catch (err) {
@@ -95,7 +96,13 @@ function menuRecalc() {
  * calculée tout de suite, dans le même aller-retour (api_dashboard,
  * api_listOrders ou api_queue), ainsi que les compteurs du menu.
  */
-function api_bootstrap(preload) {
+/** Démarrage : mesurée (Administration › État de l'outil). */
+function api_bootstrap() {
+  var a = arguments;
+  return timed_('Démarrage', function () { return bootstrapApi_.apply(null, a); });
+}
+
+function bootstrapApi_(preload) {
   var s = getSettings_();
   var wilayas = getWilayaList_();
   // Produits proposés dans « + Nouvelle commande » : les modèles actifs du catalogue.
@@ -156,7 +163,13 @@ function api_bootstrap(preload) {
 /* Tableau de bord                                                    */
 /* ------------------------------------------------------------------ */
 
-function api_dashboard(period) {
+/** Tableau de bord : mesurée (Administration › État de l'outil). */
+function api_dashboard() {
+  var a = arguments;
+  return timed_('Tableau de bord', function () { return dashboardApi_.apply(null, a); });
+}
+
+function dashboardApi_(period) {
   return dashboardData_(readOrders_(), period);
 }
 
@@ -241,8 +254,32 @@ function dashboardData_(ctx, period) {
       return !isBlank_(o.agent) && QUEUE_STATUSES.indexOf(o.status) < 0;
     }).slice(0, 10),
     byProduct: group(function (o) { return o.product; }).slice(0, 8),
+    spark: sparkSeries_(ctx.orders, now),
     generatedAt: now.toISOString()
   };
+}
+
+/** Les 7 derniers jours (date de commande) : reçues, confirmées, livrées, montant livré. */
+function sparkSeries_(orders, now) {
+  var keys = [];
+  for (var i = 6; i >= 0; i--) {
+    var d = new Date(now.getTime() - i * 86400000);
+    keys.push(ymd_(d));
+  }
+  var idx = {};
+  keys.forEach(function (k, i) { idx[k] = i; });
+  var zero = function () { return [0, 0, 0, 0, 0, 0, 0]; };
+  var out = { received: zero(), confirmed: zero(), delivered: zero(), revenue: zero() };
+  orders.forEach(function (o) {
+    var d = toDate_(o.date);
+    if (!d) return;
+    var i = idx[ymd_(d)];
+    if (i === undefined) return;
+    out.received[i]++;
+    if (CONFIRMED_STATUSES.indexOf(o.status) >= 0) out.confirmed[i]++;
+    if (o.status === STATUS.DELIVERED) { out.delivered[i]++; out.revenue[i] += toNumber_(o.total); }
+  });
+  return out;
 }
 
 /* ------------------------------------------------------------------ */
@@ -252,7 +289,13 @@ function dashboardData_(ctx, period) {
 /**
  * filter = { status: 'all' | 'queue' | un statut, q: texte, wilaya, period: 'today'|'7'|'30'|'all', limit }
  */
-function api_listOrders(filter) {
+/** Commandes : mesurée (Administration › État de l'outil). */
+function api_listOrders() {
+  var a = arguments;
+  return timed_('Commandes', function () { return listOrdersApi_.apply(null, a); });
+}
+
+function listOrdersApi_(filter) {
   filter = filter || {};
   var arrived = filter.sync ? releasitQuickSync_() : 0;
   var ctx = readOrders_();
@@ -338,7 +381,13 @@ function neverCalledLong_(o, now) {
 
 /** File d'appels : à appeler maintenant (due) et rappels programmés plus tard (later). */
 /** opts.sync : vérifie d'abord l'onglet RELEASIT ; opts.first : joint la fiche de la première commande à appeler. */
-function api_queue(opts) {
+/** Confirmation : mesurée (Administration › État de l'outil). */
+function api_queue() {
+  var a = arguments;
+  return timed_('Confirmation', function () { return queueApi_.apply(null, a); });
+}
+
+function queueApi_(opts) {
   opts = opts || {};
   var arrived = opts.sync ? releasitQuickSync_() : 0;
   var ctx = readOrders_();
@@ -400,7 +449,13 @@ function queueData_(ctx, user) {
 }
 
 /** Une commande avec l'historique du client. */
-function api_getOrder(id) {
+/** Fiche commande : mesurée (Administration › État de l'outil). */
+function api_getOrder() {
+  var a = arguments;
+  return timed_('Fiche commande', function () { return getOrderApi_.apply(null, a); });
+}
+
+function getOrderApi_(id) {
   var ctx = readOrders_();
   var o = findOrder_(ctx, id);
   if (!o) throw new Error('Commande ' + id + ' introuvable.');

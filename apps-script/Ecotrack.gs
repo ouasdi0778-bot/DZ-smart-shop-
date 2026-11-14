@@ -835,7 +835,13 @@ function api_ecotrackSyncStatuses() {
 }
 
 /** Données de la page Expéditions : commandes à expédier, et colis créés qui attendent votre validation. */
+/** Expédier : mesurée (Administration › État de l'outil). */
 function api_shippingList() {
+  var a = arguments;
+  return timed_('Expédier', function () { return shippingListApi_.apply(null, a); });
+}
+
+function shippingListApi_() {
   var cfg = ecotrackConfig_();
   var settings = getSettings_();
   var ctx = readOrders_();

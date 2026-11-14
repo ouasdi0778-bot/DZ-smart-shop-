@@ -14,6 +14,7 @@ function setup() {
 /** Crée ou répare tout ; withTriggers : réinstalle aussi les tâches automatiques (au nom de celui qui lance). */
 function setupSheets_(withTriggers) {
   var ss = SpreadsheetApp.getActiveSpreadsheet() || ss_();
+  invalidateOrdersCache_();
   PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', ss.getId());
   clearConfigCache_();
 

@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.0
+## Ce que fait la version 1.1
 
 | Écran | Contenu |
 |---|---|
@@ -274,6 +274,16 @@ Page **Bénéfices** (menu de gauche ; sur téléphone : **☰ Plus**), visible 
   - écrivez le même nom de campagne dans vos dépenses.
 - **Dépenses** : ajout rapide depuis le téléphone, et liste de la période.
 
+## Apparence
+
+- **Logo** de la boutique (le colis en route) en haut du menu et de la barre du téléphone.
+- **Icônes** partout : menu, barre du bas sur téléphone (icône au-dessus du mot), boutons (Appeler, WhatsApp, Imprimer, Exporter…), statuts (horloge, coche, camion, maison, flèche retour, croix), messages (coche verte, triangle rouge). Ce sont des dessins intégrés (jeu d'icônes libre Lucide, licence ISC) : rien à télécharger en plus.
+- **Formes de chargement** à la place du texte « Chargement… ».
+- **Tableau de bord** : chaque chiffre avec son icône et une **petite courbe des 7 derniers jours**.
+- **Liste des commandes sur téléphone** : cartes compactes de 2 lignes (client, total ; statut, wilaya, n°) avec une **bande de la couleur du statut**.
+- **Confirmation sur téléphone** : les 4 boutons (Confirmer, Pas de réponse, Rappeler, Annuler) sont **fixés en bas**, sous le pouce.
+- Écrans vides avec une icône, chiffres alignés dans les tableaux, transition douce entre les pages (désactivée si le téléphone demande moins d'animations).
+
 ## Statistiques
 
 Page **Statistiques** (administrateur ; sur téléphone : **☰ Plus**).
@@ -448,6 +458,13 @@ Ce que fait l'outil pour rester rapide :
 - **Centre de confirmation** : la commande suivante est préparée à l'avance. Après « Confirmer », elle s'affiche tout de suite pendant que l'enregistrement se termine. Si l'enregistrement échoue, un message le dit et la commande revient dans la file. Un double clic ne traite jamais deux commandes.
 - **Tâches automatiques légères** : **une seule tâche chaque minute** (au lieu de cinq déclencheurs) ; quand il n'y a rien à faire, elle s'arrête tout de suite. Sans nouvelle ligne, le traitement lit trois colonnes et ne bloque rien. La lecture des statuts Ecotrack ne bloque pas les clics pendant qu'elle attend Ecotrack.
 - **Application plus légère** : les pages Stock, Bénéfices, Statistiques et Administration ne sont envoyées au navigateur **que quand on les ouvre** (une confirmatrice ne les reçoit jamais), et les pages sont allégées (commentaires et espaces retirés) dans `dist/Code.gs`. Page de départ : 177 Ko → 136 Ko.
+- **Changement de page immédiat** :
+  - une page **déjà vue** s'affiche **tout de suite** avec ses dernières données, puis se met à jour en arrière-plan (fine barre dorée en haut de l'écran) ;
+  - juste après l'ouverture de l'application, les pages principales (Tableau de bord, Commandes, Confirmation, Expédier, Suivi) sont **préparées en un seul appel** ; pour l'administrateur et le magasinier, le code de leurs pages lourdes aussi ;
+  - une page lourde arrive avec ses données en **un seul aller-retour** ;
+  - dans la Confirmation, une fiche déjà affichée n'est pas redessinée si elle n'a pas changé : une saisie en cours n'est jamais effacée.
+- **Mémoire courte côté Google** : quand on change de page plusieurs fois de suite, l'onglet Commandes est gardé **30 secondes** en mémoire au lieu d'être relu. Jamais pendant une modification (sous le verrou, la lecture est toujours fraîche), et oubliée dès qu'une commande change (dans l'application ou à la main dans l'onglet).
+- **Mesure** : **Administration › État de l'outil › Temps des pages** montre le temps de chaque page côté Google (moyenne et le plus long, toutes les personnes) et sur votre appareil.
 - **Statistiques rapides** : un résumé par jour, calculé chaque nuit ; la page lit seulement les jours de la période, et calcule aujourd'hui en direct.
 - **Onglet plein** : quand Commandes (ou le Journal) n'a plus de lignes libres, l'outil en ajoute, avec les listes déroulantes et les couleurs.
 
@@ -470,7 +487,7 @@ Ce que fait l'outil pour rester rapide :
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 122 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 124 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
@@ -491,6 +508,7 @@ apps-script/
   Health.gs     la tâche de chaque minute, l'état de l'outil, les e-mails de panne
   Stats.gs      statistiques : résumés par jour (onglet caché Stats), primes
   Admin.gs      page Administration, pages chargées à la demande
+  Speed.gs      mémoire courte des commandes, préchargement, mesure du temps des pages
   Shopify.gs    importation des commandes Shopify (Releasit COD), wilayas en arabe
   Releasit.gs   transfert des commandes de l'onglet RELEASIT (écrites par Releasit COD)
   Rules.gs      verrouillage selon l'étape, annulation d'un colis Ecotrack, corbeille

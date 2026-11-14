@@ -16,6 +16,7 @@
   var money = DZ.money;
   var plural = DZ.plural;
   var fmtDate = DZ.fmtDate;
+  var icon = DZ.icon;
 
   var ST = S.stats || (S.stats = { period: '30', from: '', to: '', tab: 'overview', data: null });
   var TABS = [['overview', 'Vue d’ensemble'], ['orders', 'Commandes'], ['money', 'Argent'], ['wilayas', 'Wilayas'], ['products', 'Produits'], ['team', 'Équipe'], ['ads', 'Publicité']];
@@ -106,7 +107,7 @@
     opts = opts || {};
     TABLES[id] = { cols: cols, rows: rows };
     if (!rows.length) return '<p class="empty">Rien sur la période.</p>';
-    return '<div class="quick" style="justify-content:flex-end;margin-bottom:6px"><button type="button" class="btn" style="min-height:34px" data-act="stats-export" data-table="' + id + '">Exporter</button></div>' +
+    return '<div class="quick" style="justify-content:flex-end;margin-bottom:6px"><button type="button" class="btn" style="min-height:34px" data-act="stats-export" data-table="' + id + '">' + icon('download') + 'Exporter</button></div>' +
       '<div class="table-wrap"><table class="data cards"><thead><tr>' + cols.map(function (c) { return '<th scope="col"' + (c[2] ? ' class="num"' : '') + '>' + h(c[0]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
       rows.map(function (r) {
         return '<tr' + (opts.bad && opts.bad(r) ? ' class="row-bad"' : '') + '>' + cols.map(function (c) {
@@ -137,19 +138,25 @@
 
   function pageStats() {
     view.innerHTML = '<div id="stats"><p class="loading">Chargement…</p></div>';
-    loadStats();
+    if (ST.data && ST.data.period === ST.period) { renderStats(); loadStats(true); } else loadStats();
   }
 
-  function loadStats() {
+  function loadStats(keep) {
     var t = ++S.token;
     var box = $('#stats-body');
-    if (box) box.innerHTML = '<p class="loading">Calcul…</p>';
+    if (box && !keep) box.innerHTML = '<p class="loading">Calcul…</p>';
     var custom = ST.period === 'custom';
+    var period = ST.period;
+    DZ.syncStart();
     return call('api_stats', custom ? '' : ST.period, custom ? ST.from : '', custom ? ST.to : '').then(function (d) {
+      DZ.syncEnd();
       if (t !== S.token || S.route !== 'stats') return;
+      d.period = period;
       ST.data = d;
+      DZ.perfDone('stats');
       renderStats();
     }).catch(function (e) {
+      DZ.syncEnd();
       if (t === S.token && S.route === 'stats') $('#stats').innerHTML = errorBox(e);
     });
   }

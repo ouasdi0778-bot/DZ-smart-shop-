@@ -27,10 +27,16 @@ function headerMap_(header) {
 
 /** Lit toutes les commandes. Chaque commande garde son numéro de ligne (_row). */
 function readOrders_() {
-  var sh = sheet_(SHEET.ORDERS);
-  var lastRow = sh.getLastRow();
-  var lastCol = Math.max(sh.getLastColumn(), 1);
-  var values = lastRow ? sh.getRange(1, 1, lastRow, lastCol).getValues() : [[]];
+  var sh = null;
+  var values = cachedOrderValues_(); // mémoire courte (30 s), jamais sous le verrou : voir Speed.gs
+  if (!values) {
+    var gen = ordersGen_();
+    sh = sheet_(SHEET.ORDERS);
+    var lastRow = sh.getLastRow();
+    var lastCol = Math.max(sh.getLastColumn(), 1);
+    values = lastRow ? sh.getRange(1, 1, lastRow, lastCol).getValues() : [[]];
+    storeOrderValues_(values, gen);
+  }
   var header = values[0];
   var map = headerMap_(header);
   if (map.status === undefined || map.phone === undefined) {
@@ -49,7 +55,14 @@ function readOrders_() {
     o.status = String(o.status).trim();
     orders.push(o);
   }
-  return { sheet: sh, map: map, width: header.length, orders: orders };
+  var ctx = { map: map, width: header.length, orders: orders };
+  // L'onglet n'est ouvert que si on en a besoin (écriture) : une page lue depuis la mémoire n'ouvre pas le classeur.
+  Object.defineProperty(ctx, 'sheet', {
+    enumerable: true, configurable: true,
+    get: function () { if (!sh) sh = sheet_(SHEET.ORDERS); return sh; },
+    set: function (v) { sh = v; }
+  });
+  return ctx;
 }
 
 function findOrder_(ctx, id) {

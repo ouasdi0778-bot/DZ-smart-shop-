@@ -287,7 +287,13 @@ function profitData_(ctx, env, period) {
 }
 
 /** Page Bénéfices (administrateur). */
-function api_profit(period) {
+/** Bénéfices : mesurée (Administration › État de l'outil). */
+function api_profit() {
+  var a = arguments;
+  return timed_('Bénéfices', function () { return profitApi_.apply(null, a); });
+}
+
+function profitApi_(period) {
   requireAdmin_();
   var settings = getSettings_();
   if (expensesNeedRate_(settings)) withLock_(function () { fillExpenseRates_(settings); });

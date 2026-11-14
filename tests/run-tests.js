@@ -19,6 +19,9 @@ load(path.join(__dirname, 'fake-httpsms.js'));
 fs.readdirSync(SRC).filter(function (f) { return f.endsWith('.gs'); }).sort()
   .forEach(function (f) { load(path.join(SRC, f)); });
 load(path.join(__dirname, 'seed.js'));
+// Les tests écrivent directement dans l'imitation du classeur : la mémoire courte des commandes
+// est coupée, sauf dans les tests qui la vérifient (voir « Vitesse »).
+ORDERS_CACHE_ON_ = false;
 
 var tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -1335,10 +1338,16 @@ test('Statistiques : la date de confirmation est notée (délai avant confirmati
 test('Administration : pages chargées à la demande, selon le rôle', function () {
   baseSetup();
   asAdmin();
-  ['stats', 'admin', 'benefices', 'stock'].forEach(function (p) { assert.strictEqual(typeof api_pageScript(p), 'string'); });
+  ['stats', 'admin', 'benefices', 'stock'].forEach(function (p) { assert.strictEqual(typeof api_pageScript(p).code, 'string'); });
+  // Une page lourde : son code et ses premières données en un seul aller-retour.
+  var withData = api_pageScript('stats', { fn: 'api_stats', args: ['30', '', ''] });
+  assertSerializable(withData, 'api_pageScript');
+  assert.strictEqual(withData.preload.key, 'api_stats|["30","",""]');
+  assert.ok(withData.preload.data.kpis, 'statistiques jointes');
+  assert.strictEqual(api_pageScript('stats', { fn: 'api_listOrders', args: [] }).preload, null, 'seulement les données de la page');
   assert.throws(function () { api_pageScript('../Code'); }, /Page inconnue/);
   asStockKeeper();
-  assert.strictEqual(typeof api_pageScript('stock'), 'string');
+  assert.strictEqual(typeof api_pageScript('stock').code, 'string');
   assert.throws(function () { api_pageScript('stats'); }, /administrateur/);
   asAgent();
   assert.throws(function () { api_pageScript('stock'); }, /magasinier/);
@@ -1428,6 +1437,76 @@ test('Administration : équipe (ajout, rôle, partage du classeur, retrait) et c
   r = api_clearFlag('0661000222');
   assert.deepStrictEqual(r.clients.flagged, []);
   assert.notStrictEqual(order('#K1').alert, 'Signalé · a refusé un colis', 'l’alerte de la commande en attente est mise à jour');
+});
+
+/* ---------------- Vitesse : mémoire courte, préchargement, mesure ---------------- */
+
+function withOrdersCache(fn) {
+  ORDERS_CACHE_ON_ = true;
+  try { fn(); } finally { ORDERS_CACHE_ON_ = false; }
+}
+function orderReads(fn) { return countSheetCalls(fn)['Commandes:getValues'] || 0; }
+
+test('Vitesse : mémoire courte des commandes (jamais sous le verrou, oubliée à chaque modification)', function () {
+  baseSetup();
+  addRaw({ 'N°': '#V1', 'Date': new Date(), 'Client': 'Amine', 'Téléphone': '0550001111', 'Wilaya': 'Alger', 'Prix': 2000 });
+  processNewRows();
+  withOrdersCache(function () {
+    assert.strictEqual(orderReads(function () { readOrders_(); }), 1, 'première lecture : le classeur');
+    var ctx;
+    assert.strictEqual(orderReads(function () { ctx = readOrders_(); }), 0, 'deuxième lecture : la mémoire');
+    var o = findOrder_(ctx, '#V1');
+    assert.ok(o.date instanceof Date, 'les dates reviennent en dates');
+    assert.strictEqual(o.status, 'À confirmer');
+    assert.strictEqual(ctx.sheet.getName(), 'Commandes', 'onglet ouvert seulement si on en a besoin');
+    // Sous le verrou : toujours le classeur.
+    assert.strictEqual(orderReads(function () { withLock_(function () { readOrders_(); }); }), 1);
+    // Une modification (sous le verrou) fait oublier la copie.
+    readOrders_();
+    asAgent();
+    api_recordCall('#V1', 'confirm', {});
+    var fresh;
+    assert.strictEqual(orderReads(function () { fresh = readOrders_(); }), 1, 'copie oubliée après la confirmation');
+    assert.strictEqual(findOrder_(fresh, '#V1').status, 'Confirmée');
+    // Modification à la main dans l'onglet Commandes : copie oubliée aussi.
+    readOrders_();
+    userEdit('Commandes');
+    assert.strictEqual(orderReads(function () { readOrders_(); }), 1);
+    // Une lecture commencée avant une modification ne laisse pas de copie périmée.
+    var values = sheet('Commandes').getRange(1, 1, sheet('Commandes').getLastRow(), sheet('Commandes').getLastColumn()).getValues();
+    var gen = ordersGen_();
+    invalidateOrdersCache_();
+    storeOrderValues_(values, gen);
+    assert.strictEqual(orderReads(function () { readOrders_(); }), 1, 'copie refusée : modifiée pendant la lecture');
+  });
+});
+
+test('Vitesse : préchargement des pages en un seul appel, et temps mesurés', function () {
+  ecoSetup();
+  addRaw({ 'N°': '#P1', 'Date': new Date(), 'Client': 'Sara', 'Téléphone': '0550002222', 'Wilaya': 'Alger', 'Prix': 2000 });
+  processNewRows();
+  asAdmin();
+  var specs = [
+    { fn: 'api_dashboard', args: ['7'] }, { fn: 'api_listOrders', args: [{ status: 'todo', q: '', wilaya: '', period: '30', limit: 100 }] },
+    { fn: 'api_queue', args: [] }, { fn: 'api_shippingList', args: [] }, { fn: 'api_trackingOverview', args: [30] },
+    { fn: 'api_setBlacklist', args: ['0550002222', true] }
+  ];
+  var res;
+  withOrdersCache(function () {
+    assert.strictEqual(orderReads(function () { res = api_preloadPages(specs); }), 1, 'l’onglet Commandes n’est lu qu’une fois pour les 5 pages');
+  });
+  assertSerializable(res, 'api_preloadPages');
+  assert.deepStrictEqual(res.map(function (r) { return !!r.data; }), [true, true, true, true, true, false], 'seulement les pages autorisées');
+  assert.strictEqual(res[1].key, 'api_listOrders|' + JSON.stringify(specs[1].args));
+  assert.ok(res[1].data.rows.some(function (o) { return o.id === '#P1'; }));
+  assert.ok(!readBlacklist_()['0550002222'], 'une fonction non autorisée n’est jamais lancée');
+  assert.deepStrictEqual(readPerf_().map(function (p) { return p.label; }), ['Préchargement'], 'le préchargement est compté à part');
+  api_dashboard('7'); api_listOrders({}); api_queue(); api_shippingList(); api_trackingOverview(30);
+  var labels = readPerf_().map(function (p) { return p.label; });
+  ['Préchargement', 'Tableau de bord', 'Commandes', 'Confirmation', 'Expédier', 'Suivi'].forEach(function (l) { assert.ok(labels.indexOf(l) >= 0, l); });
+  var o = api_adminOverview();
+  assert.ok(o.perf.length >= 6 && o.perf.every(function (p) { return p.avg >= 0 && p.n >= 1; }));
+  assert.ok(api_dashboard('7').spark.received.length === 7, 'courbe des 7 derniers jours');
 });
 
 /* ---------------- Suivi des colis ---------------- */

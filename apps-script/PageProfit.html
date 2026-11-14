@@ -19,6 +19,7 @@
   var field = DZ.field;
   var input = DZ.input;
   var readForm = DZ.readForm;
+  var icon = DZ.icon;
 
   /* ================================================================ */
   /* Bénéfices (administrateur)                                       */
@@ -27,19 +28,23 @@
   function pageProfit() {
     view.innerHTML = '<div id="profit"><p class="loading">Chargement…</p></div>';
     if (S.profit.tab === 'stock') S.profit.tab = 'resume';
-    loadProfit();
+    if (S.profit.data && S.profit.data.period === S.profit.period) { renderProfit(); loadProfit(true); } else loadProfit();
   }
 
-  function loadProfit() {
+  function loadProfit(keep) {
     var t = ++S.token;
     var p = S.profit;
     var box = $('#profit-body');
-    if (box) box.innerHTML = '<p class="loading">Chargement…</p>';
+    if (box && !keep) box.innerHTML = '<p class="loading">Chargement…</p>';
+    DZ.syncStart();
     return call('api_profit', p.period).then(function (d) {
+      DZ.syncEnd();
       if (t !== S.token || S.route !== 'benefices') return;
+      DZ.perfDone('benefices');
       p.data = d;
       renderProfit();
     }).catch(function (e) {
+      DZ.syncEnd();
       if (t === S.token && S.route === 'benefices') $('#profit').innerHTML = errorBox(e);
     });
   }
@@ -86,7 +91,7 @@
     var warn = [];
     if (d.warnings.missingCost) warn.push(plural(d.warnings.missingCost, 'commande livrée sans coût d’achat', 'commandes livrées sans coût d’achat') + ' (' + h(d.warnings.missingCostLabels.join(', ')) + ') : complétez la page Stock.');
     if (d.warnings.missingFee) warn.push(plural(d.warnings.missingFee, 'commande sans tarif de livraison', 'commandes sans tarif de livraison') + ' dans l’onglet Tarifs : les frais payés par le client sont utilisés.');
-    if (warn.length) html += '<div class="stock-warn" style="flex-direction:column;align-items:flex-start">' + warn.map(function (w) { return '<span>⚠ ' + w + '</span>'; }).join('') + '</div>';
+    if (warn.length) html += '<div class="stock-warn" style="flex-direction:column;align-items:flex-start">' + warn.map(function (w) { return '<span>' + icon('alert') + '' + w + '</span>'; }).join('') + '</div>';
     html += '<section class="card"><h2>Détail</h2><div class="money-lines">' +
       '<div><span>Ventes des produits livrés (sans la livraison)</span><span>' + money(t.productSales) + '</span></div>' +
       '<div><span>Livraison : Ecotrack ' + money(t.deliveryFees) + ' − payé par les clients ' + money(t.clientShipping) + '</span>' + signed(-t.deliveryNet) + '</div>' +
