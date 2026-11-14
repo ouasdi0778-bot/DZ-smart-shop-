@@ -334,6 +334,16 @@ function releasitRecordError_(e) {
 
 /** Point d'entrée du déclencheur automatique (chaque minute). */
 function transferReleasitOrders() {
+  var s = releasitSafe_();
+  // SMS « commande reçue » tout de suite, dans le même passage (sans attendre la minute suivante).
+  if (s && s.added) {
+    try { sendSmsQueue(); } catch (e) { /* signalé par sendSmsQueue */ }
+  }
+  return s;
+}
+
+/** Transfert sans jamais lever d'erreur (elle est gardée et affichée dans la page Commandes). */
+function releasitSafe_() {
   try {
     return transferReleasitOrders_({});
   } catch (e) {
@@ -375,13 +385,13 @@ function releasitColumnsReport_() {
 
 /** Vérification rapide avant d'afficher une liste : nombre de commandes arrivées (0 en cas de souci). */
 function releasitQuickSync_() {
-  var s = transferReleasitOrders();
+  var s = releasitSafe_(); // à l'ouverture d'une page : les SMS partent en arrière-plan, la page n'attend pas
   return s && s.added ? s.added : 0;
 }
 
 /** Vérification rapide à l'ouverture des pages Commandes et Confirmation. */
 function api_releasitSync() {
-  var s = transferReleasitOrders();
+  var s = releasitSafe_();
   return s ? { found: s.found, added: s.added, message: releasitMessage_(s) } : { found: true, added: 0, error: true };
 }
 

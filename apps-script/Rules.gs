@@ -32,6 +32,23 @@ function orderStage_(o) {
   return s === STATUS.CONFIRMED ? STAGE.CONFIRMED : STAGE.QUEUE;
 }
 
+/** Statuts de la page Commandes : pas encore confirmées. */
+var TODO_STATUSES_ = [STATUS.TO_CONFIRM, STATUS.NO_ANSWER, STATUS.CALLBACK, STATUS.UNREACHABLE];
+
+/**
+ * Page où se trouve une commande : 'commandes' (à confirmer), 'expedier' (confirmée),
+ * 'suivi' (en route, retour en cours), 'terminees' (livrée, retour reçu), 'annulees'.
+ */
+function pageOf_(o) {
+  var s = String(o.status || '');
+  if (s === STATUS.CANCELLED) return 'annulees';
+  if (s === STATUS.CONFIRMED) return 'expedier';
+  if (s === STATUS.SHIPPED || s === STATUS.IN_DELIVERY) return 'suivi';
+  if (s === STATUS.RETURNED) return returnReceived_(o) ? 'terminees' : 'suivi';
+  if (s === STATUS.DELIVERED) return 'terminees';
+  return 'commandes';
+}
+
 function isLockedStage_(stage) {
   return stage === STAGE.PARCEL || stage === STAGE.SHIPPING || stage === STAGE.DONE;
 }

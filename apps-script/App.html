@@ -10,7 +10,7 @@
     boot: null,
     route: '',
     period: '7',
-    filter: { status: 'all', q: '', wilaya: '', period: '30', limit: 100 },
+    filter: { status: 'todo', q: '', wilaya: '', period: '30', limit: 100 },
     queue: null,
     currentId: null,
     current: null,
@@ -18,7 +18,7 @@
     token: 0,
     detailToken: 0,
     ship: { data: null, tab: 'toship', selected: {}, busy: false, results: null },
-    track: { data: null, days: 30, filter: 'all' },
+    track: { data: null, days: 30, filter: 'all', view: 'active', done: 'all' },
     order: null,      // dernière commande affichée dans la fenêtre (pour la réafficher)
     unlockId: null,   // commande déverrouillée par un administrateur
     list: null,       // dernière liste de la page Commandes (mise à jour sur place)
@@ -148,6 +148,10 @@
   /* ================================================================ */
 
   var ROUTES = ['tableau', 'commandes', 'confirmation', 'expeditions', 'suivi', 'benefices'];
+  /** Statuts de la page Commandes (pas encore confirmées). */
+  var TODO_STATUSES = ['À confirmer', 'Pas de réponse', 'Rappeler', 'Injoignable'];
+  /** Page où se trouve une commande trouvée par la recherche. */
+  var PAGE_LABELS = { expedier: 'Expédier', suivi: 'Suivi', terminees: 'Suivi › Terminées', annulees: 'Annulées' };
 
   function currentRoute() {
     var r = (location.hash || '').replace(/^#\/?/, '');
@@ -158,6 +162,7 @@
   function listArgs(first) {
     var f = {};
     Object.keys(S.filter).forEach(function (k) { f[k] = S.filter[k]; });
+    if (String(f.q || '').trim()) f.status = 'all'; // une recherche trouve les commandes de toutes les pages
     if (first) { f.sync = true; f.withStatus = true; }
     return f;
   }
@@ -206,6 +211,7 @@
     if (!c) return;
     setQueueCount(c.queue);
     setAlertCount(c.alerts);
+    if (c.toShip !== undefined) $all('[data-ship-count]').forEach(function (el) { el.textContent = c.toShip; el.hidden = !c.toShip; });
   }
   function refreshCount() {
     call('api_counts').then(applyCounts).catch(function () {});
@@ -322,7 +328,7 @@
     var f = S.filter;
     var periods = [['today', 'Aujourd’hui'], ['7', '7 derniers jours'], ['30', '30 derniers jours'], ['all', 'Tout']];
     view.innerHTML =
-      '<div class="page-head"><div><h1>Commandes</h1><p class="sub">Toutes les commandes du classeur. Cliquez sur une commande pour la modifier.</p></div>' +
+      '<div class="page-head"><div><h1>Commandes</h1><p class="sub">Commandes pas encore confirmées. Une commande confirmée passe dans <strong>Expédier</strong>, puis <strong>Suivi</strong>. La recherche trouve toutes les commandes.</p></div>' +
       '<button type="button" class="btn primary" data-act="new-order">+ Nouvelle commande</button></div>' +
       '<div id="shop-status"></div>' +
       '<div class="chips" id="chips" role="group" aria-label="Filtrer par statut"></div>' +
@@ -400,9 +406,13 @@
   }
 
   function renderChips(counts) {
-    var list = [['all', 'Toutes'], ['queue', 'À traiter']].concat(S.boot.statuses.map(function (s) { return [s, s]; }));
+    if (String(S.filter.q || '').trim()) {
+      $('#chips').innerHTML = '<span class="small">Recherche dans toutes les commandes (toutes les pages) · ' + plural(counts.all || 0, 'résultat', 'résultats') + '</span>';
+      return;
+    }
+    var list = [['todo', 'À traiter']].concat(TODO_STATUSES.map(function (s) { return [s, s]; })).concat([['Annulée', 'Annulées']]);
     $('#chips').innerHTML = list.filter(function (c) {
-      return c[0] === 'all' || c[0] === S.filter.status || counts[c[0]];
+      return c[0] === 'todo' || c[0] === 'Annulée' || c[0] === S.filter.status || counts[c[0]];
     }).map(function (c) {
       return '<button type="button" class="chip" data-act="chip" data-status="' + h(c[0]) + '" aria-pressed="' + (S.filter.status === c[0]) + '">' +
         h(c[1]) + ' · ' + (counts[c[0]] || 0) + '</button>';
@@ -427,7 +437,7 @@
         '<td data-label="Wilaya" class="multi">' + h(o.wilaya) + '<div class="small">' + h(o.commune) + '</div></td>' +
         '<td data-label="Produit">' + h(o.product) + (o.qty > 1 ? ' ×' + o.qty : '') + '</td>' +
         '<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
-        '<td data-label="Statut">' + pill(o.status) + '</td>' +
+        '<td data-label="Statut">' + pill(o.status) + (PAGE_LABELS[o.page] ? '<div class="small">→ ' + PAGE_LABELS[o.page] + '</div>' : '') + '</td>' +
         '<td data-label="Alerte">' + alertPill(o.alert, o.alertLevel) + '</td>' +
         '<td data-label="Livraison" class="multi">' + h(o.mode) + '<div class="small">' + h([o.carrier, o.tracking].filter(Boolean).join(' · ')) + '</div></td>' +
       '</tr>';
@@ -547,6 +557,34 @@
     toggleCancelField();
   }
 
+  /** Sociétés sans connexion : l'expédition se note à la main. */
+  function manualCarriers() {
+    return S.boot.carriers.filter(function (c) { return c !== 'Ecotrack'; });
+  }
+
+  function askManualShip(id) {
+    var list = manualCarriers();
+    showModal(modalHead('Expédiée avec une autre société') +
+      '<p class="small">La commande ' + h(id) + ' passe dans <strong>Suivi</strong>. Vous mettrez son statut à jour (en livraison, livrée, retour) quand le livreur vous informe.</p>' +
+      '<div style="height:10px"></div><div class="form-grid" id="manual-ship">' +
+        field('Société', '<select name="carrier">' + options(list, list[0]) + '</select>') +
+        field('N° de suivi (facultatif)', input('tracking', '')) +
+      '</div>' +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Retour</button>' +
+      '<button type="button" class="btn primary" data-act="manual-ship" data-id="' + h(id) + '">Marquer expédiée</button></div>');
+  }
+
+  function manualShip(btn) {
+    var id = btn.getAttribute('data-id');
+    var data = readForm($('#manual-ship'));
+    btn.disabled = true;
+    call('api_updateOrder', id, { status: 'Expédiée', carrier: data.carrier, tracking: data.tracking }).then(function (o) {
+      closeModal();
+      toast('Commande ' + id + ' expédiée : elle est maintenant dans Suivi');
+      afterOrderChange(o.counts);
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  }
+
   function askCancelParcel(id, tracking, fromShipping) {
     showModal(modalHead('Annuler le colis ?') +
       '<p>Le colis <span class="mono">' + h(tracking) + '</span> sera supprimé chez Ecotrack. C’est possible seulement s’il n’est pas encore validé.</p>' +
@@ -637,8 +675,9 @@
   }
 
   function inStatusFilter(o) {
-    var f = S.filter.status;
+    var f = String(S.filter.q || '').trim() ? 'all' : S.filter.status;
     if (f === 'all') return true;
+    if (f === 'todo') return !o.status || TODO_STATUSES.indexOf(o.status) >= 0;
     if (f === 'queue') return S.boot.queueStatuses.indexOf(o.status) >= 0;
     return o.status === f;
   }
@@ -661,6 +700,7 @@
     var bump = function (st, n) {
       c[st || '—'] = Math.max((c[st || '—'] || 0) + n, 0);
       if (S.boot.queueStatuses.indexOf(st) >= 0) c.queue = Math.max((c.queue || 0) + n, 0);
+      if (!st || TODO_STATUSES.indexOf(st) >= 0) c.todo = Math.max((c.todo || 0) + n, 0);
     };
     bump(old.status, -1);
     if (removedId) c.all = Math.max((c.all || 0) - 1, 0); else bump(o.status, 1);
@@ -1108,7 +1148,8 @@
         '<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
         '<td data-label="État">' + (ok ? '<span class="pill" style="background:#DDF0E4;color:#146C2E">Prête</span>' :
           '<span class="problems">' + o.problems.map(function (p) { return '<span>' + h(p) + '</span>'; }).join('') + '</span>') + '</td>' +
-        '<td data-label=""><button type="button" class="btn" style="min-height:36px" data-act="open-order" data-id="' + h(o.id) + '">Modifier</button></td></tr>';
+        '<td data-label=""><span class="quick"><button type="button" class="btn" style="min-height:36px" data-act="open-order" data-id="' + h(o.id) + '">Modifier</button>' +
+          (manualCarriers().length ? '<button type="button" class="btn" style="min-height:36px" data-act="manual-ship-ask" data-id="' + h(o.id) + '">Expédiée (autre société)</button>' : '') + '</span></td></tr>';
     });
     return html + '</tbody></table></div>' +
       '<p class="small">Les colis partent chez Ecotrack avec le total affiché (livraison comprise). La commune doit être écrite comme chez Ecotrack : sinon le colis est refusé et vous en êtes prévenu ici.</p>';
@@ -1195,9 +1236,40 @@
     info: { label: 'Info', bg: '#E6EEFB', fg: '#1E4FA8' }
   };
   var GROUPS = [
-    ['all', 'Tous'], ['draft', 'À valider'], ['transit', 'En route'], ['delivery', 'En livraison'],
+    ['all', 'Tous'], ['transit', 'En route'], ['delivery', 'En livraison'],
     ['suspended', 'Suspendus'], ['returning', 'Retours']
   ];
+
+  /** Onglet « Terminées » de Suivi : livrées (avec l'état de l'argent) et retours reçus. */
+  function finishedSection(d) {
+    var f = S.track.done;
+    var tests = {
+      all: function () { return true; },
+      delivered: function (x) { return x.status === 'Livrée'; },
+      unpaid: function (x) { return x.unpaid; },
+      returned: function (x) { return x.status === 'Retour'; }
+    };
+    var chips = [['all', 'Toutes'], ['delivered', 'Livrées'], ['unpaid', 'Argent pas encore reçu'], ['returned', 'Retours reçus']];
+    var shown = d.finished.filter(tests[f] || tests.all);
+    var html = '<section class="card"><h2>Commandes terminées</h2><div class="chips" role="group" aria-label="Filtrer" style="margin-bottom:12px">' +
+      chips.map(function (c) {
+        return '<button type="button" class="chip" data-act="track-done-filter" data-done="' + c[0] + '" aria-pressed="' + (f === c[0]) + '">' + c[1] + ' · ' + d.finished.filter(tests[c[0]]).length + '</button>';
+      }).join('') + '</div>';
+    if (!shown.length) return html + '<p class="empty" style="padding:18px 0">Aucune commande dans cette catégorie sur la période.</p></section>';
+    html += '<div class="table-wrap" style="border:0"><table class="data cards"><thead><tr>' +
+      ['Commande', 'Wilaya', 'Résultat', 'Argent / colis', 'Le', 'Total'].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      shown.map(function (x) {
+        return '<tr><td data-label="Commande" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(x.id) + '">' + h(x.id) + '</button><div class="small">' + h(x.client) + '</div></td>' +
+          '<td data-label="Wilaya">' + h(wilayaName(x.wilaya)) + '</td>' +
+          '<td data-label="Résultat">' + pill(x.status) + '</td>' +
+          '<td data-label="Argent / colis">' + h(x.label) + (x.unpaid ? ' <span class="pill" style="background:#FFF3DC;color:#8A5200">à recevoir</span>' : '') +
+            (x.paymentId ? '<div class="small">Versement ' + h(x.paymentId) + '</div>' : '') + '</td>' +
+          '<td data-label="Le">' + h(fmtDate(x.since)) + '</td>' +
+          '<td data-label="Total" class="num strong">' + money(x.total) + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+    if (d.finishedTotal > d.finished.length) html += '<p class="small" style="margin-top:10px">Les ' + d.finished.length + ' plus récentes sur ' + d.finishedTotal + '.</p>';
+    return html + '</section>';
+  }
 
   function waLink(phone) {
     var p = String(phone || '').replace(/\D/g, '');
@@ -1273,7 +1345,22 @@
     }
     html += '</section>';
 
-    // Colis en cours
+    // Colis : en cours, ou terminés (livrés, retours reçus)
+    var view = S.track.view;
+    html += '<div class="seg" role="group" aria-label="Colis" style="align-self:flex-start">' +
+      '<button type="button" data-act="track-view" data-view="active" aria-pressed="' + (view === 'active') + '">En cours · ' + d.parcels.length + '</button>' +
+      '<button type="button" data-act="track-view" data-view="done" aria-pressed="' + (view === 'done') + '">Terminées (' + d.days + ' j) · ' + d.finishedTotal + '</button></div>';
+    if (view === 'done') html += finishedSection(d);
+    else html += activeSection(d);
+
+    // Versements
+    html += paymentsSection(d) + '</div>';
+    box.innerHTML = html;
+  }
+
+  /** Colis en cours (en route, en livraison, suspendus, retours en cours). */
+  function activeSection(d) {
+    var html = '';
     var f = S.track.filter;
     var shown = d.parcels.filter(function (p) { return f === 'all' || p.group === f; });
     html += '<section class="card"><h2>Colis en cours · ' + d.parcels.length + '</h2><div class="chips" role="group" aria-label="Filtrer les colis" style="margin-bottom:12px">' +
@@ -1296,10 +1383,11 @@
             '<td data-label=""><button type="button" class="btn" style="min-height:36px" data-act="track-history" data-id="' + h(p.id) + '">Chronologie</button></td></tr>';
         }).join('') + '</tbody></table></div>';
     }
-    html += '</section>';
+    return html + '</section>';
+  }
 
-    // Versements
-    html += '<section class="card"><h2>Versements d’Ecotrack (' + d.days + ' jours)</h2>';
+  function paymentsSection(d) {
+    var html = '<section class="card"><h2>Versements d’Ecotrack (' + d.days + ' jours)</h2>';
     if (!d.payments.length) {
       html += '<p class="empty" style="padding:18px 0">Aucun versement sur la période. Le n° de versement s’affiche dès qu’Ecotrack le fournit.</p>';
     } else {
@@ -1312,8 +1400,7 @@
             '<td data-label="Dernier mouvement" class="small">' + fmtDate(p.last) + '</td></tr>';
         }).join('') + '</tbody></table></div>';
     }
-    html += '</section></div>';
-    box.innerHTML = html;
+    return html + '</section>';
   }
 
   /* Chronologie d'un colis : dans la fiche de la commande si elle est ouverte, sinon dans une fenêtre. */
@@ -1413,7 +1500,8 @@
   function profitSummary(d) {
     var t = d.totals;
     var kpis = [
-      ['Chiffre livré', money(t.revenue), plural(t.delivered, 'commande livrée', 'commandes livrées')],
+      ['Ventes des produits', money(t.productSales), plural(t.delivered, 'commande livrée', 'commandes livrées') + ' · encaissé ' + money(t.revenue)],
+      ['Livraison', signed(-t.deliveryNet), t.deliveryNet > 0 ? 'Elle vous coûte (Ecotrack − payé par les clients)' : t.deliveryNet < 0 ? 'Vous gagnez dessus (payé par les clients − Ecotrack)' : 'Ni gain ni perte'],
       ['Bénéfice des commandes', signed(t.ordersProfit), 'Après livraison, achat et retours'],
       ['Dépenses', money(t.expenses), 'Dont publicité : ' + money(t.adSpend)],
       ['Bénéfice net', signed(t.net), 'Ce qui vous reste sur la période'],
@@ -1427,13 +1515,13 @@
     if (d.warnings.missingFee) warn.push(plural(d.warnings.missingFee, 'commande sans tarif de livraison', 'commandes sans tarif de livraison') + ' dans l’onglet Tarifs : les frais payés par le client sont utilisés.');
     if (warn.length) html += '<div class="stock-warn" style="flex-direction:column;align-items:flex-start">' + warn.map(function (w) { return '<span>⚠ ' + w + '</span>'; }).join('') + '</div>';
     html += '<section class="card"><h2>Détail</h2><div class="money-lines">' +
-      '<div><span>Chiffre livré (encaissé par le livreur)</span><span>' + money(t.revenue) + '</span></div>' +
-      '<div><span>− Frais de livraison</span><span>' + money(t.deliveryFees) + '</span></div>' +
-      '<div><span>− Coût d’achat des produits livrés</span><span>' + money(t.productCost) + '</span></div>' +
-      '<div><span>− Frais de retour (' + t.returned + ' × ' + money(d.returnFee) + ')</span><span>' + money(t.returnFees) + '</span></div>' +
-      (t.packaging ? '<div><span>− Emballage</span><span>' + money(t.packaging) + '</span></div>' : '') +
+      '<div><span>Ventes des produits livrés (sans la livraison)</span><span>' + money(t.productSales) + '</span></div>' +
+      '<div><span>Livraison : Ecotrack ' + money(t.deliveryFees) + ' − payé par les clients ' + money(t.clientShipping) + '</span>' + signed(-t.deliveryNet) + '</div>' +
+      '<div><span>Coût d’achat des produits livrés</span>' + signed(-t.productCost) + '</div>' +
+      '<div><span>Frais de retour (' + t.returned + ' × ' + money(d.returnFee) + ')</span>' + signed(-t.returnFees) + '</div>' +
+      (t.packaging ? '<div><span>Emballage</span>' + signed(-t.packaging) + '</div>' : '') +
       '<div class="total"><span>Bénéfice des commandes</span>' + signed(t.ordersProfit) + '</div>' +
-      d.expensesByCategory.map(function (e) { return '<div><span>− ' + h(e.category) + '</span><span>' + money(e.amount) + '</span></div>'; }).join('') +
+      d.expensesByCategory.map(function (e) { return '<div><span>' + h(e.category) + '</span>' + signed(-e.amount) + '</div>'; }).join('') +
       '<div class="total"><span>Bénéfice net</span>' + signed(t.net) + '</div>' +
       '</div><p class="small" style="margin-top:10px">' + t.inTransit + ' commande(s) encore en route ne sont pas comptées : leur bénéfice arrivera à la livraison.</p></section></div>';
     return html;
@@ -1442,15 +1530,16 @@
   function groupRows(list, first) {
     return list.map(function (g) {
       return [first(g), g.orders, g.delivered, g.returned, g.deliveryRate === null ? '—' : Math.round(g.deliveryRate * 100) + ' %',
-        money(g.revenue), signed(g.profit)];
+        money(g.sales), signed(-g.deliveryNet), signed(g.profit)];
     });
   }
 
   function profitProducts(d) {
     if (!d.products.length) return '<div class="card"><p class="empty">Aucune commande sur la période.</p></div>';
     return '<section class="card"><h2>Par produit</h2>' +
-      table(['Produit', 'Commandes', 'Livrées', 'Retours', 'Livraison', 'Chiffre livré', 'Bénéfice'], groupRows(d.products, function (g) { return h(g.name); }), [1, 2, 3, 4, 5, 6]) +
-      '<p class="small" style="margin-top:10px">Une commande à plusieurs produits est partagée selon les quantités. Bénéfice avant dépenses (publicité…).</p></section>';
+      table(['Produit', 'Commandes', 'Livrées', 'Retours', 'Taux de livraison', 'Ventes', 'Livraison', 'Bénéfice'], groupRows(d.products, function (g) { return h(g.name); }), [1, 2, 3, 4, 5, 6, 7]) +
+      '<p class="small" style="margin-top:10px">Livraison : en rouge, ce que la livraison vous coûte (Ecotrack plus cher que ce que paie le client) ; en vert, ce que vous gagnez dessus. ' +
+      'Une commande à plusieurs produits est partagée selon les quantités. Bénéfice avant dépenses (publicité…).</p></section>';
   }
 
   function adRows(list) {
@@ -1599,6 +1688,10 @@
     'save-order': saveOrder,
     'parcel-cancel-ask': function (el) { askCancelParcel(el.getAttribute('data-id'), el.getAttribute('data-tracking'), el.getAttribute('data-from') === 'ship'); },
     'parcel-cancel': cancelParcel,
+    'manual-ship-ask': function (el) { askManualShip(el.getAttribute('data-id')); },
+    'manual-ship': manualShip,
+    'track-view': function (el) { S.track.view = el.getAttribute('data-view'); renderTracking(); },
+    'track-done-filter': function (el) { S.track.done = el.getAttribute('data-done'); renderTracking(); },
     'order-delete-ask': function (el) { askDeleteOrder(el.getAttribute('data-id')); },
     'order-delete': deleteOrder,
     'order-reopen': reopenOrder,

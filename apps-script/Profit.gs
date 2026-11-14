@@ -3,8 +3,11 @@
  * rentabilité par produit, par campagne et par plateforme (Facebook, TikTok…).
  *
  * Bénéfice d'une commande (comptée à sa date de commande) :
- *  - livrée : total encaissé − frais de la société de livraison (onglet Tarifs)
+ *  - livrée : ventes des produits (total encaissé − livraison payée par le client)
+ *             − livraison (prix de la société de livraison − livraison payée par le client :
+ *               positif = elle vous coûte, négatif = vous gagnez dessus)
  *             − coût d'achat × quantité (onglet Produits) − emballage ;
+ *             (c'est la même chose que : total encaissé − prix de la société − achat − emballage)
  *  - retour : − frais de retour (FRAIS_RETOUR) − emballage ;
  *  - autres : rien (pas encore terminée, ou annulée).
  * Bénéfice net = bénéfice des commandes − dépenses de la période.
@@ -111,7 +114,8 @@ function fillExpenseRates_(settings) {
 /** Bénéfice d'une commande (null si elle n'est ni livrée ni retournée). */
 function orderProfit_(o, env, catalog) {
   var s = env.settings;
-  var res = { profit: null, revenue: 0, cost: 0, fee: 0, returnFee: 0, packaging: 0, missingCost: false, missingFee: false, items: [] };
+  var res = { profit: null, revenue: 0, sales: 0, clientShipping: 0, fee: 0, deliveryNet: 0, cost: 0, returnFee: 0, packaging: 0,
+    missingCost: false, missingFee: false, items: [] };
   var items = orderItems_(o);
   if (o.status === STATUS.DELIVERED) {
     var cost = 0;
@@ -122,13 +126,17 @@ function orderProfit_(o, env, catalog) {
       res.items.push({ label: row ? row.product + (row.model ? ' — ' + row.model : '') : it.label, qty: it.qty, cost: c });
     });
     if (!items.length) res.missingCost = true;
-    var fee = shippingFee_(env, o.wilaya, o.carrier || s.SOCIETE_PAR_DEFAUT, o.mode);
-    if (fee === null) { fee = toNumber_(o.shipping); res.missingFee = true; }
     res.revenue = toNumber_(o.total);
-    res.cost = cost;
+    // Livraison payée par le client : la colonne Frais livraison (sinon total − prix des produits).
+    res.clientShipping = isBlank_(o.shipping) ? Math.max(res.revenue - toNumber_(o.price), 0) : toNumber_(o.shipping);
+    res.sales = res.revenue - res.clientShipping;
+    var fee = shippingFee_(env, o.wilaya, o.carrier || s.SOCIETE_PAR_DEFAUT, o.mode);
+    if (fee === null) { fee = res.clientShipping; res.missingFee = true; }
     res.fee = fee;
+    res.deliveryNet = fee - res.clientShipping;
+    res.cost = cost;
     res.packaging = s.COUT_EMBALLAGE;
-    res.profit = res.revenue - fee - cost - res.packaging;
+    res.profit = res.sales - res.deliveryNet - cost - res.packaging;
   } else if (o.status === STATUS.RETURNED) {
     res.returnFee = s.FRAIS_RETOUR;
     res.packaging = s.COUT_EMBALLAGE;
@@ -142,7 +150,7 @@ function orderProfit_(o, env, catalog) {
 }
 
 function emptyGroup_(name) {
-  return { name: name, orders: 0, confirmed: 0, delivered: 0, returned: 0, inTransit: 0, cancelled: 0, revenue: 0, profit: 0, spend: 0 };
+  return { name: name, orders: 0, confirmed: 0, delivered: 0, returned: 0, inTransit: 0, cancelled: 0, revenue: 0, sales: 0, deliveryNet: 0, profit: 0, spend: 0 };
 }
 
 function addToGroup_(g, o, p, share) {
@@ -154,12 +162,16 @@ function addToGroup_(g, o, p, share) {
   if (o.status === STATUS.CANCELLED) g.cancelled++;
   if (p.profit !== null) {
     g.revenue += p.revenue * share;
+    g.sales += p.sales * share;
+    g.deliveryNet += p.deliveryNet * share;
     g.profit += p.profit * share;
   }
 }
 
 function finishGroup_(g) {
   g.revenue = Math.round(g.revenue);
+  g.sales = Math.round(g.sales);
+  g.deliveryNet = Math.round(g.deliveryNet);
   g.profit = Math.round(g.profit);
   g.spend = Math.round(g.spend);
   g.net = g.profit - g.spend;
@@ -182,8 +194,8 @@ function profitData_(ctx, env, period) {
   if (!since) orders = orders.concat(readArchivedOrders_());
   var expenses = readExpenses_(env.settings).filter(function (e) { return !since || (e.date && e.date >= since); });
 
-  var t = { orders: 0, confirmed: 0, delivered: 0, returned: 0, inTransit: 0, cancelled: 0, revenue: 0, productCost: 0,
-    deliveryFees: 0, returnFees: 0, packaging: 0, ordersProfit: 0, expenses: 0, adSpend: 0 };
+  var t = { orders: 0, confirmed: 0, delivered: 0, returned: 0, inTransit: 0, cancelled: 0, revenue: 0, productSales: 0, clientShipping: 0,
+    deliveryFees: 0, deliveryNet: 0, productCost: 0, returnFees: 0, packaging: 0, ordersProfit: 0, expenses: 0, adSpend: 0 };
   var warn = { missingCost: 0, missingFee: 0, missingCostLabels: {} };
   var products = {};
   var campaigns = {};
@@ -200,8 +212,11 @@ function profitData_(ctx, env, period) {
     if (o.status === STATUS.CANCELLED) t.cancelled++;
     if (p.profit !== null) {
       t.revenue += p.revenue;
-      t.productCost += p.cost;
+      t.productSales += p.sales;
+      t.clientShipping += p.clientShipping;
       t.deliveryFees += p.fee;
+      t.deliveryNet += p.deliveryNet;
+      t.productCost += p.cost;
       t.returnFees += p.returnFee;
       t.packaging += p.packaging;
       t.ordersProfit += p.profit;

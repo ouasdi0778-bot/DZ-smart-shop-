@@ -81,7 +81,25 @@ function setupSettingsSheet_(ss) {
     : [];
   var toAdd = DEFAULT_SETTINGS.filter(function (d) { return existing.indexOf(d[0]) < 0; });
   if (toAdd.length) sh.getRange(sh.getLastRow() + 1, 1, toAdd.length, 3).setValues(toAdd);
+  migrateSettings_(sh);
   sh.getRange(2, 2, dataRows_(sh), 1).setWrap(true);
+}
+
+/**
+ * Changements de réglages par défaut, faits une seule fois :
+ *  - SMS_HEURES : « 8-21 » devient « 0-24 » (SMS à toute heure), seulement si vous ne l'aviez pas changé.
+ */
+function migrateSettings_(sh) {
+  var p = PropertiesService.getScriptProperties();
+  if (p.getProperty('MIGRATION_SMS_HEURES') || sh.getLastRow() < 2) return;
+  var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues();
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === 'SMS_HEURES' && String(rows[i][1]).trim() === '8-21') {
+      var d = DEFAULT_SETTINGS.filter(function (x) { return x[0] === 'SMS_HEURES'; })[0];
+      sh.getRange(i + 2, 2, 1, 2).setValues([[d[1], d[2]]]);
+    }
+  }
+  p.setProperty('MIGRATION_SMS_HEURES', '1');
 }
 
 function setupTeamSheet_(ss) {

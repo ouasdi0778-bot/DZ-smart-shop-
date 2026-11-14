@@ -141,9 +141,10 @@ function readSettings_() {
   s.STOCK_SEUIL = Math.max(0, Math.round(toNumber_(s.STOCK_SEUIL)));
   s.categories = String(s.CATEGORIES_DEPENSES || '').split(';').map(function (c) { return c.trim(); }).filter(function (c) { return c; });
   if (!s.categories.length) s.categories = ['Autre'];
-  var hours = String(s.SMS_HEURES || '8-21').match(/(\d{1,2})\D+(\d{1,2})/);
-  s.smsFrom = hours ? Math.min(+hours[1], 23) : 8;
-  s.smsTo = hours ? Math.min(Math.max(+hours[2], s.smsFrom + 1), 24) : 21;
+  // Heures d'envoi des SMS : « 8-21 » ; vide ou illisible = à toute heure.
+  var hours = String(s.SMS_HEURES || '').match(/(\d{1,2})\D+(\d{1,2})/);
+  s.smsFrom = hours ? Math.min(+hours[1], 23) : 0;
+  s.smsTo = hours ? Math.min(Math.max(+hours[2], s.smsFrom + 1), 24) : 24;
   s.JOURNAL_JOURS = days(s.JOURNAL_JOURS);
   s.SHOPIFY_TAG = String(s.SHOPIFY_TAG == null ? '' : s.SHOPIFY_TAG).trim();
   s.SHOPIFY_JOURS_INITIAL = Math.min(Math.max(toNumber_(s.SHOPIFY_JOURS_INITIAL) || 3, 1), 60);

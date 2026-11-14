@@ -247,7 +247,8 @@ function api_trackingOverview(days) {
     if (String(o.carrier) !== ECO.NAME || isBlank_(o.tracking)) return;
     var info = ecotrackStatusInfo_(o.carrierStatus);
     var group = info ? info.group : (o.status === STATUS.CONFIRMED ? 'draft' : 'transit');
-    var active = o.status === STATUS.CONFIRMED || o.status === STATUS.SHIPPED || o.status === STATUS.IN_DELIVERY ||
+    // Colis créés mais pas encore validés : ils sont dans la page Expédier (onglet « à valider »).
+    var active = o.status === STATUS.SHIPPED || o.status === STATUS.IN_DELIVERY ||
       (o.status === STATUS.RETURNED && group === 'returning');
     if (!active) return;
     var moved = toDate_(o.carrierMoved) || toDate_(o.updated) || toDate_(o.date) || now;
@@ -262,8 +263,29 @@ function api_trackingOverview(days) {
   });
   parcels.sort(function (a, b) { return String(a.since).localeCompare(String(b.since)); });
 
+  // Terminées : livrées et retours reçus de la période (toutes sociétés), les plus récentes d'abord.
+  var since = new Date(now.getTime() - days * 86400000);
+  var finished = [];
+  ctx.orders.forEach(function (o) {
+    if (pageOf_(o) !== 'terminees') return;
+    var moved = toDate_(o.carrierMoved) || toDate_(o.updated) || toDate_(o.date);
+    if (!moved || moved < since) return;
+    var info = hasEcotrackParcel_(o) ? ecotrackStatusInfo_(o.carrierStatus) : null;
+    var group = info ? info.group : '';
+    finished.push({
+      id: String(o.id), client: String(o.client), wilaya: String(o.wilaya), status: o.status, total: toNumber_(o.total),
+      carrier: String(o.carrier || ''), tracking: String(o.tracking || ''), paymentId: String(o.paymentId || ''),
+      label: info ? info.label : o.status,
+      unpaid: o.status === STATUS.DELIVERED && (group === 'delivered' || group === 'cashed' || group === 'ready'),
+      since: moved.toISOString()
+    });
+  });
+  finished.sort(function (a, b) { return String(b.since).localeCompare(String(a.since)); });
+
   var m = trackingMoney_(ctx.orders, now, days);
   return {
+    finished: finished.slice(0, 300),
+    finishedTotal: finished.length,
     configured: cfg.configured,
     lastSync: String(props.getProperty(ECO.PROP_LAST_SYNC) || ''),
     lastError: String(props.getProperty(ECO.PROP_LAST_ERROR) || ''),
@@ -307,5 +329,6 @@ function countsData_(ctx, settings) {
     if (!cb || cb <= now) due++;
   });
   var alerts = trackingAlerts_(ctx.orders, settings || getSettings_(), now).filter(function (a) { return a.level !== 'info'; });
-  return { queue: due, alerts: alerts.length };
+  var toShip = ctx.orders.filter(function (o) { return o.status === STATUS.CONFIRMED && isBlank_(o.tracking); }).length;
+  return { queue: due, alerts: alerts.length, toShip: toShip };
 }

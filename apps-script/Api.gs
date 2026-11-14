@@ -298,17 +298,19 @@ function listData_(ctx, filter) {
     return true;
   });
 
-  var counts = { all: base.length, queue: 0 };
+  var counts = { all: base.length, queue: 0, todo: 0 };
   base.forEach(function (o) {
     var s = o.status || '—';
     counts[s] = (counts[s] || 0) + 1;
     if (QUEUE_STATUSES.indexOf(o.status) >= 0) counts.queue++;
+    if (!o.status || TODO_STATUSES_.indexOf(o.status) >= 0) counts.todo++;
   });
 
   var status = filter.status || 'all';
   var rows = base.filter(function (o) {
     if (status === 'all') return true;
     if (status === 'queue') return QUEUE_STATUSES.indexOf(o.status) >= 0;
+    if (status === 'todo') return !o.status || TODO_STATUSES_.indexOf(o.status) >= 0; // page Commandes : pas encore confirmées
     return o.status === status;
   });
   rows.sort(function (a, b) {

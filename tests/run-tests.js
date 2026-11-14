@@ -336,6 +336,30 @@ test('api_updateOrder : statut, société, suivi, téléphone', function () {
   assert.ok(journal.some(function (r) { return /Expédiée/.test(r[1]); }));
 });
 
+test('Pages : chaque commande a sa page ; la page Commandes ne montre que celles à confirmer', function () {
+  baseSetup();
+  addOrder('#G1', 'Sac');
+  addOrder('#G2', 'Sac');
+  addOrder('#G3', 'Sac');
+  addOrder('#G4', 'Sac', { 'Statut': 'Livrée', 'Société': 'Yalidine' });
+  processNewRows();
+  api_recordCall('#G2', 'confirm', {});
+  api_recordCall('#G3', 'cancel', { reason: 'Doublon' });
+  var pages = {};
+  api_listOrders({ status: 'all', period: 'all' }).rows.forEach(function (o) { pages[o.id] = o.page; });
+  assert.deepStrictEqual(pages, { '#G1': 'commandes', '#G2': 'expedier', '#G3': 'annulees', '#G4': 'terminees' });
+  var todo = api_listOrders({ status: 'todo', period: 'all' });
+  assert.deepStrictEqual(todo.rows.map(function (o) { return o.id; }), ['#G1']);
+  assert.deepStrictEqual([todo.counts.todo, todo.counts['Annulée'], todo.counts.all], [1, 1, 4]);
+  assert.deepStrictEqual(api_listOrders({ status: 'Annulée', period: 'all' }).rows.map(function (o) { return o.id; }), ['#G3']);
+  assert.strictEqual(api_counts().toShip, 1, 'compteur du menu Expédier');
+  assert.strictEqual(pageOf_({ status: 'Retour', carrier: 'Ecotrack', tracking: 'E1', carrierStatus: 'retour_en_traitement' }), 'suivi');
+  assert.strictEqual(pageOf_({ status: 'Retour', carrier: 'Ecotrack', tracking: 'E1', carrierStatus: 'retour_recu' }), 'terminees');
+  // Expédiée à la main (autre société) depuis la page Expédier : passe dans Suivi.
+  var o = api_updateOrder('#G2', { status: 'Expédiée', carrier: 'Yalidine', tracking: 'YAL-77' });
+  assert.deepStrictEqual([o.status, o.page], ['Expédiée', 'suivi']);
+});
+
 test('api_listOrders : filtres, compteurs, recherche, tri', function () {
   baseSetup();
   var now = Date.now();
@@ -1010,15 +1034,20 @@ test('Suivi : liste des colis en cours', function () {
   addParcel('L5', { 'Statut': 'Livrée', 'Statut société': 'paye_et_archive' });
   addParcel('L6', { 'Statut': 'Retour', 'Statut société': 'retour_recu' });
   var r = api_trackingOverview(30);
-  assert.deepStrictEqual(r.parcels.map(function (p) { return p.id; }), ['L2', 'L4', 'L1', 'L3'], 'le plus ancien mouvement d’abord');
+  assert.deepStrictEqual(r.parcels.map(function (p) { return p.id; }), ['L2', 'L4', 'L1'], 'le plus ancien mouvement d’abord ; le colis à valider est dans Expédier');
   var by = {};
   r.parcels.forEach(function (p) { by[p.id] = p; });
   assert.strictEqual(by.L2.stale, true);
   assert.strictEqual(by.L1.stale, false);
   assert.strictEqual(by.L1.carrierLabel, 'En livraison');
-  assert.strictEqual(by.L3.carrierLabel, 'Créé, à valider chez Ecotrack');
+  assert.strictEqual(by.L3, undefined);
   assert.strictEqual(by.L4.group, 'returning');
   assert.ok(by.L2.ageHours >= 40);
+  // Terminées : livrée (payée) et retour reçu ; le retour en cours reste dans « en cours ».
+  assert.deepStrictEqual(r.finished.map(function (f) { return f.id; }).sort(), ['L5', 'L6']);
+  var l5 = r.finished.filter(function (f) { return f.id === 'L5'; })[0];
+  assert.deepStrictEqual([l5.label, l5.unpaid], ['Payé', false]);
+  assertSerializable(r, 'api_trackingOverview');
 });
 
 test('Suivi : chronologie d’un colis (get/tracking/info)', function () {
@@ -1952,13 +1981,13 @@ test('Vitesse : confirmer renvoie la commande suivante, la file et les compteurs
   assert.strictEqual(res.next.order.id, '#Q2');
   assert.ok(res.next.rules && res.next.history);
   assert.deepStrictEqual(res.queue.due.map(function (x) { return x.id; }), ['#Q2', '#Q3']);
-  assert.deepStrictEqual(res.counts, { queue: 2, alerts: 0 });
+  assert.deepStrictEqual(res.counts, { queue: 2, alerts: 0, toShip: 1 });
   assertSerializable(res, 'api_recordCall');
   // Commande suivante déjà traitée par quelqu'un d'autre : pas de fiche jointe.
   api_recordCall('#Q2', 'cancel', { reason: 'Doublon' });
   assert.strictEqual(api_recordCall('#Q3', 'confirm', {}, { next: '#Q2' }).next, undefined);
   // Les autres modifications renvoient aussi les compteurs.
-  assert.deepStrictEqual(api_updateOrder('#Q3', { notes: 'ok' }).counts, { queue: 0, alerts: 0 });
+  assert.deepStrictEqual(api_updateOrder('#Q3', { notes: 'ok' }).counts, { queue: 0, alerts: 0, toShip: 2 });
 });
 
 test('Vitesse : la première page arrive avec le démarrage (un seul aller-retour)', function () {
@@ -1972,7 +2001,7 @@ test('Vitesse : la première page arrive avec le démarrage (un seul aller-retou
   assert.strictEqual(b.preload.data.arrived, 1, 'RELEASIT vérifié avant');
   assert.deepStrictEqual(b.preload.data.due.map(function (x) { return x.id; }), ['#B1', '#B2']);
   assert.strictEqual(b.preload.data.firstDetail.order.id, '#B1');
-  assert.deepStrictEqual(b.counts, { queue: 2, alerts: 0 });
+  assert.deepStrictEqual(b.counts, { queue: 2, alerts: 0, toShip: 0 });
   assertSerializable(b, 'api_bootstrap');
 
   var list = api_bootstrap({ fn: 'api_listOrders', args: [{ status: 'all', period: 'all', sync: true, withStatus: true }], key: 'k' });
@@ -2289,6 +2318,26 @@ test('Bénéfices : livrée, retour, frais Ecotrack réels, coût d’achat, dé
   assert.throws(function () { api_addExpense({ amount: 5 }); }, /Réservé/);
 });
 
+test('Bénéfices : livraison = prix Ecotrack − payé par le client (coût, gratuité, gain)', function () {
+  baseSetup(); // Ecotrack Alger : 700 domicile, 350 stop desk
+  setCatalog([{ 'Produit': 'Sac', "Coût d'achat": 600, 'Stock': 50 }]);
+  var ctx = readOrders_();
+  var env = makeEnv_(ctx);
+  var cat = readCatalog_();
+  var p = function (o) {
+    var r = orderProfit_(Object.assign({ status: 'Livrée', carrier: 'Ecotrack', wilaya: '16 - Alger', product: 'Sac', qty: 1 }, o), env, cat);
+    return [r.sales, r.clientShipping, r.fee, r.deliveryNet, r.profit];
+  };
+  assert.deepStrictEqual(p({ mode: 'Domicile', price: 1800, shipping: 450, total: 2250 }), [1800, 450, 700, 250, 950], 'la livraison vous coûte 250');
+  assert.deepStrictEqual(p({ mode: 'Stop desk', price: 1800, shipping: 0, total: 1800 }), [1800, 0, 350, 350, 850], 'livraison gratuite : 350 à votre charge');
+  assert.deepStrictEqual(p({ mode: 'Stop desk', price: 1800, shipping: 500, total: 2300 }), [1800, 500, 350, -150, 1350], 'le client paie plus : vous gagnez 150');
+  assert.deepStrictEqual(p({ mode: 'Domicile', price: 1800, shipping: '', total: 2250 }), [1800, 450, 700, 250, 950], 'sans colonne livraison : total − prix');
+  addOrder('#L1', 'Sac', { 'Statut': 'Livrée', 'Société': 'Ecotrack', 'Livraison': 'Stop desk', 'Prix': 1800, 'Frais livraison': 0, 'Total': 1800 });
+  addOrder('#L2', 'Sac', { 'Statut': 'Livrée', 'Société': 'Ecotrack', 'Livraison': 'Domicile', 'Prix': 1800, 'Frais livraison': 450, 'Total': 2250 });
+  var t = api_profit('30').totals;
+  assert.deepStrictEqual([t.productSales, t.clientShipping, t.deliveryFees, t.deliveryNet, t.ordersProfit], [3600, 450, 1050, 600, 3600 - 600 - 1200]);
+});
+
 test('Bénéfices : source et campagne publicitaires venues de RELEASIT', function () {
   releasitSetup();
   releasitTab(RELEASIT_HEADER.concat(['UTM source', 'UTM campaign']));
@@ -2361,9 +2410,11 @@ test('SMS : la nuit ils attendent ; clé refusée signalée une fois ; httpSMS e
   smsSetup();
   addOrder('#N1', 'cover iPhone - iphone 15', { 'Téléphone': '0661457891' });
   processNewRows();
+  setSetting('SMS_HEURES', '8-21'); // heures d'envoi choisies : la nuit, ils attendent
   var night = atHour(2, function () { return sendSmsQueue_({}); });
   assert.deepStrictEqual([night.night, night.waiting, HTTPSMS.messages.length], [true, 1, 0]);
   assert.ok(/partiront le matin/.test(smsSendMessage_(night)));
+  setSetting('SMS_HEURES', '0-24');
 
   saveSmsConfig_('mauvaise-cle-1234567890', '0550123456');
   var bad = atHour(9, function () { return sendSmsQueue(); });
@@ -2378,6 +2429,41 @@ test('SMS : la nuit ils attendent ; clé refusée signalée une fois ; httpSMS e
   assert.strictEqual(atHour(9, function () { return sendSmsQueue_({}); }).sent, 0);
   assert.strictEqual(atHour(9, function () { return sendSmsQueue_({}); }).sent, 1, 'réessayé à la minute suivante');
   assert.strictEqual(api_importStatus().sms.lastError, '');
+});
+
+test('SMS : « commande reçue » envoyé dans le même passage que le transfert RELEASIT, de jour comme de nuit', function () {
+  releasitSetup();
+  saveSmsConfig_(HTTPSMS.key, '0550123456');
+  assert.strictEqual(getSettings_().smsTo, 24, 'à toute heure par défaut');
+  releasitAdd({ id: '#R1', client: 'Nadia K', phone: '+2130661457893' });
+  atHour(2, function () { transferReleasitOrders(); }); // déclencheur de chaque minute, à 2 h du matin
+  assert.strictEqual(HTTPSMS.messages.length, 1, 'parti tout de suite, sans attendre le passage suivant');
+  assert.ok(/وصلنا طلبك #R1/.test(HTTPSMS.messages[0].content));
+  assert.strictEqual(order('#R1').sms, 'À confirmer');
+  // À l'ouverture d'une page, la vérification de RELEASIT ne fait pas attendre l'envoi des SMS.
+  releasitAdd({ id: '#R2', phone: '+2130661457894' });
+  var q = api_queue({ sync: true });
+  assert.strictEqual(q.arrived, 1);
+  assert.strictEqual(HTTPSMS.messages.length, 1);
+  assert.strictEqual(readSmsQueue_(PropertiesService.getScriptProperties()).length, 1, 'il partira à la minute suivante');
+  atHour(2, function () { sendSmsQueue(); });
+  assert.strictEqual(HTTPSMS.messages.length, 2);
+});
+
+test('Paramètres : « 8-21 » jamais modifié devient « 0-24 » une seule fois', function () {
+  setup();
+  var sh = sheet('Paramètres');
+  var keys = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().map(function (r) { return r[0]; });
+  var row = keys.indexOf('SMS_HEURES') + 2;
+  assert.strictEqual(sh.getRange(row, 2).getValue(), '0-24');
+  PropertiesService.getScriptProperties().deleteProperty('MIGRATION_SMS_HEURES');
+  sh.getRange(row, 2).setValue('8-21'); // classeur installé avec l'ancienne version
+  setup();
+  assert.strictEqual(sh.getRange(row, 2).getValue(), '0-24');
+  sh.getRange(row, 2).setValue('8-21'); // choisi ensuite par l'utilisateur : gardé
+  setup();
+  assert.strictEqual(sh.getRange(row, 2).getValue(), '8-21');
+  assert.strictEqual(getSettings_().smsFrom, 8);
 });
 
 test('SMS : statut venu d’Ecotrack (n° de suivi dans le texte), déclencheur, état affiché, SMS de test', function () {
@@ -2396,7 +2482,7 @@ test('SMS : statut venu d’Ecotrack (n° de suivi dans le texte), déclencheur,
   assert.strictEqual(last.content, 'طلبك #X9 في الطريق. رقم التتبع: ' + trackingOf('#X9'));
   var st = api_importStatus().sms;
   assertSerializable(st, 'sms');
-  assert.deepStrictEqual([st.configured, st.from, st.waiting, st.hours], [true, '0550123456', 0, '8 h – 21 h']);
+  assert.deepStrictEqual([st.configured, st.from, st.waiting, st.hours], [true, '0550123456', 0, 'à toute heure']);
   assert.deepStrictEqual(st.statuses, ['À confirmer', 'Pas de réponse', 'Confirmée', 'Expédiée', 'En livraison']);
   assert.ok(/SMS de test envoyé/.test(api_smsTest().message));
   assert.strictEqual(HTTPSMS.messages[HTTPSMS.messages.length - 1].to, '+213550123456');

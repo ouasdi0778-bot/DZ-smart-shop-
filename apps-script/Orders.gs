@@ -171,7 +171,8 @@ function serializeOrder_(o) {
     source: String(o.source),
     updated: iso_(o.updated),
     stage: orderStage_(o),
-    locked: isLockedStage_(orderStage_(o))
+    locked: isLockedStage_(orderStage_(o)),
+    page: pageOf_(o)
   };
 }
 

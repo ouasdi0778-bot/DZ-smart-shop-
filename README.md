@@ -76,6 +76,22 @@ Cette commande peut être relancée à tout moment : elle ne supprime rien et co
 
 **Après une modification du code** : **Déployer › Gérer les déploiements › ✏️ › Version : Nouvelle version**. Sinon, le lien continue d'afficher l'ancienne version.
 
+## Le parcours d'une commande
+
+Chaque page correspond à une étape. Une commande passe toute seule à la suivante.
+
+| Page | Commandes | Elles en sortent quand… |
+|---|---|---|
+| **Commandes** (onglet « À traiter ») | À confirmer, Pas de réponse, Rappeler, Injoignable | elles sont confirmées (→ Expédier) ou annulées (→ onglet **Annulées** de la même page) |
+| **Expédier** | Confirmées : à expédier, puis colis créés à valider chez Ecotrack | vous validez le colis dans Ecotrack, ou vous cliquez « Expédiée (autre société) » (→ Suivi) |
+| **Suivi › En cours** | Expédiées, en livraison, retours en cours | elles sont livrées, ou le retour est reçu (→ Terminées) |
+| **Suivi › Terminées** | Livrées (avec l'état de l'argent : à recevoir, payé), retours reçus | elles sont archivées après 100 jours |
+
+- **Le menu** affiche le nombre de commandes à appeler (Confirmation), à expédier (Expédier) et les alertes (Suivi).
+- **La recherche** de la page Commandes (nom, téléphone, n°) trouve **toutes** les commandes, où qu'elles soient, et indique leur page (« → Expédier », « → Suivi › Terminées »…).
+- Avant la création du colis, une commande confirmée peut être **remise à confirmer** (bouton Modifier dans Expédier).
+- Le tableau de bord et les bénéfices comptent toujours toutes les commandes.
+
 ## Envoyer les colis à Ecotrack
 
 L'intégration suit la [documentation de l'API Ecotrack](https://documenter.getpostman.com/view/14517169/Tz5je15g).
@@ -166,14 +182,15 @@ Page **Bénéfices et stock**, visible seulement par l'**administrateur** (rôle
 
 | Commande | Bénéfice |
 |---|---|
-| Livrée | Total encaissé − frais de la société de livraison (onglet Tarifs, ceux d'Ecotrack sont récupérés par l'API) − coût d'achat × quantité − emballage (`COUT_EMBALLAGE`) |
+| Livrée | Ventes des produits − **livraison** − coût d'achat × quantité − emballage (`COUT_EMBALLAGE`) |
 | Retour | − frais de retour (`FRAIS_RETOUR`, 50 DA) − emballage |
 | En route, en confirmation, annulée | Non comptée |
 
 - **Onglet Dépenses** (la publicité en fait partie) : **Date | Catégorie | Campagne | Montant | Devise (DA ou USD) | Taux | Note**.
   - Les catégories se règlent dans `CATEGORIES_DEPENSES`.
   - Une dépense en dollars prend le **taux du jour** (`TAUX_DOLLAR`) quand elle est saisie dans l'application, ou la première fois qu'elle est lue si elle est tapée dans le classeur. Changer le taux plus tard ne modifie pas les anciennes dépenses.
-- **Résumé** : chiffre livré, bénéfice des commandes, dépenses, **bénéfice net**, publicité par commande livrée, avec le détail ligne par ligne. Un avertissement apparaît s'il manque un coût d'achat ou un tarif de livraison ; dans ce cas, les frais payés par le client sont utilisés.
+- **Livraison** = prix de la société de livraison (onglet Tarifs ; ceux d'Ecotrack sont récupérés par l'API) **− livraison payée par le client**. Positive, elle vous coûte (par exemple 700 − 450 = 250, ou 700 en livraison gratuite). Négative, vous gagnez dessus (par exemple 400 − 600 = −200). Le bénéfice est le même que « total encaissé − prix de la société − achat » ; la livraison est simplement montrée à part.
+- **Résumé** : ventes des produits, livraison, bénéfice des commandes, dépenses, **bénéfice net**, publicité par commande livrée, avec le détail ligne par ligne. Un avertissement apparaît s'il manque un coût d'achat ou un tarif de livraison ; dans ce cas, les frais payés par le client sont utilisés.
 - **Produits** : commandes, livrées, retours, taux de livraison, chiffre livré et bénéfice par modèle.
 - **Publicité** :
   - **par plateforme** (Facebook, TikTok, selon « UTM source ») et **par campagne** (« UTM campaign ») : commandes, livrées, bénéfice, dépense, **net**, publicité par commande livrée ;
@@ -195,8 +212,9 @@ Fonctionnement :
 - **Un texte par statut**, en arabe, dans l'onglet Paramètres : `SMS_A_CONFIRMER`, `SMS_PAS_DE_REPONSE`, `SMS_CONFIRMEE`, `SMS_EXPEDIEE`, `SMS_EN_LIVRAISON`… **Texte vide = pas de SMS** : c'est le cas par défaut de Rappeler, Injoignable, Livrée, Retour et Annulée.
 - **Champs remplacés** : `{prenom}` `{client}` `{numero}` `{produit}` `{total}` `{suivi}` `{commune}` `{wilaya}` `{boutique}`.
 - Quand le statut change (centre de confirmation, Ecotrack, modification, nouvelle commande), le SMS part **dans la minute**, en arrière-plan.
+- Le SMS **« commande reçue »** part dans le **même passage** que l'arrivée de la commande depuis RELEASIT : en moyenne **30 secondes** après la commande, 1 minute au plus. Google ne permet pas de regarder l'onglet plus souvent.
 - **Une seule fois par statut** et par commande : colonne « SMS envoyés ».
-- **Pas la nuit** : hors de `SMS_HEURES` (8-21), les SMS attendent le matin.
+- **Heures d'envoi** : `SMS_HEURES` vaut **0-24** par défaut, donc les SMS partent **à toute heure**. Mettez par exemple 8-21 pour que ceux de la nuit attendent le matin.
 - **Jamais de SMS** :
   - aux numéros invalides ni à la liste noire ;
   - pour un statut déjà dépassé quand le SMS devrait partir ;
@@ -326,7 +344,7 @@ Ce que fait l'outil pour rester rapide :
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 92 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 96 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```

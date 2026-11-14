@@ -8,7 +8,10 @@
  *    modification, nouvelle commande), le SMS est mis en file d'attente ; il part
  *    dans la minute qui suit, en arrière-plan (l'application reste rapide).
  *  - Une seule fois par statut et par commande (colonne « SMS envoyés »).
- *  - Pas de SMS la nuit (SMS_HEURES, 8-21 par défaut) : ils partent le matin.
+ *  - Heures d'envoi : SMS_HEURES (0-24 par défaut : à toute heure ; par exemple 8-21 pour
+ *    que les SMS de la nuit attendent le matin).
+ *  - Le SMS « commande reçue » part dans le même passage que le transfert depuis RELEASIT
+ *    (30 secondes en moyenne après la commande), sans attendre la minute suivante.
  *  - Pas de SMS aux numéros invalides ni à la liste noire, ni pour un statut déjà
  *    dépassé, ni pour une vieille commande (au premier transfert depuis RELEASIT).
  *
@@ -284,7 +287,7 @@ function smsStatus_() {
     waiting: readSmsQueue_(p).length,
     lastRun: String(p.getProperty(SMS.PROP_LAST_RUN) || ''),
     lastError: String(p.getProperty(SMS.PROP_LAST_ERROR) || ''),
-    hours: settings.smsFrom + ' h – ' + settings.smsTo + ' h',
+    hours: settings.smsFrom === 0 && settings.smsTo === 24 ? 'à toute heure' : settings.smsFrom + ' h – ' + settings.smsTo + ' h',
     statuses: STATUS_LIST.filter(function (s) { return smsTemplate_(settings, s); })
   };
 }
@@ -321,7 +324,7 @@ function menuSmsSetup() {
   try {
     var r = saveSmsConfig_(first.getResponseText(), second.getResponseText());
     installTriggers_();
-    ui.alert('SMS', 'Enregistré : les SMS partiront du ' + r.from + ', dans la minute qui suit chaque changement de statut, entre ' + smsStatus_().hours + '.\n\nLes textes se modifient dans l’onglet Paramètres (SMS_A_CONFIRMER, SMS_CONFIRMEE…). Texte vide = pas de SMS.', ui.ButtonSet.OK);
+    ui.alert('SMS', 'Enregistré : les SMS partiront du ' + r.from + ', dans la minute qui suit chaque changement de statut (' + smsStatus_().hours + ').\n\nLes textes se modifient dans l’onglet Paramètres (SMS_A_CONFIRMER, SMS_CONFIRMEE…). Texte vide = pas de SMS.', ui.ButtonSet.OK);
   } catch (e) {
     ui.alert('SMS : échec', String(e && e.message ? e.message : e), ui.ButtonSet.OK);
   }
