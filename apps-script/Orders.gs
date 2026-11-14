@@ -161,6 +161,8 @@ function serializeOrder_(o) {
     paymentId: String(o.paymentId),
     followUp: iso_(o.followUp),
     label: labelState_(o),
+    courierNote: String(o.courierNote == null ? '' : o.courierNote),
+    followCalls: toNumber_(o.followCalls),
     campaign: String(o.campaign),
     adSource: String(o.adSource == null ? '' : o.adSource),
     shopifyId: String(o.shopifyId),
@@ -283,7 +285,7 @@ function shippingFee_(env, wilaya, carrier, mode) {
 /* ------------------------------------------------------------------ */
 
 /** Titres des colonnes de l'onglet Clients (les 3 dernières sont remplies par l'archivage). */
-var CLIENT_TITLES_ = ['Téléphone', 'Nom', 'Liste noire', 'Note', 'Livrées archivées', 'Retours archivés', 'Annulées archivées'];
+var CLIENT_TITLES_ = ['Téléphone', 'Nom', 'Liste noire', 'Note', 'Livrées archivées', 'Retours archivés', 'Annulées archivées', 'Signalé'];
 
 /**
  * Onglet Clients, gardé en mémoire : numéros en liste noire (case cochée), et
@@ -291,7 +293,7 @@ var CLIENT_TITLES_ = ['Téléphone', 'Nom', 'Liste noire', 'Note', 'Livrées arc
  */
 function readClients_() {
   return cached_('cfg:clients', function () {
-    var out = { blacklist: {}, archived: {} };
+    var out = { blacklist: {}, archived: {}, flags: {} };
     var sh = ss_().getSheetByName(SHEET.CLIENTS);
     if (!sh || sh.getLastRow() < 2) return out;
     var lastCol = Math.max(sh.getLastColumn(), 3);
@@ -304,11 +306,13 @@ function readClients_() {
     var cDel = col('Livrées archivées', -1);
     var cRet = col('Retours archivés', -1);
     var cCan = col('Annulées archivées', -1);
+    var cFlag = col('Signalé', -1);
     for (var r = 1; r < values.length; r++) {
       var p = normalizePhone(values[r][cPhone]).phone;
       if (!p) continue;
       var b = values[r][cBlack];
       if (b === true || /^(vrai|true|oui)$/i.test(String(b))) out.blacklist[p] = true;
+      if (cFlag >= 0 && !isBlank_(values[r][cFlag])) out.flags[p] = String(values[r][cFlag]).trim();
       var counts = [cDel, cRet, cCan].map(function (c) { return c < 0 ? 0 : toNumber_(values[r][c]); });
       if (counts[0] || counts[1] || counts[2]) out.archived[p] = counts;
     }
@@ -363,6 +367,7 @@ function computeAlert_(order, env) {
     });
     if (duplicate) return 'Doublon';
   }
+  if (env.flags && env.flags[p.phone]) return 'Signalé · a refusé un colis';
   var finished = h.delivered + h.returned;
   if (h.returned >= 2 && h.returned >= h.delivered) return 'Risque · ' + h.returned + ' refus';
   if (h.delivered > 0) return 'Fiable · ' + h.delivered + '/' + finished + ' livrées';
@@ -374,7 +379,7 @@ function computeAlert_(order, env) {
 function alertLevel_(alert) {
   var a = String(alert || '');
   if (a.indexOf('Liste noire') === 0 || a.indexOf('Numéro invalide') === 0) return 'bad';
-  if (a.indexOf('Doublon') === 0 || a.indexOf('Risque') === 0 || a.indexOf('Attention') === 0) return 'warn';
+  if (a.indexOf('Doublon') === 0 || a.indexOf('Risque') === 0 || a.indexOf('Attention') === 0 || a.indexOf('Signalé') === 0) return 'warn';
   if (a.indexOf('Fiable') === 0) return 'ok';
   return 'new';
 }
@@ -389,6 +394,7 @@ function makeEnv_(ctx) {
     rates: readRates_(wilayas),
     blacklist: clients.blacklist,
     archived: clients.archived,
+    flags: clients.flags || {},
     index: phoneIndex_(ctx.orders),
     now: new Date()
   };

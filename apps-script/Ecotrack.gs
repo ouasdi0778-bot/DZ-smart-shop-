@@ -669,7 +669,7 @@ function syncEcotrackStatuses_(opts) {
   var tracked = readOrders_().orders.filter(function (o) {
     return isEcotrackTracked_(o) && (!onlyCreated || orderStage_(o) === STAGE.PARCEL);
   }).map(function (o) {
-    return { id: String(o.id), tracking: String(o.tracking).trim(), date: toDate_(o.date) };
+    return { id: String(o.id), tracking: String(o.tracking).trim(), date: toDate_(o.date), carrierStatus: String(o.carrierStatus || '').trim() };
   });
   summary.checked = tracked.length;
   if (!tracked.length) { if (!onlyCreated) markSynced_(); return summary; }
@@ -697,11 +697,27 @@ function syncEcotrackStatuses_(opts) {
     if (rec) found[t.tracking] = rec;
   });
 
+  // 3. Colis qui passent « suspendu » ou « retour » : remarques du livreur (motif).
+  var watched = tracked.filter(function (t) {
+    var rec = found[t.tracking];
+    var raw = rec ? String(rec.status == null ? '' : rec.status).trim() : '';
+    var info = raw && raw !== t.carrierStatus ? ecotrackStatusInfo_(raw) : null;
+    return !!info && (info.group === 'suspended' || info.group === 'returning');
+  });
+  var remarks = {};
+  try {
+    remarks = courierRemarks_(watched.slice(0, FOLLOW.MAX_REMARKS).map(function (t) { return t.tracking; }));
+  } catch (e) {
+    remarks = {};
+  }
+  var settings = getSettings_();
+
   withLock_(function () {
     var ctx = readOrders_();
     var hasRaw = ctx.map.carrierStatus !== undefined;
     var now = new Date();
     var actor = { name: 'Ecotrack' };
+    if (Object.keys(remarks).length) ensureOrderColumn_(ctx, 'courierNote');
     tracked.forEach(function (t) {
       var o = findOrder_(ctx, t.id);
       if (!o || !isEcotrackTracked_(o) || String(o.tracking).trim() !== t.tracking) return;
@@ -724,11 +740,33 @@ function syncEcotrackStatuses_(opts) {
           // Le premier statut lu ne remet pas à zéro l'horloge du colis (date de création).
           if (!isBlank_(o.carrierStatus) || isBlank_(o.carrierMoved)) f.carrierMoved = now;
         }
+        if (raw && raw !== String(o.carrierStatus)) {
+          // Nouvelle étape : les appels de suivi de l'étape précédente ne comptent plus.
+          if (!isBlank_(o.followCalls)) f.followCalls = '';
+          if (!isBlank_(o.followNext)) f.followNext = '';
+          var rem = remarks[t.tracking];
+          var last = rem && rem.ok ? rem.last : null;
+          if (last) {
+            var noteText = courierNoteText_(last);
+            if (noteText !== String(o.courierNote || '')) f.courierNote = noteText;
+          }
+          var stepInfo = ecotrackStatusInfo_(raw);
+          // SMS « le livreur n'a pas pu vous joindre » : client injoignable, ou colis suspendu sans remarque.
+          if (stepInfo && stepInfo.group === 'suspended') {
+            var tag = last ? remarkTag_(last.text, settings) : '';
+            if (!tag || tag === 'injoignable') noteSmsEvent_(o, 'courier');
+            log_(actor, o.id, 'Colis suspendu', last ? 'Livreur : ' + last.text : 'Sans remarque du livreur');
+          }
+        }
         var payment = rec.payment_id == null ? '' : String(rec.payment_id).trim();
         if (payment && payment !== String(o.paymentId)) f.paymentId = payment;
         if (mapped && mapped !== o.status && STATUS_RANK_[mapped] > STATUS_RANK_[o.status]) {
           f.status = mapped;
           if (mapped === STATUS.CANCELLED) f.cancelReason = 'Annulée chez Ecotrack';
+          if (mapped === STATUS.DELIVERED && isBlank_(o.deliveredAt)) {
+            ensureOrderColumn_(ctx, 'deliveredAt');
+            f.deliveredAt = now;
+          }
           summary.updated++;
           log_(actor, o.id, 'Statut du colis', raw + ' → ' + mapped);
         } else if (mapped === null && raw) {

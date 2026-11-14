@@ -139,7 +139,7 @@ function setupRatesSheet_(ss) {
 }
 
 function setupClientsSheet_(ss) {
-  var sh = setupSimpleSheet_(ss, SHEET.CLIENTS, CLIENT_TITLES_, [130, 180, 100, 320, 120, 120, 120]);
+  var sh = setupSimpleSheet_(ss, SHEET.CLIENTS, CLIENT_TITLES_, [130, 180, 100, 320, 120, 120, 120, 260]);
   sh.getRange(2, 1, dataRows_(sh), 1).setNumberFormat('@');
   sh.getRange(2, 3, dataRows_(sh), 1).setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
 }

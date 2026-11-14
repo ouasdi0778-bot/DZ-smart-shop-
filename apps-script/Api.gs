@@ -645,6 +645,17 @@ function api_createOrder(input) {
   });
 }
 
+/** Met à jour l'« Alerte client » des commandes en attente d'un numéro (après la liste noire ou un signalement). */
+function refreshClientAlerts_(ctx, phone) {
+  var env = makeEnv_(ctx);
+  ctx.orders.forEach(function (o) {
+    if (normalizePhone(o.phone).phone !== phone) return;
+    if (QUEUE_STATUSES.indexOf(o.status) < 0 && o.status !== STATUS.UNREACHABLE && o.status !== STATUS.CONFIRMED) return;
+    var a = computeAlert_(o, env);
+    if (a !== String(o.alert)) writeFields_(ctx, o, { alert: a });
+  });
+}
+
 /** Ajoute ou retire un numéro de la liste noire (onglet Clients). */
 function api_setBlacklist(phone, on, note) {
   var p = normalizePhone(phone);
@@ -670,15 +681,7 @@ function api_setBlacklist(phone, on, note) {
       if (note) sh.getRange(row, 4).setValue(note);
     }
     clearConfigCache_(configKeysFor_(SHEET.CLIENTS));
-    // Met à jour l'alerte des commandes en attente de ce client.
-    var ctx = readOrders_();
-    var env = makeEnv_(ctx);
-    ctx.orders.forEach(function (o) {
-      if (normalizePhone(o.phone).phone !== p.phone) return;
-      if (QUEUE_STATUSES.indexOf(o.status) < 0 && o.status !== STATUS.UNREACHABLE) return;
-      var a = computeAlert_(o, env);
-      if (a !== String(o.alert)) writeFields_(ctx, o, { alert: a });
-    });
+    refreshClientAlerts_(readOrders_(), p.phone);
     log_(user, '', on ? 'Liste noire : ajout' : 'Liste noire : retrait', p.phone);
     return { phone: p.phone, blacklisted: !!on };
   });

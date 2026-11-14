@@ -51,6 +51,7 @@ function seedEcotrack_(list) {
   var cycle = ['paye_et_archive', 'en_livraison', 'suspendu', 'en_hub', 'livre_non_encaisse',
     'retour_en_traitement', 'encaisse_non_paye', 'retour_recu', 'en_livraison', 'paiements_prets'];
   var moved = {};
+  var late = {};
   list.forEach(function (x, idx) {
     var t = tracking[x.id];
     if (!t) return;
@@ -70,9 +71,16 @@ function seedEcotrack_(list) {
     var s = cycle[idx % cycle.length];
     __fakeEcotrack.setStatus(t, s);
     if (s === 'paye_et_archive') __fakeEcotrack.setPayment(t, idx % 2 ? 312 : 318);
-    if (s === 'suspendu') moved[x.id] = 3;
-    if (s === 'en_hub') moved[x.id] = 40;              // sans mouvement depuis plus de 26 h
-    if (s === 'retour_en_traitement') moved[x.id] = 6;
+    if (s === 'suspendu') {
+      moved[x.id] = 3;
+      __fakeEcotrack.courierSays(t, 'Client injoignable, téléphone éteint', new Date(Date.now() - 3 * 3600000));
+    }
+    if (s === 'en_hub') moved[x.id] = 55;              // au centre de tri depuis plus de 48 h
+    if (s === 'retour_en_traitement') {
+      moved[x.id] = 6;
+      __fakeEcotrack.courierSays(t, 'Le client a refusé le colis', new Date(Date.now() - 7 * 3600000));
+    }
+    if (s === 'livre_non_encaisse') late[x.id] = 6 * 24; // livré depuis 6 jours, toujours pas payé
   });
   syncEcotrackStatuses_();
 
@@ -87,6 +95,11 @@ function seedEcotrack_(list) {
   Object.keys(moved).forEach(function (id) {
     var o = findOrder_(ctx, id);
     if (o) writeFields_(ctx, o, { carrierMoved: new Date(Date.now() - moved[id] * 3600000) });
+  });
+  Object.keys(late).forEach(function (id) {
+    var o = findOrder_(ctx, id);
+    var d = new Date(Date.now() - late[id] * 3600000);
+    if (o) writeFields_(ctx, o, { carrierMoved: d, deliveredAt: d });
   });
 }
 

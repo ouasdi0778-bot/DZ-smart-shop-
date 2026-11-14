@@ -25,6 +25,8 @@
       refreshedAt: 0                        // dernière relecture des colis créés chez Ecotrack
     },
     track: { data: null, days: 30, filter: 'all', view: 'active', done: 'all' },
+    follow: null,     // alerte en cours : { id, result } (fenêtre « Résultat de l'appel »)
+    followBusy: false,
     order: null,      // dernière commande affichée dans la fenêtre (pour la réafficher)
     unlockId: null,   // commande déverrouillée par un administrateur
     list: null,       // dernière liste de la page Commandes (mise à jour sur place)
@@ -1708,20 +1710,30 @@
     // Alertes
     html += '<section class="card"><h2>À traiter · ' + d.alerts.length + '</h2>';
     if (!d.alerts.length) {
-      html += '<p class="empty" style="padding:18px 0">Rien à traiter : vos colis avancent normalement (alerte après ' + d.alertHours + ' h sans mouvement).</p>';
+      html += '<p class="empty" style="padding:18px 0">Rien à traiter : vos colis avancent normalement.</p>';
     } else {
       html += d.alerts.map(function (a) {
         var lv = LEVELS[a.level] || LEVELS.info;
         var wa = waLink(a.phone);
         return '<div class="result-row"><span class="pill" style="min-width:96px;text-align:center;background:' + lv.bg + ';color:' + lv.fg + '">' + lv.label + '</span>' +
           '<span class="grow"><strong>' + h(a.title) + '</strong> · <button type="button" class="link-btn" data-act="open-order" data-id="' + h(a.id) + '">' + h(a.id) + '</button> · ' + h(a.client) + ' · ' + h(wilayaName(a.wilaya)) +
+          (a.tagLabel ? ' ' + tagPill(a.tag, a.tagLabel) : '') +
           '<br><span class="small" style="color:var(--ink-2)">' + h(a.detail) + '</span>' +
-          '<br><span class="small mono">' + h(a.tracking) + ' · ' + h(a.carrierLabel || 'statut pas encore lu') + ' · depuis ' + h(ago(a.since).replace(/^il y a /, '')) + '</span></span>' +
+          (a.courierNote ? '<br><span class="small courier-note">🛵 Livreur : ' + h(a.courierNote) + '</span>' : '') +
+          (a.calls && !a.proposeReturn ? '<br><span class="small strong">' + plural(a.calls, 'appel sans réponse', 'appels sans réponse') + '</span>' : '') +
+          '<br><span class="small mono">' + h(a.tracking) + ' · ' + h(a.carrierLabel || 'statut pas encore lu') + ' · depuis ' + h(ago(a.since).replace(/^il y a /, '')) + '</span>' +
+          (a.proposeReturn ? '<span class="lock-box warn" style="margin-top:8px"><p>' + plural(a.calls, 'appel', 'appels') + ' sans réponse : demander le retour du colis ?</p>' +
+            '<button type="button" class="btn danger" style="min-height:40px" data-act="follow-return" data-id="' + h(a.id) + '">Demander le retour</button>' +
+            '<button type="button" class="btn" style="min-height:40px" data-act="follow-quick" data-result="informed" data-id="' + h(a.id) + '">Laisser le livreur réessayer</button></span>' : '') +
+          '</span>' +
           '<span class="quick">' +
             (/^0\d{8,9}$/.test(String(a.phone).replace(/\D/g, '')) ? '<a class="btn" style="min-height:40px" href="tel:' + h(a.phone) + '" target="_top">Appeler</a>' : '') +
             (wa ? '<a class="btn" style="min-height:40px" href="' + h(wa) + '" target="_blank" rel="noopener">WhatsApp</a>' : '') +
             '<button type="button" class="btn" style="min-height:40px" data-act="track-history" data-id="' + h(a.id) + '">Chronologie</button>' +
-            '<button type="button" class="btn" style="min-height:40px" data-act="track-done" data-id="' + h(a.id) + '">Marquer comme traité</button></span></div>';
+            (a.callable
+              ? '<button type="button" class="btn primary" style="min-height:40px" data-act="follow-open" data-id="' + h(a.id) + '">Résultat de l’appel</button>'
+              : '<button type="button" class="btn" style="min-height:40px" data-act="track-done" data-id="' + h(a.id) + '">Marquer comme traité</button>') +
+          '</span></div>';
       }).join('');
     }
     html += '</section>';
@@ -1758,7 +1770,8 @@
           return '<tr><td data-label="Commande" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(p.id) + '">' + h(p.id) + '</button><div class="small">' + h(p.client) + '</div></td>' +
             '<td data-label="Wilaya">' + h(wilayaName(p.wilaya)) + '</td>' +
             '<td data-label="N° de suivi" class="mono">' + h(p.tracking) + '</td>' +
-            '<td data-label="Statut Ecotrack">' + h(p.carrierLabel || '—') + (p.stale ? ' <span class="pill" style="background:#FFF3DC;color:#8A5200">' + (p.group === 'draft' ? 'à valider' : 'sans mouvement') + '</span>' : '') + '</td>' +
+            '<td data-label="Statut Ecotrack" class="multi">' + h(p.carrierLabel || '—') + (p.stale ? ' <span class="pill" style="background:#FFF3DC;color:#8A5200">' + (p.group === 'draft' ? 'à valider' : 'sans mouvement') + '</span>' : '') +
+              (p.courierNote && (p.group === 'suspended' || p.group === 'returning') ? '<div class="small courier-note">' + (p.tagLabel ? tagPill('', p.tagLabel) + ' ' : '') + h(p.courierNote) + '</div>' : '') + '</td>' +
             '<td data-label="Depuis">' + h(hoursText(p.ageHours)) + '</td>' +
             '<td data-label="Total" class="num strong">' + money(p.total) + '</td>' +
             '<td data-label=""><button type="button" class="btn" style="min-height:36px" data-act="track-history" data-id="' + h(p.id) + '">Chronologie</button></td></tr>';
@@ -1785,6 +1798,125 @@
   }
 
   /* Chronologie d'un colis : dans la fiche de la commande si elle est ouverte, sinon dans une fenêtre. */
+  /** Remarques du colis : le livreur à gauche, vous à droite. */
+  function remarksHtml(d) {
+    if (!d.remarks) return '';
+    var html = '<h3 class="small strong" style="margin:14px 0 6px">Échanges avec le livreur</h3>';
+    if (!d.remarksOk) return html + '<p class="small">Remarques non disponibles : ' + h(d.remarksError || 'erreur') + '</p>';
+    if (!d.remarks.length) return html + '<p class="small">Aucune remarque sur ce colis.</p>';
+    return html + '<div class="remarks">' + d.remarks.map(function (r) {
+      return '<div class="remark' + (r.mine ? ' mine' : '') + '"><span class="small strong">' + (r.mine ? 'Vous' : '🛵 ' + h(r.author || 'Livreur')) + '</span>' +
+        (r.tagLabel ? ' ' + tagPill(r.tag, r.tagLabel) : '') +
+        '<div>' + h(r.mine ? r.text.replace(/^Vendeur\s*:\s*/, '') : r.text) + '</div>' +
+        '<span class="small">' + (r.date ? fmtDate(r.date) : h(r.dateText || '')) + '</span></div>';
+    }).join('') + '</div>';
+  }
+
+  var TAG_STYLE = {
+    injoignable: '#FFF3DC;color:#8A5200', refus: '#FBE7E7;color:#A12626', reporte: '#E6EEFB;color:#1E4FA8', adresse: '#EFE9FB;color:#5B34A8'
+  };
+  function tagPill(tag, label) {
+    var key = tag || ({ Injoignable: 'injoignable', Refus: 'refus', 'Reporté': 'reporte', Adresse: 'adresse' })[label] || '';
+    return '<span class="pill" style="background:' + (TAG_STYLE[key] || '#EEF0F3;color:#3D4350') + '">' + h(label) + '</span>';
+  }
+
+  /* ---------------- Résultat de l'appel (alertes de suivi) ---------------- */
+
+  function alertById(id) {
+    var d = S.track.data;
+    return d ? d.alerts.filter(function (a) { return a.id === id; })[0] : null;
+  }
+
+  function openFollow(id) {
+    var a = alertById(id);
+    if (!a) return;
+    S.follow = { id: id };
+    showModal(modalHead('Résultat de l’appel · ' + h(id), '<p class="small">' + h(a.client) + ' · ' + h(fmtPhone(a.phone)) + ' · ' + h(wilayaName(a.wilaya)) + '</p>') +
+      (a.courierNote ? '<p class="small courier-note" style="margin-bottom:10px">🛵 Livreur : ' + h(a.courierNote) + '</p>' : '') +
+      '<div class="follow-choices">' +
+      followChoice('informed', '✅', 'Prévenu, il attend le livreur', 'L’alerte se ferme.') +
+      followChoice('postpone', '📅', 'Reporter la livraison', 'Remarque au livreur avec le jour et l’heure ; l’alerte revient ce jour-là si le colis n’est pas livré.') +
+      followChoice('address', '📍', 'Nouvelle adresse ou nouveau téléphone', 'Remarque au livreur, et ligne dans les notes de la commande.') +
+      followChoice('refused', '❌', 'Il refuse le colis', (a.canReturn ? 'Demande de retour chez Ecotrack, et client signalé' : 'Client signalé') + ' « a refusé un colis » (sans liste noire).') +
+      followChoice('no_answer', '📵', 'Pas de réponse', a.calls ? 'Appel ' + (a.calls + 1) + ' sur 3.'
+        : 'Rappel dans 2 h (3 essais)' + (a.canReturn ? ' ; un SMS part au client au premier appel sans réponse.' : '.')) +
+      '</div><div id="follow-form"></div>');
+  }
+
+  function followChoice(result, icon, title, note) {
+    return '<button type="button" class="follow-choice" data-act="follow-pick" data-result="' + result + '"><span class="icon" aria-hidden="true">' + icon + '</span>' +
+      '<span><strong>' + h(title) + '</strong><br><span class="small">' + h(note) + '</span></span></button>';
+  }
+
+  function localInput(d) {
+    var p = function (n) { return ('0' + n).slice(-2); };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  function pickFollow(result) {
+    if (!S.follow) return;
+    S.follow.result = result;
+    $all('.follow-choice').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-result') === result)); });
+    var box = $('#follow-form');
+    if (result === 'informed' || result === 'no_answer') { sendFollow(result, {}); return; }
+    var html = '';
+    if (result === 'postpone') {
+      var t = new Date();
+      t.setDate(t.getDate() + 1);
+      t.setHours(14, 0, 0, 0);
+      html = field('Le client est disponible le', '<input type="datetime-local" id="follow-when" value="' + localInput(t) + '">', 'full') +
+        '<div class="quick" style="margin:-4px 0 10px">' +
+        '<button type="button" class="chip" data-act="follow-when" data-days="1" data-hour="9">Demain 9 h</button>' +
+        '<button type="button" class="chip" data-act="follow-when" data-days="1" data-hour="14">Demain 14 h</button>' +
+        '<button type="button" class="chip" data-act="follow-when" data-days="2" data-hour="9">Après-demain 9 h</button></div>' +
+        field('Précision pour le livreur (facultatif)', '<input id="follow-note" maxlength="120" placeholder="Ex. appeler avant de passer">', 'full');
+    } else if (result === 'address') {
+      html = field('Nouvelle adresse ou nouveau numéro', '<textarea id="follow-text" rows="3" maxlength="240" placeholder="Ex. nouveau numéro 0661 22 33 44, ou : cité 200 logements, bâtiment 12"></textarea>', 'full');
+    } else if (result === 'refused') {
+      var a = alertById(S.follow.id) || {};
+      html = '<p>' + (a.canReturn ? 'Une <strong>demande de retour</strong> part chez Ecotrack (la société de livraison peut l’ignorer). ' : '') +
+        'Le client est <strong>signalé</strong> « a refusé un colis » : ses prochaines commandes l’afficheront. Pas de liste noire.</p>';
+    }
+    box.innerHTML = '<div class="follow-form">' + html + '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Annuler</button>' +
+      '<button type="button" class="btn primary" data-act="follow-send">' + (result === 'refused' ? 'Confirmer le refus' : 'Envoyer au livreur') + '</button></div></div>';
+    var first = $('#follow-form input, #follow-form textarea');
+    if (first) first.focus();
+  }
+
+  function submitFollow() {
+    var f = S.follow;
+    if (!f || !f.result) return;
+    var data = {};
+    if (f.result === 'postpone') {
+      var v = $('#follow-when') ? $('#follow-when').value : '';
+      if (!v) { toast('Choisissez le jour et l’heure.', true); return; }
+      data = { when: new Date(v).toISOString(), note: $('#follow-note') ? $('#follow-note').value : '' };
+    } else if (f.result === 'address') {
+      data = { text: $('#follow-text') ? $('#follow-text').value : '' };
+    }
+    sendFollow(f.result, data);
+  }
+
+  function sendFollow(result, data, id) {
+    id = id || (S.follow && S.follow.id);
+    if (!id || S.followBusy) return;
+    S.followBusy = true;
+    $all('#modal-root button').forEach(function (b) { b.disabled = true; });
+    toast(result === 'refused' || result === 'return' ? 'Demande envoyée à Ecotrack…' : (result === 'postpone' || result === 'address') ? 'Envoi au livreur…' : 'Enregistrement…');
+    call('api_followUpResult', id, result, data || {}).then(function (r) {
+      S.followBusy = false;
+      S.follow = null;
+      closeModal();
+      toast(r.message);
+      applyCounts(r.counts);
+      if (S.route === 'suivi') loadTracking();
+    }).catch(function (e) {
+      S.followBusy = false;
+      $all('#modal-root button').forEach(function (b) { b.disabled = false; });
+      toast(errText(e), true);
+    });
+  }
+
   function historyHtml(d) {
     var html = '<div style="margin-top:12px"><p class="small">Colis <span class="mono">' + h(d.tracking) + '</span>' + (d.carrierLabel ? ' · ' + h(d.carrierLabel) : '') + '</p>';
     if (!d.events.length) {
@@ -1796,7 +1928,7 @@
           (e.note ? '<br><span class="small">' + h(e.note) + '</span>' : '') + '</span></li>';
       }).join('') + '</ol>';
     }
-    return html + '</div>';
+    return html + remarksHtml(d) + '</div>';
   }
 
   function openHistory(id) {
@@ -2347,6 +2479,23 @@
     'track-days': function (el) { S.track.days = Number(el.getAttribute('data-days')); loadTracking(); },
     'track-filter': function (el) { S.track.filter = el.getAttribute('data-group'); renderTracking(); },
     'track-history': function (el) { openHistory(el.getAttribute('data-id')); },
+    'follow-open': function (el) { openFollow(el.getAttribute('data-id')); },
+    'follow-pick': function (el) { pickFollow(el.getAttribute('data-result')); },
+    'follow-send': submitFollow,
+    'follow-when': function (el) {
+      var d = new Date();
+      d.setDate(d.getDate() + Number(el.getAttribute('data-days')));
+      d.setHours(Number(el.getAttribute('data-hour')), 0, 0, 0);
+      if ($('#follow-when')) $('#follow-when').value = localInput(d);
+    },
+    'follow-quick': function (el) { sendFollow(el.getAttribute('data-result'), {}, el.getAttribute('data-id')); },
+    'follow-return': function (el) {
+      var id = el.getAttribute('data-id');
+      S.follow = { id: id, result: 'return' };
+      confirmModal('Demander le retour ?', 'Une demande de retour part chez Ecotrack pour le colis ' + id + '. La société de livraison peut l’ignorer. Le client n’est pas signalé (il était injoignable).',
+        'follow-return-go', 'Demander le retour');
+    },
+    'follow-return-go': function () { sendFollow('return', {}); },
     'track-done': function (el) {
       el.disabled = true;
       call('api_markFollowUp', el.getAttribute('data-id')).then(function () {

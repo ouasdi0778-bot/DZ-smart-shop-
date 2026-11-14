@@ -1154,12 +1154,12 @@ function alertsOf(res) {
   return by;
 }
 
-test('Suivi : alertes (suspendu, retour, sans mouvement 26 h, jamais validé, introuvable, statut inconnu)', function () {
+test('Suivi : alertes (suspendu, retour, sans mouvement selon l’étape, jamais validé, introuvable, statut inconnu)', function () {
   setup();
   addParcel('A1', { 'Statut': 'En livraison', 'Statut société': 'suspendu', 'Dernier mouvement colis': hoursAgo(2) });
   addParcel('A2', { 'Statut': 'Retour', 'Statut société': 'retour_chez_livreur', 'Dernier mouvement colis': hoursAgo(5) });
-  addParcel('A3', { 'Statut société': 'en_hub', 'Dernier mouvement colis': hoursAgo(27) });
-  addParcel('A3b', { 'Statut société': 'en_hub', 'Dernier mouvement colis': hoursAgo(25) });
+  addParcel('A3', { 'Statut société': 'en_hub', 'Dernier mouvement colis': hoursAgo(50) });
+  addParcel('A3b', { 'Statut société': 'en_hub', 'Dernier mouvement colis': hoursAgo(40) });
   addParcel('A4', { 'Statut': 'Confirmée', 'Statut société': 'prete_a_expedier', 'Dernier mouvement colis': hoursAgo(30) });
   addParcel('A4b', { 'Statut': 'Confirmée', 'Statut société': 'prete_a_expedier', 'Dernier mouvement colis': hoursAgo(10) });
   addParcel('A5', { 'Statut société': 'Introuvable chez Ecotrack', 'Dernier mouvement colis': hoursAgo(3) });
@@ -1178,7 +1178,7 @@ test('Suivi : alertes (suspendu, retour, sans mouvement 26 h, jamais validé, in
   assert.strictEqual(by.A2.level, 'urgent');
   assert.ok(/rappelez le client/.test(by.A2.detail));
   assert.strictEqual(by.A3.kind, 'stale');
-  assert.ok(/27 h/.test(by.A3.detail), by.A3.detail);
+  assert.ok(/depuis 2 j/.test(by.A3.detail) && /alerte après 48 h/.test(by.A3.detail), by.A3.detail);
   assert.strictEqual(by.A4.kind, 'draft');
   assert.ok(/pas encore validé/.test(by.A4.detail));
   assert.strictEqual(by.A5.kind, 'missing');
@@ -1197,7 +1197,7 @@ test('Suivi : alertes (suspendu, retour, sans mouvement 26 h, jamais validé, in
   var ctx = readOrders_();
   writeFields_(ctx, findOrder_(ctx, 'A1'), { carrierMoved: new Date(Date.now() + 60000) });
   assert.ok(alertsOf(api_trackingOverview(30)).A1, 'le colis a bougé : l’alerte revient');
-  // Alerte liée au temps : masquée pendant 26 h après le traitement.
+  // Alerte liée au temps : masquée pendant son délai après le traitement.
   api_markFollowUp('A3');
   assert.ok(!alertsOf(api_trackingOverview(30)).A3);
   assert.throws(function () { api_markFollowUp('#nope'); }, /introuvable/);
@@ -1207,8 +1207,237 @@ test('Suivi : alertes (suspendu, retour, sans mouvement 26 h, jamais validé, in
   var by48 = alertsOf(api_trackingOverview(30));
   assert.ok(!by48.A4, '30 h < 48 h : plus signalé');
   assert.ok(by48.A1 && by48.A5, 'les alertes liées à un événement restent');
-  setSetting('SUIVI_ALERTE_HEURES', 12);
-  assert.ok(alertsOf(api_trackingOverview(30)).A3b, '25 h > 12 h : signalé');
+  setSetting('SUIVI_HEURES_TRI', 36);
+  assert.ok(alertsOf(api_trackingOverview(30)).A3b, '40 h > 36 h : signalé');
+});
+
+/* ---------------- Suivi avancé : remarques du livreur, résultat de l'appel ---------------- */
+
+/** Colis Ecotrack validés, puis amenés à un statut (comme le livreur). */
+function parcelsAt(ids, status, extra) {
+  ids.forEach(function (id) { addConfirmed(id, extra); });
+  var t = results(ship(ids));
+  ids.forEach(function (id) { FAKE.validate(t[id].tracking); });
+  syncEcotrackStatuses_();
+  var map = {};
+  ids.forEach(function (id) { map[id] = t[id].tracking; });
+  return map;
+}
+function suspendAll(map) {
+  Object.keys(map).forEach(function (id) { FAKE.setStatus(map[id], 'suspendu'); });
+  syncEcotrackStatuses_();
+}
+function smsQueue() { return readSmsQueue_(PropertiesService.getScriptProperties()); }
+function setOrderFields(id, fields) {
+  var ctx = readOrders_();
+  writeFields_(ctx, findOrder_(ctx, id), fields);
+}
+
+test('Suivi : remarque du livreur lue au passage « suspendu », étiquette, SMS « injoignable » une seule fois', function () {
+  ecoSetup();
+  saveSmsConfig_(HTTPSMS.key, '0550 12 34 56');
+  var t = parcelsAt(['#S1', '#S2', '#S3'], 'en_ramassage');
+  FAKE.courierSays(t['#S1'], 'Client ne répond pas, 2 appels');
+  FAKE.courierSays(t['#S2'], 'Le client a refusé le colis');
+  var before = FAKE.count('/api/v1/get/maj');
+  suspendAll(t);
+  assert.strictEqual(FAKE.count('/api/v1/get/maj') - before, 3, 'remarques lues pour les 3 colis suspendus');
+  assert.ok(/· Client ne répond pas, 2 appels$/.test(order('#S1').courierNote), order('#S1').courierNote);
+  var courier = smsQueue().filter(function (x) { return x.s === 100; }).map(function (x) { return x.i; }).sort();
+  assert.deepStrictEqual(courier, ['#S1', '#S3'], 'injoignable, ou suspendu sans remarque ; pas pour un refus');
+
+  var by = alertsOf(api_trackingOverview(30));
+  assert.deepStrictEqual([by['#S1'].tag, by['#S1'].tagLabel], ['injoignable', 'Injoignable']);
+  assert.strictEqual(by['#S2'].tag, 'refus');
+  assert.strictEqual(by['#S3'].courierNote, '');
+  assert.ok(by['#S1'].callable && by['#S1'].canReturn && !by['#S1'].proposeReturn);
+  assert.ok(logActions().indexOf('Colis suspendu') >= 0);
+
+  atHour(12, function () { sendSmsQueue_({}); });
+  var sent = HTTPSMS.calls.filter(function (c) { return c.body.request_id === '#S1:100'; });
+  assert.strictEqual(sent.length, 1);
+  assert.ok(/حاول الموزع الاتصال بك لتوصيل طلبك #S1/.test(sent[0].body.content), sent[0].body.content);
+  assert.ok(/Livreur : injoignable/.test(order('#S1').sms));
+  // Le colis repart en livraison, puis est de nouveau suspendu : pas de deuxième SMS.
+  FAKE.setStatus(t['#S1'], 'en_livraison');
+  syncEcotrackStatuses_();
+  FAKE.setStatus(t['#S1'], 'suspendu');
+  syncEcotrackStatuses_();
+  atHour(12, function () { sendSmsQueue_({}); });
+  assert.strictEqual(HTTPSMS.calls.filter(function (c) { return c.body.request_id === '#S1:100'; }).length, 1, 'une seule fois par commande');
+  // Sans changement de statut, les remarques ne sont pas relues.
+  var n = FAKE.count('/api/v1/get/maj');
+  syncEcotrackStatuses_();
+  assert.strictEqual(FAKE.count('/api/v1/get/maj'), n);
+
+  // Mots-clés, en français et en arabe (réglables dans Paramètres).
+  var s = getSettings_();
+  assert.strictEqual(remarkTag_('الزبون لا يرد على الهاتف', s), 'injoignable');
+  assert.strictEqual(remarkTag_('رفض الطلب', s), 'refus');
+  assert.strictEqual(remarkTag_('Client absent, repasser demain', s), 'reporte');
+  assert.strictEqual(remarkTag_('Adresse introuvable', s), 'adresse');
+  assert.strictEqual(remarkTag_('RAS', s), '');
+  setSetting('MOTS_REPORTE', 'rdv');
+  assert.strictEqual(remarkTag_('Client absent, RDV pris', getSettings_()), 'reporte');
+  // Réponse sous une autre forme (liste seule).
+  FAKE.remarkShape = 'list';
+  var hist = api_parcelHistory('#S2');
+  assertSerializable(hist, 'api_parcelHistory');
+  assert.deepStrictEqual(hist.remarks.map(function (r) { return [r.mine, r.tagLabel]; }), [[false, 'Refus']]);
+});
+
+test('Suivi : résultat de l’appel (prévenu, reporter, nouvelle adresse, pas de réponse ×3, retour)', function () {
+  ecoSetup();
+  saveSmsConfig_(HTTPSMS.key, '0550 12 34 56');
+  var t = parcelsAt(['#C1', '#C2', '#C3', '#C4'], 'en_ramassage');
+  FAKE.courierSays(t['#C1'], 'client injoignable');
+  suspendAll(t);
+  asAgent();
+  var gone = function (id) { return !alertsOf(api_trackingOverview(30))[id]; };
+
+  // Prévenu : l'alerte se ferme.
+  var r = api_followUpResult('#C1', 'informed');
+  assertSerializable(r, 'api_followUpResult');
+  assert.ok(/prévenu/.test(r.message));
+  assert.ok(gone('#C1'));
+
+  // Reporter : remarque au livreur, l'alerte revient le jour choisi.
+  var when = new Date(Date.now() + 26 * 3600000);
+  r = api_followUpResult('#C2', 'postpone', { when: when.toISOString(), note: 'appeler avant de passer' });
+  var rem = FAKE.remarks[t['#C2']];
+  var content = rem[rem.length - 1].content;
+  assert.ok(/^Vendeur : client disponible le \d\d\/\d\d à partir de \d\dh\d\d · appeler avant de passer\. Merci de relivrer\.$/.test(content), content);
+  assert.ok(gone('#C2'));
+  setOrderFields('#C2', { followNext: new Date(Date.now() - 60000) });
+  assert.strictEqual(alertsOf(api_trackingOverview(30))['#C2'].kind, 'suspended', 'le jour venu, l’alerte revient');
+  assert.throws(function () { api_followUpResult('#C2', 'postpone', { when: new Date(Date.now() - 1000).toISOString() }); }, /à venir/);
+
+  // Nouvelle adresse ou nouveau téléphone : remarque, et ligne dans les notes.
+  r = api_followUpResult('#C3', 'address', { text: 'Nouveau numéro 0661 22 33 44' });
+  assert.ok(/Information envoyée/.test(r.message));
+  assert.ok(/Au livreur : Nouveau numéro 0661 22 33 44/.test(order('#C3').notes));
+  assert.throws(function () { api_followUpResult('#C3', 'address', { text: ' ' }); }, /Écrivez/);
+  api_followUpResult('#C3', 'address', { text: 'x'.repeat(400) });
+  rem = FAKE.remarks[t['#C3']];
+  assert.strictEqual(rem[rem.length - 1].content.length, 255, 'coupée à 255 caractères (limite d’Ecotrack)');
+  // Ecotrack n'accepte que GET : nouvel essai automatique.
+  FAKE.remarkMethod = 'GET';
+  assert.ok(/Information envoyée/.test(api_followUpResult('#C3', 'address', { text: 'Rue des Pins 4' }).message));
+  FAKE.remarkMethod = 'POST';
+
+  // Pas de réponse : rappel dans 2 h, SMS au premier appel, retour proposé au troisième.
+  r = api_followUpResult('#C4', 'no_answer');
+  assert.ok(/1\/3/.test(r.message) && /rappel dans 2 h/.test(r.message) && /SMS/.test(r.message), r.message);
+  assert.ok(gone('#C4'));
+  setOrderFields('#C4', { followNext: new Date(Date.now() - 60000) });
+  var a = alertsOf(api_trackingOverview(30))['#C4'];
+  assert.deepStrictEqual([a.calls, a.proposeReturn], [1, false]);
+  api_followUpResult('#C4', 'no_answer');
+  r = api_followUpResult('#C4', 'no_answer');
+  assert.ok(/3 appels sans réponse/.test(r.message), r.message);
+  a = alertsOf(api_trackingOverview(30))['#C4'];
+  assert.deepStrictEqual([a.calls, a.proposeReturn], [3, true], 'l’alerte reste, avec la proposition de retour');
+  assert.strictEqual(smsQueue().filter(function (x) { return x.i === '#C4' && x.s === 101; }).length, 1, 'SMS « sans réponse » une seule fois');
+  atHour(12, function () { sendSmsQueue_({}); });
+  var sms = HTTPSMS.calls.filter(function (c) { return c.body.request_id === '#C4:101'; });
+  assert.ok(sms.length === 1 && /اتصلنا بك بخصوص طلبك #C4/.test(sms[0].body.content));
+
+  // Demande de retour.
+  r = api_followUpResult('#C4', 'return');
+  assert.ok(/Retour demandé/.test(r.message));
+  assert.ok(FAKE.returnsAsked.indexOf(t['#C4']) >= 0);
+  assert.ok(gone('#C4'));
+  FAKE.setStatus(t['#C1'], 'en_hub');
+  assert.throws(function () { api_followUpResult('#C1', 'return'); }, /n’est possible que pour un colis en livraison/);
+
+  // Chronologie : vos remarques et celles du livreur.
+  var hist = api_parcelHistory('#C3');
+  assert.ok(hist.remarks.length >= 3 && hist.remarks.every(function (x) { return x.mine; }), 'vos remarques');
+  assert.deepStrictEqual(api_parcelHistory('#C1').remarks.map(function (x) { return [x.mine, x.tag]; }), [[false, 'injoignable']]);
+
+  var actions = logActions();
+  ['Suivi : client prévenu', 'Suivi : livraison reportée', 'Suivi : information au livreur', 'Suivi : pas de réponse', 'Suivi : retour demandé']
+    .forEach(function (x) { assert.ok(actions.indexOf(x) >= 0, x); });
+  assert.throws(function () { api_followUpResult('#C1', 'peut-etre'); }, /Résultat inconnu/);
+  addConfirmed('#C9');
+  assert.throws(function () { api_followUpResult('#C9', 'informed'); }, /pas de colis/);
+});
+
+test('Suivi : refus du client : retour demandé, client signalé sans liste noire', function () {
+  ecoSetup();
+  var t = parcelsAt(['#F1'], 'en_ramassage', { 'Téléphone': '0661000111' });
+  suspendAll(t);
+  var r = api_followUpResult('#F1', 'refused');
+  assert.ok(/Retour demandé/.test(r.message) && /signalé/.test(r.message), r.message);
+  assert.ok(FAKE.returnsAsked.indexOf(t['#F1']) >= 0);
+  assert.ok(headerOf('Clients').indexOf('Signalé') >= 0);
+  var clients = sheet('Clients');
+  var row = clients.getRange(2, 1, clients.getLastRow() - 1, clients.getLastColumn()).getValues()
+    .filter(function (x) { return String(x[0]) === '0661000111'; })[0];
+  assert.ok(row && /A refusé un colis \(#F1, \d\d\/\d\d\/\d{4}\)/.test(row[headerOf('Clients').indexOf('Signalé')]));
+  assert.ok(!readBlacklist_()['0661000111'], 'pas de liste noire');
+  // Nouvelle commande du même client : signalée.
+  addRaw({ 'N°': '#F2', 'Client': 'Même client', 'Téléphone': '0661000111', 'Wilaya': 'Alger', 'Prix': 1000, 'Date': new Date(Date.now() - 5 * 86400000) });
+  processNewRows();
+  assert.deepStrictEqual([order('#F2').alert, order('#F2').alertLevel], ['Signalé · a refusé un colis', 'warn']);
+  assert.ok(logActions().indexOf('Suivi : refus du client') >= 0);
+
+  // Colis déjà en retour : seulement le signalement.
+  var t3 = parcelsAt(['#F3'], 'en_ramassage');
+  FAKE.setStatus(t3['#F3'], 'retour_chez_livreur');
+  syncEcotrackStatuses_();
+  var asked = FAKE.returnsAsked.length;
+  assert.ok(/signalé/.test(api_followUpResult('#F3', 'refused').message));
+  assert.strictEqual(FAKE.returnsAsked.length, asked, 'pas de demande de retour pour un colis qui revient déjà');
+  // Ecotrack n'accepte pas la demande : le client est quand même signalé.
+  var t4 = parcelsAt(['#F4'], 'en_ramassage');
+  suspendAll(t4);
+  FAKE.setStatus(t4['#F4'], 'en_hub');
+  assert.ok(/quand même signalé/.test(api_followUpResult('#F4', 'refused').message));
+});
+
+test('Suivi : délai selon l’étape et le Sud, retour bloqué, argent en retard', function () {
+  setup();
+  addParcel('D1', { 'Statut société': 'vers_wilaya', 'Wilaya': '16 - Alger', 'Dernier mouvement colis': hoursAgo(80) });
+  addParcel('D2', { 'Statut société': 'vers_wilaya', 'Wilaya': '11 - Tamanrasset', 'Dernier mouvement colis': hoursAgo(80) });
+  addParcel('D3', { 'Statut société': 'vers_wilaya', 'Wilaya': '11 - Tamanrasset', 'Dernier mouvement colis': hoursAgo(130) });
+  addParcel('D4', { 'Statut': 'En livraison', 'Statut société': 'en_livraison', 'Dernier mouvement colis': hoursAgo(30) });
+  addParcel('D4b', { 'Statut': 'En livraison', 'Statut société': 'en_livraison', 'Dernier mouvement colis': hoursAgo(20) });
+  addParcel('D5', { 'Statut': 'Retour', 'Statut société': 'retour_transit_entrepot', 'Dernier mouvement colis': hoursAgo(8 * 24) });
+  addParcel('D6', { 'Statut': 'Livrée', 'Statut société': 'livre_non_encaisse', 'Livrée le': hoursAgo(6 * 24), 'Dernier mouvement colis': hoursAgo(2) });
+  addParcel('D7', { 'Statut': 'Livrée', 'Statut société': 'encaisse_non_paye', 'Livrée le': hoursAgo(3 * 24) });
+  addParcel('D8', { 'Statut': 'Livrée', 'Statut société': 'paye_et_archive', 'Livrée le': hoursAgo(20 * 24) });
+  var res = api_trackingOverview(30);
+  assertSerializable(res, 'api_trackingOverview');
+  var by = alertsOf(res);
+  assert.deepStrictEqual(Object.keys(by).sort(), ['D1', 'D3', 'D4', 'D5', 'D6']);
+  assert.ok(/alerte après 72 h/.test(by.D1.detail), by.D1.detail);
+  assert.ok(/alerte après 120 h/.test(by.D3.detail), by.D3.detail);
+  assert.deepStrictEqual([by.D4.kind, by.D4.callable, by.D4.canReturn], ['stale', true, true], 'en livraison depuis plus de 24 h : on appelle le client');
+  assert.strictEqual(by.D1.callable, false);
+  assert.deepStrictEqual([by.D5.kind, by.D5.level], ['return_stuck', 'urgent']);
+  assert.ok(/8 j/.test(by.D5.detail));
+  assert.deepStrictEqual([by.D6.kind, by.D6.level], ['money_late', 'warn']);
+  assert.ok(/Livré depuis 6 j/.test(by.D6.detail), by.D6.detail);
+
+  // Traitée : l'alerte « argent en retard » revient après le même délai.
+  api_markFollowUp('D6');
+  assert.ok(!alertsOf(api_trackingOverview(30)).D6);
+  // Réglages.
+  setSetting('WILAYAS_SUD', 'Tamanrasset; 16');
+  setSetting('ARGENT_RETARD_JOURS', 2);
+  setSetting('RETOUR_BLOQUE_JOURS', 10);
+  by = alertsOf(api_trackingOverview(30));
+  assert.ok(!by.D1, 'Alger compté dans le Sud : 80 h < 120 h');
+  assert.ok(by.D7 && by.D7.kind === 'money_late');
+  assert.strictEqual(by.D5.kind, 'returning', 'moins de 10 jours : retour en cours');
+
+  // « Livrée le » noté par la lecture des statuts.
+  ecoSetup();
+  var t = parcelsAt(['#L1'], 'en_ramassage');
+  FAKE.setStatus(t['#L1'], 'livre_non_encaisse');
+  syncEcotrackStatuses_();
+  assert.ok(findOrder_(readOrders_(), '#L1').deliveredAt instanceof Date);
 });
 
 test('Suivi : la date de création du colis n’est pas remise à zéro par la première lecture du statut', function () {
@@ -1258,7 +1487,7 @@ test('Suivi : argent chez le livreur, à encaisser, à verser, payé, versements
 test('Suivi : liste des colis en cours', function () {
   setup();
   addParcel('L1', { 'Statut': 'En livraison', 'Statut société': 'en_livraison', 'Dernier mouvement colis': hoursAgo(3) });
-  addParcel('L2', { 'Statut société': 'en_hub', 'Dernier mouvement colis': hoursAgo(40) });
+  addParcel('L2', { 'Statut société': 'en_hub', 'Dernier mouvement colis': hoursAgo(50) });
   addParcel('L3', { 'Statut': 'Confirmée', 'Statut société': 'prete_a_expedier', 'Dernier mouvement colis': hoursAgo(2) });
   addParcel('L4', { 'Statut': 'Retour', 'Statut société': 'retour_en_traitement', 'Dernier mouvement colis': hoursAgo(6) });
   addParcel('L5', { 'Statut': 'Livrée', 'Statut société': 'paye_et_archive' });
@@ -1272,7 +1501,7 @@ test('Suivi : liste des colis en cours', function () {
   assert.strictEqual(by.L1.carrierLabel, 'En livraison');
   assert.strictEqual(by.L3, undefined);
   assert.strictEqual(by.L4.group, 'returning');
-  assert.ok(by.L2.ageHours >= 40);
+  assert.ok(by.L2.ageHours >= 50);
   // Terminées : livrée (payée) et retour reçu ; le retour en cours reste dans « en cours ».
   assert.deepStrictEqual(r.finished.map(function (f) { return f.id; }).sort(), ['L5', 'L6']);
   var l5 = r.finished.filter(function (f) { return f.id === 'L5'; })[0];
@@ -2750,7 +2979,7 @@ test('SMS : statut venu d’Ecotrack (n° de suivi dans le texte), déclencheur,
   var st = api_importStatus().sms;
   assertSerializable(st, 'sms');
   assert.deepStrictEqual([st.configured, st.from, st.waiting, st.hours], [true, '0550123456', 0, 'à toute heure']);
-  assert.deepStrictEqual(st.statuses, ['À confirmer', 'Pas de réponse', 'Confirmée', 'Expédiée', 'En livraison']);
+  assert.deepStrictEqual(st.statuses, ['À confirmer', 'Pas de réponse', 'Confirmée', 'Expédiée', 'En livraison', 'Livreur : injoignable', 'Sans réponse (livraison)']);
   assert.ok(/SMS de test envoyé/.test(api_smsTest().message));
   assert.strictEqual(HTTPSMS.messages[HTTPSMS.messages.length - 1].to, '+213550123456');
   setSetting('SMS_CONFIRMEE', '');

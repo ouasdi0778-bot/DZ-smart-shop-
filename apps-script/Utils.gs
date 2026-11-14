@@ -139,6 +139,21 @@ function readSettings_() {
   s.MESSAGE_WHATSAPP = String(s.MESSAGE_WHATSAPP || '');
   s.SUIVI_ALERTE_HEURES = Math.max(1, toNumber_(s.SUIVI_ALERTE_HEURES) || 26);
   s.FORMAT_BORDEREAU = /10|15|therm|etiq/i.test(normalizeText_(s.FORMAT_BORDEREAU)) ? '10x15' : 'A4';
+  var hoursOf = function (v, def) { var n = toNumber_(v); return n >= 1 ? n : def; };
+  s.SUIVI_HEURES_TRI = hoursOf(s.SUIVI_HEURES_TRI, 48);
+  s.SUIVI_HEURES_ROUTE = hoursOf(s.SUIVI_HEURES_ROUTE, 72);
+  s.SUIVI_HEURES_SUD = hoursOf(s.SUIVI_HEURES_SUD, 120);
+  s.SUIVI_HEURES_LIVRAISON = hoursOf(s.SUIVI_HEURES_LIVRAISON, 24);
+  s.RETOUR_BLOQUE_JOURS = hoursOf(s.RETOUR_BLOQUE_JOURS, 7);
+  s.ARGENT_RETARD_JOURS = hoursOf(s.ARGENT_RETARD_JOURS, 5);
+  s.southCodes = {};
+  String(s.WILAYAS_SUD || '').split(/[;,]/).forEach(function (w) {
+    var code = wilayaCode_(w);
+    if (code) s.southCodes[code] = true;
+  });
+  // Mots-clés des remarques du livreur, écrits comme les remarques comparées (sans accents, arabe simplifié).
+  var words = function (v) { return String(v || '').split(';').map(normalizeLoose_).filter(function (w) { return w; }); };
+  s.remarkWords = { refus: words(s.MOTS_REFUS), injoignable: words(s.MOTS_INJOIGNABLE), adresse: words(s.MOTS_ADRESSE), reporte: words(s.MOTS_REPORTE) };
   s.RAMASSAGE = !/^(non|no|false|faux|0)$/i.test(String(s.RAMASSAGE == null ? 'OUI' : s.RAMASSAGE).trim());
   // 0 = jamais ; sinon au moins 30 jours, pour ne rien archiver ou effacer par erreur.
   var days = function (v) { var n = Math.round(toNumber_(v)); return n <= 0 ? 0 : Math.max(n, 30); };

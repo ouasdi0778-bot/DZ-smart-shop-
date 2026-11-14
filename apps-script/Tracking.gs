@@ -2,9 +2,10 @@
  * Tracking.gs : page « Suivi » des colis Ecotrack.
  *
  *  - colis en cours (statut en direct, relu toutes les 30 minutes) ;
- *  - alertes « à traiter » : colis suspendu, retour en cours, sans mouvement
- *    depuis N heures (réglage SUIVI_ALERTE_HEURES, 26 par défaut), créé mais
- *    pas validé, introuvable, statut inconnu ;
+ *  - alertes « à traiter » : colis suspendu, retour en cours, retour bloqué,
+ *    sans mouvement (délai selon l'étape et le Sud), créé mais pas validé,
+ *    argent en retard, introuvable, statut inconnu ; le résultat de l'appel au
+ *    client et les remarques du livreur sont dans FollowUp.gs ;
  *  - argent : chez le livreur, livré pas encaissé, encaissé pas payé, prêt à
  *    verser, payé, et versements ;
  *  - chronologie d'un colis (get/tracking/info).
@@ -26,14 +27,29 @@ function durationText_(ms) {
   return Math.floor(hours / 24) + ' j';
 }
 
+/** Étapes « ramassage et centre de tri » (délai SUIVI_HEURES_TRI). */
+var STAGE_SORTING_ = ['en_ramassage', 'en_preparation_stock', 'vers_hub', 'en_hub'];
+
+/** Délai « sans mouvement » d'un colis selon son étape, et le Sud : { hours, where }. */
+function staleLimit_(o, settings) {
+  var key = normalizeText_(o.carrierStatus).replace(/ /g, '_');
+  if (STAGE_SORTING_.indexOf(key) >= 0) return { hours: settings.SUIVI_HEURES_TRI, where: 'ramassage ou centre de tri' };
+  if (key === 'en_livraison') return { hours: settings.SUIVI_HEURES_LIVRAISON, where: 'en livraison' };
+  var code = wilayaCode_(o.wilaya);
+  var south = !!(code && settings.southCodes && settings.southCodes[code]);
+  return { hours: south ? settings.SUIVI_HEURES_SUD : settings.SUIVI_HEURES_ROUTE, where: south ? 'en route vers le Sud' : 'en route vers la wilaya' };
+}
+
 /**
- * Colis Ecotrack qui demandent une action. Un colis « traité » (bouton
- * « Marquer comme traité ») disparaît : jusqu'à son prochain changement de
- * statut pour une alerte liée à un événement, ou pendant N heures pour une
- * alerte liée au temps.
+ * Colis Ecotrack qui demandent une action. Une alerte traitée (résultat de
+ * l'appel, ou « Marquer comme traité ») disparaît : jusqu'au prochain
+ * changement du colis pour une alerte liée à un événement, ou pendant le délai
+ * de l'alerte pour une alerte liée au temps. « Relance suivi le » la fait
+ * revenir à une heure précise (rappel, livraison reportée).
  */
 function trackingAlerts_(orders, settings, now) {
-  var limit = settings.SUIVI_ALERTE_HEURES * 3600000;
+  var DAY = 86400000;
+  var draftLimit = settings.SUIVI_ALERTE_HEURES * 3600000;
   var alerts = [];
   orders.forEach(function (o) {
     if (String(o.carrier) !== ECO.NAME || isBlank_(o.tracking)) return;
@@ -41,30 +57,67 @@ function trackingAlerts_(orders, settings, now) {
     var group = info ? info.group : (o.status === STATUS.CONFIRMED ? 'draft' : 'transit');
     var moved = toDate_(o.carrierMoved) || toDate_(o.updated) || toDate_(o.date) || now;
     var touched = toDate_(o.followUp);
-    var handled = !!touched && touched.getTime() >= moved.getTime();
+    var next = toDate_(o.followNext);
+    var due = !!next && now.getTime() >= next.getTime();
+    var handled = !!touched && touched.getTime() >= moved.getTime() && !due;
     var base = touched && touched.getTime() > moved.getTime() ? touched : moved;
+    var age = function (from) { return now.getTime() - from.getTime(); };
     var label = info ? info.label : '';
-    var make = function (kind, level, title, detail, since) {
-      return {
+    var calls = Math.round(toNumber_(o.followCalls)) || 0;
+    var note = String(o.courierNote == null ? '' : o.courierNote).trim();
+    var tag = note ? remarkTag_(note, settings) : '';
+    var inDelivery = o.status === STATUS.IN_DELIVERY;
+    // Alertes où l'on appelle le client : boutons « résultat de l'appel ».
+    var client = { callable: true, canReturn: inDelivery, proposeReturn: inDelivery && calls >= FOLLOW.MAX_CALLS };
+    var make = function (kind, level, title, detail, since, extra) {
+      var a = {
         id: String(o.id), client: String(o.client), phone: String(o.phone), wilaya: String(o.wilaya),
         tracking: String(o.tracking), carrierStatus: String(o.carrierStatus), carrierLabel: label, status: o.status,
-        kind: kind, level: level, title: title, detail: detail, since: since.toISOString()
+        kind: kind, level: level, title: title, detail: detail, since: since.toISOString(),
+        courierNote: note, tag: tag, tagLabel: remarkTagLabel_(tag), calls: calls,
+        next: next ? next.toISOString() : '', callable: false, canReturn: false, proposeReturn: false
       };
+      Object.keys(extra || {}).forEach(function (k) { a[k] = extra[k]; });
+      return a;
     };
     var inTransit = o.status === STATUS.SHIPPED || o.status === STATUS.IN_DELIVERY;
 
-    if (group === 'suspended' && !handled) {
-      alerts.push(make('suspended', 'urgent', 'Colis suspendu',
-        'Le livreur n’a pas pu terminer la livraison : appelez le client.', moved));
-    } else if (group === 'returning' && !handled) {
-      alerts.push(make('returning', 'urgent', 'Retour en cours',
-        'Le colis (' + label.toLowerCase() + ') revient : rappelez le client pour tenter de sauver la commande.', moved));
-    } else if (group === 'draft' && o.status === STATUS.CONFIRMED && now.getTime() - base.getTime() >= limit) {
+    if (group === 'suspended') {
+      if (!handled) {
+        alerts.push(make('suspended', 'urgent', 'Colis suspendu',
+          'Le livreur n’a pas pu terminer la livraison : appelez le client.', moved, client));
+      }
+    } else if (group === 'returning') {
+      var stuck = settings.RETOUR_BLOQUE_JOURS * DAY;
+      if (age(moved) >= stuck) {
+        if (age(base) >= stuck) {
+          alerts.push(make('return_stuck', 'urgent', 'Retour bloqué',
+            'Retour en route depuis ' + durationText_(age(moved)) + ' sans arriver chez vous : réclamez-le à Ecotrack.', moved));
+        }
+      } else if (!handled) {
+        alerts.push(make('returning', 'urgent', 'Retour en cours',
+          'Le colis (' + label.toLowerCase() + ') revient : rappelez le client pour tenter de sauver la commande.', moved, { callable: true }));
+      }
+    } else if (group === 'draft' && o.status === STATUS.CONFIRMED && age(base) >= draftLimit) {
       alerts.push(make('draft', 'warn', 'À valider chez Ecotrack',
-        'Colis créé depuis ' + durationText_(now.getTime() - base.getTime()) + ' et pas encore validé : validez-le dans Ecotrack, sinon il ne partira pas.', base));
-    } else if ((group === 'transit' || group === 'delivery') && inTransit && now.getTime() - base.getTime() >= limit) {
-      alerts.push(make('stale', 'warn', 'Sans mouvement',
-        'Aucun changement depuis ' + durationText_(now.getTime() - base.getTime()) + (label ? ' (' + label.toLowerCase() + ')' : '') + '.', base));
+        'Colis créé depuis ' + durationText_(age(base)) + ' et pas encore validé : validez-le (page Expédier), sinon il ne partira pas.', base));
+    } else if ((group === 'transit' || group === 'delivery') && inTransit) {
+      var lim = staleLimit_(o, settings);
+      var limitMs = lim.hours * 3600000;
+      var show = next ? (due && age(moved) >= limitMs) : age(base) >= limitMs;
+      if (show) {
+        alerts.push(make('stale', 'warn', 'Sans mouvement',
+          'Aucun changement depuis ' + durationText_(age(moved)) + ' (' + (label || lim.where).toLowerCase() + ' ; alerte après ' + lim.hours + ' h).', base,
+          group === 'delivery' ? client : {}));
+      }
+    } else if (o.status === STATUS.DELIVERED && (group === 'delivered' || group === 'cashed' || group === 'ready')) {
+      var deliveredAt = toDate_(o.deliveredAt) || moved;
+      var late = settings.ARGENT_RETARD_JOURS * DAY;
+      var since = touched && touched.getTime() > deliveredAt.getTime() ? touched : deliveredAt;
+      if (age(deliveredAt) >= late && age(since) >= late) {
+        alerts.push(make('money_late', 'warn', 'Argent en retard',
+          'Livré depuis ' + durationText_(age(deliveredAt)) + ' (' + label.toLowerCase() + ') et toujours pas payé : vérifiez avec Ecotrack.', deliveredAt));
+      }
     } else if (group === 'missing' && !handled) {
       alerts.push(make('missing', 'warn', 'Introuvable chez Ecotrack',
         'Le suivi ' + o.tracking + ' n’apparaît pas chez Ecotrack : vérifiez dans Ecotrack.', moved));
@@ -214,11 +267,29 @@ function api_parcelHistory(id) {
   if (!ecotrackConfig_().configured) throw new Error(ECO_NOT_CONFIGURED_);
   var json = ecotrackGet_('/api/v1/get/tracking/info', { tracking: tracking });
   var events = parseTrackingInfo_(json);
+  var settings = getSettings_();
+  var remarks = courierRemarks_([tracking])[tracking];
+  var noteText = remarks.ok && remarks.last ? courierNoteText_(remarks.last) : '';
+  if (noteText && noteText !== String(o.courierNote || '')) {
+    withLock_(function () {
+      var ctx = readOrders_();
+      var cur = findOrder_(ctx, id);
+      if (!cur || String(cur.tracking).trim() !== tracking) return;
+      ensureOrderColumn_(ctx, 'courierNote');
+      writeFields_(ctx, cur, { courierNote: noteText });
+    });
+  }
   return {
     id: String(o.id), client: String(o.client), tracking: tracking,
     carrierLabel: ecotrackLabel_(o.carrierStatus),
     events: events,
-    raw: events.length ? '' : JSON.stringify(json).slice(0, 2000)
+    raw: events.length ? '' : JSON.stringify(json).slice(0, 2000),
+    remarksOk: remarks.ok,
+    remarksError: remarks.ok ? '' : remarks.message,
+    remarks: remarks.notes.map(function (n) {
+      var tag = n.mine ? '' : remarkTag_(n.text, settings);
+      return { text: n.text, date: n.date, dateText: n.dateText, author: n.author, mine: n.mine, tag: tag, tagLabel: remarkTagLabel_(tag) };
+    })
   };
 }
 
@@ -258,7 +329,9 @@ function api_trackingOverview(days) {
       carrierLabel: info ? info.label : (o.status === STATUS.CONFIRMED ? 'Créé, à valider chez Ecotrack' : ''),
       group: group, status: o.status, total: toNumber_(o.total),
       since: moved.toISOString(), ageHours: Math.floor((now.getTime() - moved.getTime()) / 3600000),
-      stale: !!staleIds[String(o.id)]
+      stale: !!staleIds[String(o.id)],
+      courierNote: String(o.courierNote == null ? '' : o.courierNote),
+      tagLabel: remarkTagLabel_(remarkTag_(o.courierNote, settings))
     });
   });
   parcels.sort(function (a, b) { return String(a.since).localeCompare(String(b.since)); });
@@ -310,7 +383,9 @@ function api_markFollowUp(id) {
     if (ctx.map.followUp === undefined) {
       throw new Error('Colonne « Suivi traité le » absente du classeur. Lancez « DZ Smart Shop › Installer / réparer le classeur ».');
     }
-    writeFields_(ctx, o, { followUp: new Date() });
+    var f = { followUp: new Date() };
+    if (ctx.map.followNext !== undefined) f.followNext = '';
+    writeFields_(ctx, o, f);
     log_(currentUser_(), o.id, 'Suivi traité', 'Alerte traitée pour le colis ' + o.tracking);
     return { id: String(o.id) };
   });

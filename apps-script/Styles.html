@@ -189,6 +189,16 @@
   .label-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; }
   .label-bar .chips { align-items: center; }
   .check-line { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+  .courier-note { color: #5B34A8; }
+  .follow-choices { display: grid; gap: 8px; margin: 6px 0 4px; }
+  .follow-choice { display: flex; gap: 12px; align-items: flex-start; text-align: left; width: 100%; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--surface); color: var(--ink); cursor: pointer; font: inherit; }
+  .follow-choice .icon { font-size: 20px; line-height: 1.2; }
+  .follow-choice[aria-pressed="true"] { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink) inset; }
+  .follow-form { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line-2); }
+  .follow-form textarea, .follow-form input { width: 100%; }
+  .remarks { display: flex; flex-direction: column; gap: 8px; }
+  .remark { max-width: 85%; align-self: flex-start; background: #F3F0FA; border-radius: 12px 12px 12px 4px; padding: 8px 12px; }
+  .remark.mine { align-self: flex-end; background: #E3F2EC; border-radius: 12px 12px 4px 12px; }
   .progress { height: 8px; border-radius: 999px; background: #EEF0F3; overflow: hidden; margin-top: 10px; }
   .progress span { display: block; height: 100%; background: var(--ink); transition: width .2s; }
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }

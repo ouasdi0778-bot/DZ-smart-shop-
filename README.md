@@ -190,11 +190,33 @@ Une commande ne se modifie plus dès que son colis existe chez la société de l
 
 La page **Suivi** réunit :
 
-- **À traiter** : colis **suspendu** ou **retour en cours** (urgent : appelez le client), colis **sans mouvement** depuis plus de 26 h, colis **créé mais jamais validé** depuis plus de 26 h, colis **introuvable**, **statut inconnu**. Chaque alerte propose Appeler, WhatsApp, Chronologie et **Marquer comme traité**. Une alerte traitée disparaît jusqu'au prochain changement du colis (ou pendant 26 h pour une alerte « sans mouvement »). Le nombre d'alertes apparaît sur le menu et sur le tableau de bord.
+- **À traiter** (le nombre apparaît sur le menu et sur le tableau de bord) :
+
+  | Alerte | Quand |
+  |---|---|
+  | 🔴 **Colis suspendu** | le livreur n'a pas pu livrer : appelez le client |
+  | 🔴 **Retour en cours** | le colis revient : dernière chance de sauver la commande |
+  | 🔴 **Retour bloqué** | retour en route depuis plus de 7 jours (`RETOUR_BLOQUE_JOURS`) : réclamez-le à Ecotrack |
+  | 🟠 **Sans mouvement** | ramassage ou centre de tri : 48 h (`SUIVI_HEURES_TRI`) ; en route vers la wilaya : 72 h (`SUIVI_HEURES_ROUTE`), **120 h pour le Sud** (`SUIVI_HEURES_SUD`, wilayas de `WILAYAS_SUD`) ; en livraison : 24 h (`SUIVI_HEURES_LIVRAISON`) |
+  | 🟠 **Argent en retard** | livré depuis plus de 5 jours (`ARGENT_RETARD_JOURS`) et toujours pas payé (colonne « Livrée le ») |
+  | 🟠 **À valider chez Ecotrack** | colis créé et pas validé depuis 26 h (`SUIVI_ALERTE_HEURES`) |
+  | 🟠 / 🔵 | colis introuvable, statut inconnu |
+
+- **Le motif du livreur** : quand un colis passe « suspendu » ou « retour », l'outil lit ses remarques chez Ecotrack (`get/maj`) et garde la dernière dans la colonne « Remarque livreur ». Une étiquette s'affiche selon des mots-clés en français et en arabe, modifiables dans Paramètres : 🟠 **Injoignable** (`MOTS_INJOIGNABLE`), 🔴 **Refus** (`MOTS_REFUS`), 🔵 **Reporté** (`MOTS_REPORTE`), 🟣 **Adresse** (`MOTS_ADRESSE`). La **Chronologie** montre tout l'échange : le livreur à gauche, vous à droite.
+- **Résultat de l'appel** (colis suspendu, retour en cours, en livraison depuis trop longtemps) :
+
+  | Résultat | Ce que fait l'outil |
+  |---|---|
+  | ✅ Prévenu, il attend | l'alerte se ferme |
+  | 📅 Reporter (jour et heure) | remarque au livreur : « Vendeur : client disponible le 16/11 à partir de 14h00. Merci de relivrer. » ; l'alerte revient ce jour-là si le colis n'est pas livré |
+  | 📍 Nouvelle adresse ou nouveau téléphone | remarque au livreur (255 caractères au plus), et ligne dans les notes de la commande |
+  | ❌ Il refuse | **demande de retour** chez Ecotrack (seulement pour un colis en livraison ; la société peut l'ignorer) et client **signalé** « a refusé un colis » dans l'onglet Clients (colonne « Signalé ») : ses prochaines commandes l'affichent. **Pas de liste noire.** |
+  | 📵 Pas de réponse | rappel dans 2 h (`DELAI_RAPPEL_MINUTES`), 3 essais ; au 3ᵉ, l'outil **propose** « Demander le retour » ou « Laisser le livreur réessayer » |
+
+  Les autres alertes gardent **Marquer comme traité** : elles disparaissent jusqu'au prochain changement du colis (ou pendant leur délai, pour une alerte liée au temps). Chaque action est notée dans le Journal.
 - **Où est l'argent** : chez le livreur, livré pas encaissé, encaissé pas payé, prêt à être versé, payé (sur 7, 30 ou 90 jours), et la liste des **versements** (n° fourni par Ecotrack). Les montants sont les totaux à encaisser, avant déduction des frais d'Ecotrack.
 - **Colis en cours**, filtrables : à valider, en route, en livraison, suspendus, retours.
 - **Chronologie** d'un colis (`get/tracking/info`), aussi dans la fiche de chaque commande : validé, récupéré, au centre de tri, confié au livreur, tentative de livraison, livré, encaissé, payé… Si la réponse d'Ecotrack n'est pas reconnue, elle est affichée telle quelle.
-- Le délai d'alerte se règle dans l'onglet **Paramètres** (`SUIVI_ALERTE_HEURES`, 26 par défaut).
 - Après la livraison, un colis Ecotrack reste suivi **jusqu'au versement de l'argent** (encaissé, prêt, payé), et un retour **jusqu'à sa réception**.
 
 ## Stock (page à part)
@@ -261,6 +283,10 @@ Fonctionnement :
 - Quand le statut change (centre de confirmation, Ecotrack, modification, nouvelle commande), le SMS part **dans la minute**, en arrière-plan.
 - Le SMS **« commande reçue »** part dans le **même passage** que l'arrivée de la commande depuis RELEASIT : en moyenne **30 secondes** après la commande, 1 minute au plus. Google ne permet pas de regarder l'onglet plus souvent.
 - **Une seule fois par statut** et par commande : colonne « SMS envoyés ».
+- **Deux SMS de suivi**, une seule fois par commande, tant que le colis est en route :
+  - `SMS_LIVREUR_INJOIGNABLE` : le livreur signale le client **injoignable**, ou suspend le colis **sans remarque** (pas de SMS pour un refus, un report ou une adresse) ;
+  - `SMS_SANS_REPONSE_LIVRAISON` : vous appelez le client pendant la livraison et il **ne répond pas** (au premier appel seulement).
+  - Le SMS « Pas de réponse » habituel (`SMS_PAS_DE_REPONSE`) reste celui de l'étape de confirmation.
 - **Heures d'envoi** : `SMS_HEURES` vaut **0-24** par défaut, donc les SMS partent **à toute heure**. Mettez par exemple 8-21 pour que ceux de la nuit attendent le matin.
 - **Jamais de SMS** :
   - aux numéros invalides ni à la liste noire ;
@@ -287,7 +313,7 @@ Fonctionnement :
 
 - Modifier un colis : à faire dans l'interface d'Ecotrack (une commande annulée dans l'outil après la création de son colis n'est **pas** annulée chez Ecotrack ; avant la validation, utilisez « Annuler le colis »).
 - Choisir un bureau précis pour le stop desk : l'API ne demande que « domicile » ou « stop desk ».
-- Remarques au livreur (`add/maj`), demande de retour, et Yalidine.
+- Yalidine.
 
 ## Commandes Releasit COD : arrivée automatique (onglet RELEASIT)
 
@@ -393,7 +419,7 @@ Ce que fait l'outil pour rester rapide :
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 109 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 113 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
@@ -410,6 +436,7 @@ apps-script/
   Ecotrack.gs   création des colis, tarifs, statuts Ecotrack
   Tracking.gs   page Suivi : alertes, argent, versements, chronologie
   Labels.gs     bordereaux Ecotrack (PDF), « imprimé », validation de l'expédition
+  FollowUp.gs   remarques du livreur, résultat de l'appel, demande de retour, client signalé
   Shopify.gs    importation des commandes Shopify (Releasit COD), wilayas en arabe
   Releasit.gs   transfert des commandes de l'onglet RELEASIT (écrites par Releasit COD)
   Rules.gs      verrouillage selon l'étape, annulation d'un colis Ecotrack, corbeille
@@ -433,7 +460,7 @@ tests/          imitation de Google Apps Script, tests, données d'exemple, aper
 2. **Liste des communes** d'Ecotrack en liste déroulante dans la confirmation, si Ecotrack fournit un point de terminaison pour cela.
 3. **SMS** : confirmation par réponse « 1 » / « 2 » du client, et accusé de réception des SMS (demande une adresse publique pour httpSMS).
 4. **Yalidine** (Ecotrack est fait, bordereaux compris) : création des colis, suivi des statuts et bordereaux.
-5. **Suivi avancé** : liste « à prévenir aujourd'hui », remarques au livreur et réponses (Ecotrack `add/maj`, `get/maj`), demande de retour, rapprochement des versements, résumé du matin par e-mail.
+5. **Statistiques de livraison** (taux de livraison et de retour par wilaya, produit et confirmatrice ; délai moyen par wilaya), rapprochement des versements, résumé du matin par e-mail.
 
 ## Limites connues
 

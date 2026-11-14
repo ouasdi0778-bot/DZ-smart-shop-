@@ -2,7 +2,8 @@
  * Faux serveur Ecotrack, pour tester l'intégration sans appeler le vrai
  * service. Il imite les points de terminaison de la documentation :
  * get/wilayas, get/fees, create/orders, get/orders, delete/order,
- * get/order/label (bordereau PDF) et valid/order (jeton « Bearer »,
+ * get/order/label (bordereau PDF), valid/order, add/maj et get/maj (remarques),
+ * ask/for/order/return (demande de retour) (jeton « Bearer »,
  * 50 requêtes par minute, pagination de 40).
  */
 (function (g) {
@@ -29,11 +30,16 @@
     labelMode: 'pdf',      // 'pdf' (le PDF directement) | 'redirect' (302 vers storage) | 'json' ({ data: { url } }) | 'html'
     validateMode: 'ok',    // 'ok' | 'refuse' (erreur 422) | 'lost' (validé, mais la réponse se perd)
     validated: [],         // { tracking, ask } validés par valid/order
+    remarks: {},           // n° de suivi -> remarques (get/maj)
+    remarkMethod: 'POST',  // méthode acceptée par add/maj et ask/for/order/return (autre : erreur 405)
+    remarkShape: 'data',   // 'data' ({ data: [...] }) | 'list' (liste seule)
+    returnsAsked: [],      // demandes de retour reçues
     reset: function () {
       fake.orders = []; fake.calls = []; fake.queue = []; fake.down = false;
       fake.createThenFail = false; fake.counter = 0; fake.badCommunes = ['xx'];
       fake.statusEndpoint = 'ok'; fake.apiDisabled = false; fake.history = {}; fake.historyShape = 'list';
       fake.labelMode = 'pdf'; fake.validateMode = 'ok'; fake.validated = [];
+      fake.remarks = {}; fake.remarkMethod = 'POST'; fake.remarkShape = 'data'; fake.returnsAsked = [];
     },
     setStatus: function (tracking, status) {
       fake.orders.forEach(function (o) { if (o.tracking === tracking) o.status = status; });
@@ -44,6 +50,12 @@
     /** Ce que vous faites dans l'interface d'Ecotrack : valider l'expédition. */
     validate: function (tracking) {
       fake.setStatus(tracking, 'en_ramassage');
+    },
+    /** Ce que fait le livreur : une remarque sur le colis (date facultative). */
+    courierSays: function (tracking, text, date) {
+      (fake.remarks[tracking] = fake.remarks[tracking] || []).push({
+        content: text, created_at: (date || new Date()).toISOString(), user: { name: 'Livreur Ali', role: 'livreur' }
+      });
     },
     remove: function (tracking) {
       fake.orders = fake.orders.filter(function (o) { return o.tracking !== tracking; });
@@ -149,6 +161,33 @@
     if (fake.labelMode === 'json') return respond(200, { success: true, data: { url: file } });
     if (fake.labelMode === 'html') return respond(200, '<html><body>Erreur</body></html>');
     return respondPdf(labelPdf(o));
+  }
+
+  /** get/maj : remarques du livreur et de l'expéditeur. */
+  function getRemarks(query) {
+    var o = findOrder(query.tracking);
+    if (!o) return respond(422, { message: 'The given data was invalid.', errors: { tracking: ['Le champ tracking sélectionné est invalide.'] } });
+    var list = fake.remarks[o.tracking] || [];
+    return respond(200, fake.remarkShape === 'list' ? list : { data: list });
+  }
+
+  /** add/maj : votre remarque (255 caractères au plus). */
+  function addRemark(query) {
+    var o = findOrder(query.tracking);
+    if (!o) return respond(422, { message: 'The given data was invalid.', errors: { tracking: ['Le champ tracking sélectionné est invalide.'] } });
+    var content = String(query.content || '');
+    if (!content || content.length > 255) return respond(422, { message: 'The given data was invalid.', errors: { content: ['Le contenu doit faire au plus 255 caractères.'] } });
+    (fake.remarks[o.tracking] = fake.remarks[o.tracking] || []).push({ content: content, created_at: new Date().toISOString(), user: { name: 'Boutique', role: 'expediteur' } });
+    return respond(200, { success: true, message: 'Mise à jour ajoutée' });
+  }
+
+  /** ask/for/order/return : seulement pour un colis en livraison. */
+  function askReturn(query) {
+    var o = findOrder(query.tracking);
+    if (!o) return respond(200, { success: false, message: 'Commande introuvable' });
+    if (['en_livraison', 'suspendu'].indexOf(o.status) < 0) return respond(200, { success: false, message: 'Le colis n’est pas en livraison' });
+    fake.returnsAsked.push(o.tracking);
+    return respond(200, { success: true, message: 'Demande de retour envoyée' });
   }
 
   /** valid/order : expédie un colis créé (plus modifiable ensuite). */
@@ -312,6 +351,11 @@
       if (method === 'DELETE' && u.path === '/api/v1/delete/order') return deleteOrder(u.query);
       if (method === 'GET' && u.path === '/api/v1/get/order/label') return labelOrder(u.query);
       if (method === 'POST' && u.path === '/api/v1/valid/order') return validOrder(u.query);
+      if (method === 'GET' && u.path === '/api/v1/get/maj') return getRemarks(u.query);
+      if (u.path === '/api/v1/add/maj' || u.path === '/api/v1/ask/for/order/return') {
+        if (method !== fake.remarkMethod) return respond(405, { message: 'Method Not Allowed' });
+        return u.path === '/api/v1/add/maj' ? addRemark(u.query) : askReturn(u.query);
+      }
       if (method === 'POST' && u.path === '/api/v1/create/orders') {
         var res = createOrders(body);
         if (fake.createThenFail) throw new Error('Timeout : la connexion a été coupée');

@@ -38,6 +38,26 @@ var SMS_NOT_CONFIGURED_ = 'Les SMS ne sont pas configurés. Menu « DZ Smart Sho
 /** Statuts changés pendant cette exécution : mis en file à la fin du verrou (voir withLock_). */
 var SMS_PENDING_ = [];
 
+/**
+ * SMS liés au suivi d'un colis, et non à un statut : code dans la file (100 et plus),
+ * réglage du texte, et nom noté dans la colonne « SMS envoyés » (une fois par commande).
+ */
+var SMS_EVENTS_ = {
+  courier: { code: 100, key: 'SMS_LIVREUR_INJOIGNABLE', name: 'Livreur : injoignable' },
+  noanswer: { code: 101, key: 'SMS_SANS_REPONSE_LIVRAISON', name: 'Sans réponse (livraison)' }
+};
+
+function smsEventByCode_(code) {
+  var keys = Object.keys(SMS_EVENTS_);
+  for (var i = 0; i < keys.length; i++) if (SMS_EVENTS_[keys[i]].code === code) return SMS_EVENTS_[keys[i]];
+  return null;
+}
+
+/** Demande un SMS de suivi (« courier » ou « noanswer ») ; il part à la fin du verrou. */
+function noteSmsEvent_(order, event) {
+  if (SMS_EVENTS_[event]) SMS_PENDING_.push({ id: String(order.id), event: event });
+}
+
 function smsConfig_() {
   var p = PropertiesService.getScriptProperties();
   var key = String(p.getProperty(SMS.PROP_KEY) || '').trim();
@@ -118,13 +138,15 @@ function flushSmsPending_() {
   try {
     if (!smsConfig_().configured) return 0;
     var settings = getSettings_();
-    var list = pending.filter(function (e) { return smsTemplate_(settings, e.status); });
+    var list = pending.filter(function (e) {
+      return e.event ? String(settings[SMS_EVENTS_[e.event].key] || '').trim() : smsTemplate_(settings, e.status);
+    });
     if (!list.length) return 0;
     var p = PropertiesService.getScriptProperties();
     var q = readSmsQueue_(p);
     var now = Math.round(Date.now() / 1000);
     list.forEach(function (e) {
-      var s = STATUS_LIST.indexOf(e.status);
+      var s = e.event ? SMS_EVENTS_[e.event].code : STATUS_LIST.indexOf(e.status);
       q = q.filter(function (x) { return !(x.i === e.id && x.s === s); });
       q.push({ i: e.id, s: s, t: now, n: 0 });
     });
@@ -204,12 +226,15 @@ function sendSmsQueue_(options) {
   for (var i = 0; i < batch.length; i++) {
     var e = batch[i];
     if (authError) { retry.push(e); continue; }
-    var status = STATUS_LIST[e.s];
+    var ev = e.s >= 100 ? smsEventByCode_(e.s) : null;
+    var status = ev ? ev.name : STATUS_LIST[e.s];
     var o = status ? findOrder_(ctx, e.i) : null;
-    var tpl = status ? smsTemplate_(settings, status) : '';
+    var tpl = ev ? String(settings[ev.key] || '').trim() : status ? smsTemplate_(settings, status) : '';
     var to = o ? smsNumber_(o.phone) : '';
     var orderDate = o ? toDate_(o.date) : null;
-    if (!o || o.status !== status || !tpl || smsAlreadySent_(o, status) || now - e.t * 1000 > SMS.MAX_AGE_MS ||
+    // Un SMS de suivi ne part que si le colis est encore en route ; un SMS de statut, que si le statut n'a pas changé.
+    var current = !o ? false : ev ? (o.status === STATUS.SHIPPED || o.status === STATUS.IN_DELIVERY) : o.status === status;
+    if (!o || !current || !tpl || smsAlreadySent_(o, status) || now - e.t * 1000 > SMS.MAX_AGE_MS ||
         (status === STATUS.TO_CONFIRM && orderDate && now - orderDate.getTime() > SMS.NEW_ORDER_MAX_AGE_MS)) {
       summary.skipped++;
       continue;
@@ -289,6 +314,8 @@ function smsStatus_() {
     lastError: String(p.getProperty(SMS.PROP_LAST_ERROR) || ''),
     hours: settings.smsFrom === 0 && settings.smsTo === 24 ? 'à toute heure' : settings.smsFrom + ' h – ' + settings.smsTo + ' h',
     statuses: STATUS_LIST.filter(function (s) { return smsTemplate_(settings, s); })
+      .concat(Object.keys(SMS_EVENTS_).filter(function (k) { return String(settings[SMS_EVENTS_[k].key] || '').trim(); })
+        .map(function (k) { return SMS_EVENTS_[k].name; }))
   };
 }
 
