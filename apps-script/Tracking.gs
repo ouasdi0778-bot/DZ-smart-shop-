@@ -277,6 +277,8 @@ function api_trackingOverview(days) {
       carrier: String(o.carrier || ''), tracking: String(o.tracking || ''), paymentId: String(o.paymentId || ''),
       label: info ? info.label : o.status,
       unpaid: o.status === STATUS.DELIVERED && (group === 'delivered' || group === 'cashed' || group === 'ready'),
+      canDamage: o.status === STATUS.RETURNED && String(o.stockMove || '').trim() === STOCK_BACK_,
+      damaged: String(o.stockMove || '').trim() === STOCK_DAMAGED_,
       since: moved.toISOString()
     });
   });
@@ -330,5 +332,10 @@ function countsData_(ctx, settings) {
   });
   var alerts = trackingAlerts_(ctx.orders, settings || getSettings_(), now).filter(function (a) { return a.level !== 'info'; });
   var toShip = ctx.orders.filter(function (o) { return o.status === STATUS.CONFIRMED && isBlank_(o.tracking); }).length;
-  return { queue: due, alerts: alerts.length, toShip: toShip };
+  return { queue: due, pending: pendingCount_(ctx), alerts: alerts.length, toShip: toShip };
+}
+
+/** Commandes ni confirmées ni annulées : à confirmer, pas de réponse, rappeler, injoignable. */
+function pendingCount_(ctx) {
+  return ctx.orders.filter(function (o) { return !o.status || TODO_STATUSES_.indexOf(o.status) >= 0; }).length;
 }

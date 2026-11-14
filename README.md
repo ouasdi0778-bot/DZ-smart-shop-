@@ -54,7 +54,7 @@ Cette commande peut être relancée à tout moment : elle ne supprime rien et co
 ### 3. Remplir les réglages
 
 - **Tarifs** : le prix de livraison de chaque wilaya, à domicile et en stop desk, pour Yalidine et Ecotrack.
-- **Équipe** : l'adresse Gmail et le prénom de chaque confirmatrice. Le prénom s'affiche dans l'application et dans la colonne Confirmatrice.
+- **Équipe** : l'adresse Gmail et le prénom de chaque confirmatrice. Le prénom s'affiche dans l'application et dans la colonne Confirmatrice. Colonne **Rôle** : « Administrateur » (tout, dont les bénéfices), « Magasinier » (le stock, sans les bénéfices), vide pour une confirmatrice.
 - **Paramètres** : nom de la boutique, appels par jour et nombre de jours d'appels, délai de rappel, motifs d'annulation, modèle du message WhatsApp.
 - **Produits** (facultatif) : vos produits et leurs prix, proposés lors de la saisie d'une commande.
 
@@ -89,7 +89,7 @@ Chaque page correspond à une étape. Une commande passe toute seule à la suiva
 
 - **🗑 Corbeille** (administrateur) : les commandes supprimées, avec la date, l'auteur et le motif, et un bouton **Restaurer**.
 - ⚠️ **N'effacez pas de lignes à la main dans l'onglet Commandes** : elles disparaissent sans trace. Utilisez « Annuler » ou « Supprimer » (Corbeille).
-- **Le menu** affiche le nombre de commandes à appeler (Confirmation), à expédier (Expédier) et les alertes (Suivi).
+- **Le menu** affiche, à côté de Confirmation, **« à appeler maintenant / total en attente »** (par exemple 5/12 : ni confirmées ni annulées), le nombre de commandes à expédier (Expédier) et les alertes (Suivi).
 - **La recherche** de la page Commandes (nom, téléphone, n°) trouve **toutes** les commandes, où qu'elles soient, et indique leur page (« → Expédier », « → Suivi › Terminées »…).
 - Avant la création du colis, une commande confirmée peut être **remise à confirmer** (bouton Modifier dans Expédier).
 - Le tableau de bord et les bénéfices comptent toujours toutes les commandes.
@@ -177,27 +177,35 @@ La page **Suivi** réunit :
 - Le délai d'alerte se règle dans l'onglet **Paramètres** (`SUIVI_ALERTE_HEURES`, 26 par défaut).
 - Après la livraison, un colis Ecotrack reste suivi **jusqu'au versement de l'argent** (encaissé, prêt, payé), et un retour **jusqu'à sa réception**.
 
-## Stock par modèle
+## Stock (page à part)
 
-L'onglet **Produits** a une ligne par modèle : **Produit | Modèle | Prix de vente | Coût d'achat | Stock | Seuil d'alerte**. Par exemple : cover iPhone | iphone 15 PRO MAX | 1800 | 600 | 25.
+Page **Stock** (menu de gauche ; sur téléphone : **☰ Plus**), pour l'**administrateur** et le rôle **« Magasinier »** de l'onglet Équipe. Le magasinier voit le stock et fait les entrées et inventaires, mais ne voit pas les bénéfices.
 
-- **Reconnaissance** : une commande est reliée à son modèle par son libellé. « cover iPhone - iphone 15 PRO MAX » (Releasit) ou « cover iPhone — iphone 15 PRO MAX » (Shopify) correspondent à la ligne cover iPhone / iphone 15 PRO MAX. Les majuscules, accents et tirets ne comptent pas.
-- **Réservé** : une commande **confirmée** réserve ses produits. Disponible = Stock − Réservé.
-  - Dans le centre de confirmation, **« Stock insuffisant »** s'affiche si le modèle manque ; la confirmation reste possible.
-  - Une annulation libère la réservation.
-- **Le colis part** (Expédiée, En livraison, Livrée) : le **Stock baisse**.
-- **Le retour est reçu** (Ecotrack : « retour reçu » ; société sans connexion : statut Retour) : il **remonte**.
-- Chaque commande ne compte **qu'une fois** : colonne « Mouvement stock » des commandes, avec « Sorti » puis « Rentré ». Les commandes déjà parties avant l'installation du suivi sont marquées « Avant le suivi du stock » et ne touchent pas au stock.
-- **Stock vide** = modèle non suivi.
-- Le stock se corrige à la main dans l'onglet Produits, par exemple à l'arrivée d'une marchandise.
-- Page **Bénéfices et stock › Stock** :
-  - le **total par produit** et le détail par modèle (stock, réservé, disponible) ;
-  - les modèles en **stock bas** (disponible ≤ seuil de la ligne, sinon `STOCK_SEUIL`), aussi dans le tableau de bord ;
-  - les modèles vus dans les commandes mais absents de l'onglet Produits, avec un bouton **Ajouter**. Ils arrivent avec leur prix de vente moyen ; il reste à remplir leur coût d'achat et leur stock.
+**Le catalogue** (onglet Produits : Produit | Modèle | Prix de vente | Coût d'achat | Stock | Seuil d'alerte | Autres noms | Actif) :
+- **+ Produit** : nom, prix, coût, seuil, et les modèles avec leur stock de départ (« iphone 13 = 10 », un par ligne).
+- **Modifier** : nom, prix, coût, seuil, **autres noms** (autres écritures du modèle dans les commandes, séparées par « ; »), **actif** (décoché : plus proposé pour les nouvelles commandes, gardé pour l'historique). Si vous renommez un modèle, l'ancien nom est gardé dans « autres noms » : les commandes passées restent reliées.
+- **Modèles vus dans les commandes mais absents du catalogue** : bouton **Ajouter**, avec leur prix de vente moyen.
+- Dans **« + Nouvelle commande »**, choisir un produit de la liste remplit le prix (prix de vente × quantité).
+
+**Les mouvements** (onglet « Mouvements stock » : date, modèle, mouvement, quantité, stock après, coût, commande, auteur, note) :
+
+| Mouvement | Comment | Effet |
+|---|---|---|
+| Stock initial | À la création du produit | + |
+| **Entrée** de marchandise | Formulaire : un produit, la quantité reçue par modèle, coût unitaire et fournisseur facultatifs | + ; avec `COUT_MOYEN` = OUI, le coût d'achat devient la moyenne (10 à 600 DA + 20 à 690 DA = 660 DA) |
+| Colis parti | Automatique (Expédiée, En livraison, Livrée) | − |
+| Retour reçu | Automatique (Ecotrack : « retour reçu » ; société sans connexion : statut Retour) | + |
+| Retour abîmé | Bouton **« Abîmé ? »** dans Suivi › Terminées, sur un retour reçu | − (il ne peut pas être revendu) |
+| **Inventaire** | Formulaire : la quantité comptée par modèle, et un motif (comptage, perte, casse, erreur, cadeau, autre) | L'écart est noté |
+
+- **Réservé** : une commande **confirmée** réserve ses produits ; disponible = stock − réservé. « **Stock insuffisant** » s'affiche à la confirmation si le modèle manque (la confirmation reste possible). Une annulation libère la réservation.
+- Chaque commande ne compte **qu'une fois** (colonne « Mouvement stock » des commandes : « Sorti », « Rentré », « Rentré (abîmé) »). Les commandes déjà parties avant l'installation du suivi sont marquées « Avant le suivi du stock ».
+- **La page** montre la valeur du stock, les pièces, les modèles en **stock bas** (disponible ≤ seuil de la ligne, sinon `STOCK_SEUIL`) et en **rupture** (aussi au tableau de bord), le stock / réservé / disponible par modèle, et l'**historique** de chaque modèle.
+- **Stock vide** = modèle non suivi. Évitez de modifier la colonne Stock à la main : l'entrée ou l'inventaire gardent une trace.
 
 ## Bénéfices et dépenses
 
-Page **Bénéfices et stock**, visible seulement par l'**administrateur** (rôle « Administrateur » dans l'onglet Équipe). Les commandes y comptent à leur **date de commande**.
+Page **Bénéfices** (menu de gauche ; sur téléphone : **☰ Plus**), visible seulement par l'**administrateur** (rôle « Administrateur » dans l'onglet Équipe). Les commandes y comptent à leur **date de commande**.
 
 | Commande | Bénéfice |
 |---|---|
@@ -363,7 +371,7 @@ Ce que fait l'outil pour rester rapide :
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 100 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 105 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```

@@ -15,7 +15,8 @@ function setup() {
   setupSettingsSheet_(ss);
   setupTeamSheet_(ss);
   setupRatesSheet_(ss);
-  setupSimpleSheet_(ss, SHEET.PRODUCTS, PRODUCT_TITLES_, [220, 180, 120, 120, 90, 110]);
+  setupSimpleSheet_(ss, SHEET.PRODUCTS, PRODUCT_TITLES_, [220, 180, 120, 120, 90, 110, 240, 70]);
+  setupSimpleSheet_(ss, SHEET.MOVES, MOVE_TITLES_, [140, 180, 160, 150, 90, 90, 100, 90, 120, 260]);
   setupExpensesSheet_(ss);
   setupClientsSheet_(ss);
   setupSimpleSheet_(ss, SHEET.LOG, ['Date', 'Utilisateur', 'Commande', 'Action', 'Détail'], [140, 130, 90, 160, 420]);

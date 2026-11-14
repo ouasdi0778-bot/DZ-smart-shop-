@@ -117,7 +117,8 @@ function menuRecalc() {
 function api_bootstrap(preload) {
   var s = getSettings_();
   var wilayas = getWilayaList_();
-  var products = readCatalog_().rows.map(function (r) {
+  // Produits proposés dans « + Nouvelle commande » : les modèles actifs du catalogue.
+  var products = readCatalog_().rows.filter(function (r) { return r.active; }).map(function (r) {
     return { name: r.product + (r.model ? ' — ' + r.model : ''), price: r.price || 0 };
   });
   var me = currentUser_();
@@ -150,7 +151,7 @@ function api_bootstrap(preload) {
     counts: counts,
     app: { name: APP_NAME, version: APP_VERSION },
     shop: s.NOM_BOUTIQUE,
-    user: { email: me.email, name: me.name, role: me.role, admin: isAdmin_(me) },
+    user: { email: me.email, name: me.name, role: me.role, admin: isAdmin_(me), stock: canSeeStock_(me) },
     statuses: STATUS_LIST,
     queueStatuses: QUEUE_STATUSES,
     styles: STATUS_STYLE,
@@ -251,7 +252,7 @@ function dashboardData_(ctx, period) {
       unreachable: ctx.orders.filter(has([STATUS.UNREACHABLE])).length,
       waitingLong: ctx.orders.filter(function (o) { return neverCalledLong_(o, now); }).length,
       parcelAlerts: trackingAlerts_(ctx.orders, getSettings_(), now).filter(function (a) { return a.level !== 'info'; }).length,
-      stockLow: isAdmin_(currentUser_()) ? stockData_(ctx, getSettings_()).low : 0
+      stockLow: canSeeStock_(currentUser_()) ? stockData_(ctx, getSettings_()).low : 0
     },
     byWilaya: group(function (o) { return o.wilaya; }, has(SHIPPED_STATUSES)).slice(0, 10),
     byAgent: group(function (o) { return o.agent; }, function (o) {
@@ -411,7 +412,7 @@ function queueData_(ctx, user) {
   return {
     due: due.map(function (x) { return queueItem_(x.o); }),
     later: later.map(function (x) { return queueItem_(x.o); }),
-    stats: { due: due.length, later: later.length, handledToday: mine.handled, confirmedToday: mine.confirmed },
+    stats: { due: due.length, later: later.length, pending: pendingCount_(ctx), handledToday: mine.handled, confirmedToday: mine.confirmed },
     now: now.toISOString()
   };
 }

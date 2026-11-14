@@ -222,7 +222,8 @@ function lightenSheets_() {
     [SHEET.CLIENTS, 200, true],
     [SHEET.SETTINGS, 20, true],
     [SHEET.TEAM, 20, true],
-    [SHEET.PRODUCTS, 100, true]
+    [SHEET.PRODUCTS, 100, true],
+    [SHEET.MOVES, 200, true]
   ];
   var removed = 0;
   plan.forEach(function (p) {

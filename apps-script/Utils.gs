@@ -145,6 +145,7 @@ function readSettings_() {
   s.COUT_EMBALLAGE = Math.max(0, toNumber_(s.COUT_EMBALLAGE));
   s.TAUX_DOLLAR = Math.max(0, toNumber_(s.TAUX_DOLLAR));
   s.STOCK_SEUIL = Math.max(0, Math.round(toNumber_(s.STOCK_SEUIL)));
+  s.COUT_MOYEN = !/^(non|no|false|faux|0)$/i.test(String(s.COUT_MOYEN == null ? 'OUI' : s.COUT_MOYEN).trim());
   s.categories = String(s.CATEGORIES_DEPENSES || '').split(';').map(function (c) { return c.trim(); }).filter(function (c) { return c; });
   if (!s.categories.length) s.categories = ['Autre'];
   // Heures d'envoi des SMS : « 8-21 » ; vide ou illisible = à toute heure.

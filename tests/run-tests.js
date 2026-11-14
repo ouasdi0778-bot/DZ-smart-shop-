@@ -2074,13 +2074,13 @@ test('Vitesse : confirmer renvoie la commande suivante, la file et les compteurs
   assert.strictEqual(res.next.order.id, '#Q2');
   assert.ok(res.next.rules && res.next.history);
   assert.deepStrictEqual(res.queue.due.map(function (x) { return x.id; }), ['#Q3', '#Q2'], 'les plus récentes d’abord');
-  assert.deepStrictEqual(res.counts, { queue: 2, alerts: 0, toShip: 1 });
+  assert.deepStrictEqual(res.counts, { queue: 2, pending: 2, alerts: 0, toShip: 1 });
   assertSerializable(res, 'api_recordCall');
   // Commande suivante déjà traitée par quelqu'un d'autre : pas de fiche jointe.
   api_recordCall('#Q2', 'cancel', { reason: 'Doublon' });
   assert.strictEqual(api_recordCall('#Q3', 'confirm', {}, { next: '#Q2' }).next, undefined);
   // Les autres modifications renvoient aussi les compteurs.
-  assert.deepStrictEqual(api_updateOrder('#Q3', { notes: 'ok' }).counts, { queue: 0, alerts: 0, toShip: 2 });
+  assert.deepStrictEqual(api_updateOrder('#Q3', { notes: 'ok' }).counts, { queue: 0, pending: 0, alerts: 0, toShip: 2 });
 });
 
 test('Vitesse : la première page arrive avec le démarrage (un seul aller-retour)', function () {
@@ -2094,7 +2094,7 @@ test('Vitesse : la première page arrive avec le démarrage (un seul aller-retou
   assert.strictEqual(b.preload.data.arrived, 1, 'RELEASIT vérifié avant');
   assert.deepStrictEqual(b.preload.data.due.map(function (x) { return x.id; }), ['#B2', '#B1'], 'les plus récentes d’abord');
   assert.strictEqual(b.preload.data.firstDetail.order.id, '#B2');
-  assert.deepStrictEqual(b.counts, { queue: 2, alerts: 0, toShip: 0 });
+  assert.deepStrictEqual(b.counts, { queue: 2, pending: 2, alerts: 0, toShip: 0 });
   assertSerializable(b, 'api_bootstrap');
 
   var list = api_bootstrap({ fn: 'api_listOrders', args: [{ status: 'all', period: 'all', sync: true, withStatus: true }], key: 'k' });
@@ -2594,6 +2594,141 @@ test('SMS : statut venu d’Ecotrack (n° de suivi dans le texte), déclencheur,
   onOpen();
   menuSmsSetup();
   assert.ok(__mock.state.alerts.some(function (a) { return /partiront du \+213550123456/.test(a.join(' ')); }));
+});
+
+/* ---------------- Gestion du stock (page Stock) ---------------- */
+
+function asStockKeeper() {
+  __mock.setUser('karim@example.com');
+  sheet('Équipe').appendRow(['karim@example.com', 'Karim', 'Magasinier']);
+  userEdit('Équipe');
+}
+function catalogRow(model) {
+  return readCatalogFromSheet_().rows.filter(function (r) { return r.model === model; })[0];
+}
+function movesOf(type) {
+  return readStockMoves_(500).filter(function (m) { return !type || m.type === type; });
+}
+
+test('Stock : ajouter un produit avec ses modèles et leur stock de départ', function () {
+  baseSetup();
+  assert.deepStrictEqual(headerOf('Produits'), PRODUCT_TITLES_);
+  assert.ok(sheet('Mouvements stock'), 'onglet créé à l’installation');
+  var r = api_addProduct({ product: 'cover iPhone', price: 1800, cost: 600, threshold: 3,
+    models: [{ model: 'iphone 13', stock: 10 }, { model: 'iphone 15 PRO MAX', stock: 4 }, { model: 'iphone 13', stock: 5 }] });
+  assert.strictEqual(r.added, 2, 'un modèle en double n’est pas ajouté deux fois');
+  var m = catalogRow('iphone 13');
+  assert.deepStrictEqual([m.product, m.price, m.cost, m.stock, m.threshold, m.active], ['cover iPhone', 1800, 600, 10, 3, true]);
+  assert.deepStrictEqual(movesOf('Stock initial').map(function (x) { return [x.model, x.qty, x.after]; }).sort(), [['iphone 13', 10, 10], ['iphone 15 PRO MAX', 4, 4]]);
+  assert.strictEqual(api_addProduct({ product: 'cover iPhone', models: [{ model: 'iphone 13' }] }).added, 0);
+  assert.strictEqual(api_addProduct({ product: 'Montre', price: 4300, stock: 7 }).added, 1, 'produit sans modèle');
+  assert.strictEqual(catalogRow('').stock, 7);
+  assert.throws(function () { api_addProduct({ product: ' ' }); }, /nom du produit/);
+  assert.ok(api_bootstrap().products.some(function (x) { return x.name === 'cover iPhone — iphone 13' && x.price === 1800; }));
+});
+
+test('Stock : modifier un modèle (renommé, autres noms, désactivé) sans perdre les commandes', function () {
+  baseSetup();
+  api_addProduct({ product: 'cover iPhone', price: 1800, cost: 600, models: [{ model: 'iphone 15 PRO MAX', stock: 5 }, { model: 'iphone 12', stock: 0 }] });
+  var row = catalogRow('iphone 15 PRO MAX');
+  api_updateCatalogRow({ row: row.row, key: row.key, model: 'iPhone 15 Pro Max', aliases: 'coque 15 pro max', price: 1900 });
+  var cat = readCatalog_();
+  var renamed = matchCatalog_(cat, 'cover iPhone - iphone 15 PRO MAX');
+  assert.ok(renamed, 'l’ancien nom (majuscules mises à part) relie toujours les commandes');
+  assert.strictEqual(matchCatalog_(cat, 'coque 15 pro max').model, 'iPhone 15 Pro Max', 'autre nom');
+  assert.strictEqual(renamed.price, 1900);
+  assert.strictEqual(renamed.stock, 5, 'le stock ne change pas en modifiant la fiche');
+  assert.throws(function () { api_updateCatalogRow({ row: row.row, key: 'cle perimee', model: 'x' }); }, /modifié entre-temps/);
+  var r12 = catalogRow('iphone 12');
+  assert.throws(function () { api_updateCatalogRow({ row: r12.row, key: r12.key, model: 'iPhone 15 Pro Max' }); }, /existe déjà/);
+  api_updateCatalogRow({ row: r12.row, key: r12.key, active: false });
+  assert.strictEqual(catalogRow('iphone 12').active, false);
+  assert.ok(!api_bootstrap().products.some(function (x) { return /iphone 12/.test(x.name); }), 'désactivé : plus proposé pour les nouvelles commandes');
+  var page = api_stockPage();
+  assert.strictEqual(page.totals.rupture, 0, 'un modèle désactivé n’est pas signalé en rupture');
+});
+
+test('Stock : entrée de marchandise avec coût moyen, inventaire avec motif, historique', function () {
+  baseSetup();
+  api_addProduct({ product: 'Sac', cost: 600, models: [{ model: 'Noir', stock: 10 }, { model: 'Rouge', stock: 0 }] });
+  var noir = catalogRow('Noir');
+  var rouge = catalogRow('Rouge');
+  var r = api_stockEntry({ items: [{ row: noir.row, key: noir.key, qty: 20, cost: 690 }, { row: rouge.row, key: rouge.key, qty: 5, cost: 700 }, { row: rouge.row, qty: 0 }], supplier: 'Grossiste Alger' });
+  assert.ok(/25 pièce\(s\)/.test(r.message));
+  assert.deepStrictEqual([catalogRow('Noir').stock, catalogRow('Noir').cost], [30, 660], '(10 × 600 + 20 × 690) / 30');
+  assert.deepStrictEqual([catalogRow('Rouge').stock, catalogRow('Rouge').cost], [5, 700], 'stock à zéro : le coût de l’entrée');
+  var e = movesOf('Entrée').filter(function (x) { return x.model === 'Noir'; })[0];
+  assert.deepStrictEqual([e.qty, e.after, e.cost, e.note], [20, 30, 690, 'Fournisseur : Grossiste Alger']);
+  setSetting('COUT_MOYEN', 'NON');
+  noir = catalogRow('Noir');
+  api_stockEntry({ items: [{ row: noir.row, key: noir.key, qty: 10, cost: 900 }] });
+  assert.deepStrictEqual([catalogRow('Noir').stock, catalogRow('Noir').cost], [40, 660], 'coût fixe : inchangé');
+  assert.throws(function () { api_stockEntry({ items: [] }); }, /au moins une quantité/);
+
+  noir = catalogRow('Noir');
+  var inv = api_stockInventory({ reason: 'Casse', items: [{ row: noir.row, key: noir.key, counted: 37 }, { row: rouge.row, key: rouge.key, counted: 5 }] });
+  assert.strictEqual(inv.changed, 1, 'pas d’écart pour Rouge');
+  assert.strictEqual(catalogRow('Noir').stock, 37);
+  var i = movesOf('Inventaire')[0];
+  assert.deepStrictEqual([i.model, i.qty, i.after, i.note], ['Noir', -3, 37, 'Casse']);
+  assert.ok(/Aucun écart/.test(api_stockInventory({ items: [{ row: noir.row, key: noir.key, counted: 37 }] }).message));
+  var page = api_stockPage();
+  assertSerializable(page, 'api_stockPage');
+  assert.deepStrictEqual([page.totals.units, page.totals.value], [42, 37 * 660 + 5 * 700]);
+  assert.strictEqual(page.moves[0].type, 'Inventaire', 'les plus récents d’abord');
+  assert.deepStrictEqual(page.reasons, INVENTORY_REASONS_);
+});
+
+test('Stock : mouvements automatiques notés, retour abîmé retiré du stock', function () {
+  baseSetup();
+  api_addProduct({ product: 'Sac', cost: 600, models: [{ model: 'Noir', stock: 10 }] });
+  addOrder('#W1', 'Sac - Noir', { 'Quantité': 2 });
+  processNewRows();
+  api_recordCall('#W1', 'confirm', {});
+  api_updateOrder('#W1', { status: 'Expédiée', carrier: 'Yalidine', tracking: 'Y1' });
+  var out = movesOf('Colis parti')[0];
+  assert.deepStrictEqual([out.model, out.qty, out.after, out.order, out.by], ['Noir', -2, 8, '#W1', 'Automatique']);
+  api_updateOrder('#W1', { status: 'Retour' });
+  assert.deepStrictEqual([movesOf('Retour reçu')[0].qty, catalogRow('Noir').stock], [2, 10]);
+  var fin = api_trackingOverview(30).finished.filter(function (x) { return x.id === '#W1'; })[0];
+  assert.deepStrictEqual([fin.canDamage, fin.damaged], [true, false]);
+  var d = api_markReturnDamaged('#W1');
+  assert.ok(/abîmé/.test(d.message));
+  assert.strictEqual(catalogRow('Noir').stock, 8);
+  assert.strictEqual(order('#W1').stockMove, 'Rentré (abîmé)');
+  assert.strictEqual(movesOf('Retour abîmé')[0].qty, -2);
+  assert.throws(function () { api_markReturnDamaged('#W1'); }, /retour reçu et remis en stock/);
+  fin = api_trackingOverview(30).finished.filter(function (x) { return x.id === '#W1'; })[0];
+  assert.deepStrictEqual([fin.canDamage, fin.damaged], [false, true]);
+});
+
+test('Stock : rôle Magasinier (stock oui, bénéfices non) ; compteur des commandes en attente', function () {
+  baseSetup();
+  api_addProduct({ product: 'Sac', cost: 600, threshold: 5, models: [{ model: 'Noir', stock: 2 }] });
+  asStockKeeper();
+  var b = api_bootstrap();
+  assert.deepStrictEqual([b.user.admin, b.user.stock], [false, true]);
+  assert.strictEqual(api_stockPage().totals.low, 1);
+  assert.strictEqual(api_stockPage().admin, false);
+  var noir = catalogRow('Noir');
+  assert.ok(api_stockEntry({ items: [{ row: noir.row, key: noir.key, qty: 1 }] }));
+  assert.throws(function () { api_profit('30'); }, /Réservé à l’administrateur/);
+  assert.strictEqual(api_dashboard('7').todo.stockLow, 1, 'le magasinier voit le stock bas');
+  asAgent();
+  assert.throws(function () { api_stockPage(); }, /administrateur et au magasinier/);
+  assert.throws(function () { api_addProduct({ product: 'X' }); }, /administrateur et au magasinier/);
+  assert.deepStrictEqual([api_bootstrap().user.stock, api_dashboard('7').todo.stockLow], [false, 0]);
+
+  // Compteur « à appeler maintenant / total en attente ».
+  addOrder('#P1', 'Sac - Noir');
+  addOrder('#P2', 'Sac - Noir');
+  addOrder('#P3', 'Sac - Noir');
+  processNewRows();
+  api_recordCall('#P2', 'no_answer', {});
+  api_recordCall('#P3', 'confirm', {});
+  var c = api_counts();
+  assert.deepStrictEqual([c.queue, c.pending], [1, 2], '1 à appeler maintenant, 2 en attente (dont un rappel dans 2 h)');
+  assert.strictEqual(api_queue().stats.pending, 2);
 });
 
 test('fichier unique dist/Code.gs : à jour et fonctionnel', function () {

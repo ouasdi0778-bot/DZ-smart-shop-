@@ -19,7 +19,8 @@ var SHEET = {
   SETTINGS: 'Paramètres',
   LOG: 'Journal',
   ARCHIVE: 'Archive',
-  EXPENSES: 'Dépenses'
+  EXPENSES: 'Dépenses',
+  MOVES: 'Mouvements stock'
 };
 
 /**
@@ -133,6 +134,7 @@ var DEFAULT_SETTINGS = [
   ['COUT_EMBALLAGE', 0, 'Coût d’emballage par commande expédiée (DA). 0 = pas compté'],
   ['TAUX_DOLLAR', 250, 'Prix d’un dollar en dinars, pour les dépenses en USD (publicité). Mettez-le à jour quand il change : les dépenses déjà saisies gardent leur taux'],
   ['CATEGORIES_DEPENSES', 'Publicité Facebook; Publicité TikTok; Emballage; Salaires; Loyer; Autre', 'Catégories proposées dans l’onglet Dépenses, séparées par des points-virgules'],
+  ['COUT_MOYEN', 'OUI', 'OUI : à chaque entrée de marchandise, le coût d’achat devient la moyenne (ancien stock et nouvelle entrée). NON : le coût d’achat ne change que si vous le modifiez'],
   ['STOCK_SEUIL', 2, 'Un modèle dont le stock disponible tombe à ce nombre (ou moins) est signalé « stock bas ». Le seuil d’une ligne de l’onglet Produits passe avant'],
   ['SMS_HEURES', '0-24', 'Heures d’envoi des SMS (heure d’Algérie), par exemple 8-21 : en dehors, ils attendent. 0-24 ou vide = à toute heure'],
   ['SMS_A_CONFIRMER', 'شكرا {prenom}، وصلنا طلبك {numero}. سنتصل بك قريبا للتأكيد. {boutique}', 'SMS envoyé quand la commande arrive (« À confirmer »). Vide = pas de SMS. Champs : {prenom} {client} {numero} {produit} {total} {suivi} {commune} {wilaya} {boutique}'],

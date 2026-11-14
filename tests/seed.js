@@ -139,10 +139,11 @@ function seedDemo_() {
   });
   rates.getRange(2, 1, rateRows.length, 5).setValues(rateRows);
 
-  ss.getSheetByName('Équipe').getRange(2, 1, 3, 3).setValues([
+  ss.getSheetByName('Équipe').getRange(2, 1, 4, 3).setValues([
     ['admin@example.com', 'Admin', 'Administrateur'],
     ['imane@example.com', 'Imane', 'Confirmatrice'],
-    ['sonia@example.com', 'Sonia', 'Confirmatrice']
+    ['sonia@example.com', 'Sonia', 'Confirmatrice'],
+    ['karim@example.com', 'Karim', 'Magasinier']
   ]);
   ss.getSheetByName('Produits').getRange(2, 1, 7, 6).setValues([
     ['Montre connectée', '', 4300, 2100, 40, ''],

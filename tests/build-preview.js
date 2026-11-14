@@ -6,7 +6,7 @@
  *   npm run preview   puis ouvrir preview/index.html dans le navigateur
  *
  * Options : un dossier de sortie, et --scenario=demo|first|empty
- * Dans le navigateur, ajoutez « ?user=admin » à l'adresse pour voir l'application en administrateur.
+ * Dans le navigateur, ajoutez « ?user=admin » (administrateur) ou « ?user=stock » (magasinier) à l'adresse.
  *   demo  : ~40 commandes d'exemple (par défaut)
  *   first : classeur tout juste installé + 2 premières commandes
  *   empty : classeur tout juste installé, aucune commande
@@ -42,6 +42,7 @@ var fakeRun = [
   SEEDS[SCENARIO],
   SCENARIO === 'demo' ? "__mock.setUser('imane@example.com');" : '',
   "if (/[?&]user=admin\\b/.test(location.search)) __mock.setUser('admin@example.com');",
+  "if (/[?&]user=stock\\b/.test(location.search)) __mock.setUser('karim@example.com');",
   'function hasDate_(v) { if (v instanceof Date) return true; if (v && typeof v === "object") return Object.keys(v).some(function (k) { return hasDate_(v[k]); }); return false; }',
   'function runner_(handlers) {',
   '  return new Proxy({}, { get: function (t, name) {',
