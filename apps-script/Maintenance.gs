@@ -234,10 +234,11 @@ function lightenSheets_() {
 
 /** Déclencheur de nuit : archivage, Journal raccourci, onglets allégés. */
 function nightlyMaintenance() {
-  var out = { archived: 0, journal: 0, rows: 0, errors: [] };
+  var out = { archived: 0, journal: 0, rows: 0, autoCancelled: 0, errors: [] };
   var step = function (name, fn) {
     try { fn(); } catch (e) { out.errors.push(name + ' : ' + (e && e.message ? e.message : e)); }
   };
+  step('appels', function () { out.autoCancelled = autoCancelUnreachable_(); });
   step('stock', function () { withLock_(function () { applyStockMoves_(readOrders_()); }); });
   step('archivage', function () { out.archived = archiveOldOrders_().archived; });
   step('journal', function () { out.journal = trimJournal_(getSettings_().JOURNAL_JOURS); });
@@ -250,7 +251,7 @@ function menuMaintenance() {
   var ui = SpreadsheetApp.getUi();
   var r = nightlyMaintenance();
   ui.alert(APP_NAME,
-    r.archived + ' commande(s) archivée(s), ' + r.journal + ' ligne(s) de Journal effacée(s), ' + r.rows + ' ligne(s) vide(s) supprimée(s).' +
+    r.autoCancelled + ' commande(s) sans réponse annulée(s), ' + r.archived + ' commande(s) archivée(s), ' + r.journal + ' ligne(s) de Journal effacée(s), ' + r.rows + ' ligne(s) vide(s) supprimée(s).' +
     (r.errors.length ? '\n\nProblème : ' + r.errors.join(' · ') : ''),
     ui.ButtonSet.OK);
 }

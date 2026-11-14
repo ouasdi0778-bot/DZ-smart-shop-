@@ -125,7 +125,7 @@ test('setup : crée les onglets, en-têtes, réglages et le déclencheur', funct
 
 test('setup : relancé deux fois, ne duplique rien', function () {
   setup();
-  sheet('Paramètres').getRange(3, 2).setValue(5); // MAX_TENTATIVES modifié par l'utilisateur
+  sheet('Paramètres').getRange(3, 2).setValue(5); // APPELS_PAR_JOUR modifié par l'utilisateur
   userEdit('Paramètres');
   setup();
   assert.deepStrictEqual(headerOf('Commandes'), ORDER_COLUMNS.map(function (c) { return c.title; }));
@@ -243,8 +243,11 @@ test('file d’appels : ordre, rappels, confirmation avec modifications', functi
 
   var q = api_queue();
   assertSerializable(q, 'api_queue');
-  assert.deepStrictEqual(q.due.map(function (x) { return x.id; }), ['#4001', '#4002']);
+  assert.deepStrictEqual(q.due.map(function (x) { return x.id; }), ['#4002', '#4001'], 'les plus récentes d’abord (ORDRE_FILE)');
   assert.deepStrictEqual(q.later.map(function (x) { return x.id; }), ['#4003']);
+  setSetting('ORDRE_FILE', 'anciennes');
+  assert.deepStrictEqual(api_queue().due.map(function (x) { return x.id; }), ['#4001', '#4002']);
+  setSetting('ORDRE_FILE', 'récentes');
 
   var o = api_recordCall('#4001', 'confirm', { fields: { wilaya: 'Oran', mode: 'Stop desk', qty: '2', commune: 'Es Senia', phone: '0550 00 00 11' } });
   assertSerializable(o, 'api_recordCall');
@@ -268,21 +271,83 @@ test('file d’appels : ordre, rappels, confirmation avec modifications', functi
   assert.strictEqual(stats.due, 1);
 });
 
-test('pas de réponse : rappel automatique puis « Injoignable »', function () {
+/** Fait comme si la commande était arrivée il y a `days` jours (et ses appels du jour dataient d'hier). */
+function ageOrder(id, days) {
+  var sh = sheet('Commandes');
+  var header = headerOf('Commandes');
+  var rows = sh.getRange(2, 1, sh.getLastRow() - 1, header.length).getValues();
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i][header.indexOf('N°')] !== id) continue;
+    sh.getRange(i + 2, header.indexOf('Date') + 1).setValue(new Date(Date.now() - days * 86400000));
+    var dc = parseDayCalls_(rows[i][header.indexOf('Appels du jour')]);
+    if (dc.day) sh.getRange(i + 2, header.indexOf('Appels du jour') + 1).setValue('2000-01-01 : ' + dc.n);
+    sh.getRange(i + 2, header.indexOf('Rappeler le') + 1).setValue('');
+  }
+}
+
+test('pas de réponse : 3 appels par jour pendant 3 jours, puis annulation automatique', function () {
   baseSetup();
   addRaw({ 'N°': '#5001', 'Client': 'Silence', 'Téléphone': '0550000021', 'Wilaya': 'Alger', 'Prix': 1000 });
   processNewRows();
+  // Jour 1 : appels 1 et 2 → rappel dans 2 h ; appel 3 → rappel demain à 9 h.
   var o1 = api_recordCall('#5001', 'no_answer', {});
-  assert.strictEqual(o1.status, 'Pas de réponse');
-  assert.strictEqual(o1.attempts, 1);
+  assert.deepStrictEqual([o1.status, o1.attempts, o1.callsToday, o1.callDay], ['Pas de réponse', 1, 1, 1]);
   var delay = (new Date(o1.callback).getTime() - Date.now()) / 60000;
   assert.ok(delay > 115 && delay <= 120, 'rappel dans 2 h');
   assert.strictEqual(api_queue().later.length, 1);
   api_recordCall('#5001', 'no_answer', {});
   var o3 = api_recordCall('#5001', 'no_answer', {});
-  assert.strictEqual(o3.status, 'Injoignable');
-  assert.strictEqual(o3.callback, '');
+  assert.deepStrictEqual([o3.status, o3.attempts, o3.callsToday], ['Pas de réponse', 3, 3]);
+  var cb = new Date(o3.callback);
+  var tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+  assert.deepStrictEqual([cb.getDate(), cb.getHours(), cb.getMinutes()], [tomorrow.getDate(), 9, 0], 'demain à 9 h');
+  assert.ok(logActions().indexOf('Appel') >= 0);
+  // Jour 2 : le compteur du jour repart à zéro.
+  ageOrder('#5001', 1);
+  var d2 = api_recordCall('#5001', 'no_answer', {});
+  assert.deepStrictEqual([d2.status, d2.attempts, d2.callsToday, d2.callDay], ['Pas de réponse', 4, 1, 2]);
+  // Jour 3 : au 3e appel sans réponse, la commande est annulée automatiquement.
+  ageOrder('#5001', 2);
+  api_recordCall('#5001', 'no_answer', {});
+  api_recordCall('#5001', 'no_answer', {});
+  var last = api_recordCall('#5001', 'no_answer', {});
+  assert.deepStrictEqual([last.status, last.cancelReason, last.attempts, last.callback], ['Annulée', 'Injoignable (annulation automatique)', 7, '']);
   assert.strictEqual(api_queue().due.length + api_queue().later.length, 0);
+
+  // Sans annulation automatique : « Injoignable ».
+  setSetting('ANNULATION_AUTO', 'NON');
+  addRaw({ 'N°': '#5002', 'Client': 'Silence 2', 'Téléphone': '0550000022', 'Wilaya': 'Alger', 'Prix': 1000 });
+  processNewRows();
+  ageOrder('#5002', 2);
+  api_recordCall('#5002', 'no_answer', {});
+  api_recordCall('#5002', 'no_answer', {});
+  assert.strictEqual(api_recordCall('#5002', 'no_answer', {}).status, 'Injoignable');
+});
+
+test('pas de réponse : chaque nuit, les commandes sans réponse après 3 jours sont annulées', function () {
+  baseSetup();
+  addRaw({ 'N°': '#5101', 'Client': 'A', 'Téléphone': '0550000031', 'Wilaya': 'Alger', 'Prix': 1000 });
+  addRaw({ 'N°': '#5102', 'Client': 'B', 'Téléphone': '0550000032', 'Wilaya': 'Alger', 'Prix': 1000 });
+  addRaw({ 'N°': '#5103', 'Client': 'C', 'Téléphone': '0550000033', 'Wilaya': 'Alger', 'Prix': 1000 });
+  addRaw({ 'N°': '#5104', 'Client': 'D', 'Téléphone': '0550000034', 'Wilaya': 'Alger', 'Prix': 1000 });
+  processNewRows();
+  api_recordCall('#5101', 'no_answer', {});
+  api_recordCall('#5102', 'no_answer', {});
+  api_recordCall('#5103', 'callback', { callback: new Date(Date.now() + 3600000).toISOString() });
+  ageOrder('#5101', 3); // 4e jour : ses jours d'appels sont passés
+  ageOrder('#5102', 2); // 3e jour : encore des appels possibles
+  ageOrder('#5103', 5); // le client a répondu (« Rappeler ») : jamais annulée
+  ageOrder('#5104', 5); // jamais appelée : jamais annulée, mais signalée
+  var out = nightlyMaintenance();
+  assert.strictEqual(out.autoCancelled, 1);
+  assert.deepStrictEqual([order('#5101').status, order('#5101').cancelReason], ['Annulée', 'Injoignable (annulation automatique)']);
+  assert.deepStrictEqual([order('#5102').status, order('#5103').status, order('#5104').status], ['Pas de réponse', 'Rappeler', 'À confirmer']);
+  assert.ok(logActions().indexOf('Annulation automatique') >= 0);
+  assert.strictEqual(api_dashboard('all').todo.waitingLong, 1, 'jamais appelée depuis plus de 24 h');
+  assert.strictEqual(api_queue().due.filter(function (x) { return x.id === '#5104'; })[0].waitingLong, true);
+  setSetting('ANNULATION_AUTO', 'NON');
+  ageOrder('#5102', 6);
+  assert.strictEqual(nightlyMaintenance().autoCancelled, 0);
 });
 
 test('annulation avec motif', function () {
@@ -1942,8 +2007,8 @@ test('Vitesse : réglages, tarifs, équipe et liste noire gardés en mémoire, v
     assert.ok(!again[n + ':getValues'], n + ' relu alors qu’il est en mémoire : ' + JSON.stringify(again));
   });
   // Modification à la main (onEdit) : vu tout de suite.
-  setSetting('MAX_TENTATIVES', 7);
-  assert.strictEqual(getSettings_().MAX_TENTATIVES, 7);
+  setSetting('APPELS_PAR_JOUR', 7);
+  assert.strictEqual(getSettings_().APPELS_PAR_JOUR, 7);
   setRate('16 - Alger', [610, 410, 700, 350]);
   assert.strictEqual(readRates_(getWilayaList_())[16].Yalidine.Domicile, 610);
   // Changements faits par l'outil lui-même : mémoire vidée aussi.
@@ -1980,7 +2045,7 @@ test('Vitesse : confirmer renvoie la commande suivante, la file et les compteurs
   assert.strictEqual(res.status, 'Confirmée');
   assert.strictEqual(res.next.order.id, '#Q2');
   assert.ok(res.next.rules && res.next.history);
-  assert.deepStrictEqual(res.queue.due.map(function (x) { return x.id; }), ['#Q2', '#Q3']);
+  assert.deepStrictEqual(res.queue.due.map(function (x) { return x.id; }), ['#Q3', '#Q2'], 'les plus récentes d’abord');
   assert.deepStrictEqual(res.counts, { queue: 2, alerts: 0, toShip: 1 });
   assertSerializable(res, 'api_recordCall');
   // Commande suivante déjà traitée par quelqu'un d'autre : pas de fiche jointe.
@@ -1999,8 +2064,8 @@ test('Vitesse : la première page arrive avec le démarrage (un seul aller-retou
   var b = api_bootstrap({ fn: 'api_queue', args: [{ sync: true, first: true }], key: key });
   assert.strictEqual(b.preload.key, key);
   assert.strictEqual(b.preload.data.arrived, 1, 'RELEASIT vérifié avant');
-  assert.deepStrictEqual(b.preload.data.due.map(function (x) { return x.id; }), ['#B1', '#B2']);
-  assert.strictEqual(b.preload.data.firstDetail.order.id, '#B1');
+  assert.deepStrictEqual(b.preload.data.due.map(function (x) { return x.id; }), ['#B2', '#B1'], 'les plus récentes d’abord');
+  assert.strictEqual(b.preload.data.firstDetail.order.id, '#B2');
   assert.deepStrictEqual(b.counts, { queue: 2, alerts: 0, toShip: 0 });
   assertSerializable(b, 'api_bootstrap');
 
@@ -2013,7 +2078,7 @@ test('Vitesse : la première page arrive avec le démarrage (un seul aller-retou
   assert.strictEqual(readBlacklist_()['0550000111'], undefined);
 
   var q = api_queue({ sync: true, first: true });
-  assert.strictEqual(q.firstDetail.order.id, '#B1');
+  assert.strictEqual(q.firstDetail.order.id, '#B2');
   var l = api_listOrders({ status: 'all', period: 'all', sync: true, withStatus: true });
   assert.ok(l.importStatus && l.arrived === 0 && l.menuCounts === undefined);
 });
@@ -2448,6 +2513,15 @@ test('SMS : « commande reçue » envoyé dans le même passage que le transfert
   assert.strictEqual(readSmsQueue_(PropertiesService.getScriptProperties()).length, 1, 'il partira à la minute suivante');
   atHour(2, function () { sendSmsQueue(); });
   assert.strictEqual(HTTPSMS.messages.length, 2);
+});
+
+test('Paramètres : l’ancien réglage MAX_TENTATIVES est signalé comme remplacé', function () {
+  var sh = __mock.ss().insertSheet('Paramètres');
+  sh.getRange(1, 1, 2, 3).setValues([['Clé', 'Valeur', 'Description'], ['MAX_TENTATIVES', 3, 'Appels sans réponse avant « Injoignable »']]);
+  setup();
+  assert.ok(/remplacé par APPELS_PAR_JOUR et JOURS_D_APPELS/.test(sh.getRange(2, 3).getValue()));
+  assert.deepStrictEqual([getSettings_().APPELS_PAR_JOUR, getSettings_().JOURS_D_APPELS, getSettings_().ANNULATION_AUTO, getSettings_().ORDRE_FILE], [3, 3, true, 'récentes']);
+  assert.strictEqual(api_bootstrap().maxAttempts, 9);
 });
 
 test('Paramètres : « 8-21 » jamais modifié devient « 0-24 » une seule fois', function () {

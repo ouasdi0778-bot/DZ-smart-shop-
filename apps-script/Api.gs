@@ -160,6 +160,8 @@ function api_bootstrap(preload) {
     defaultCarrier: s.SOCIETE_PAR_DEFAUT,
     cancelReasons: s.motifs,
     maxAttempts: s.MAX_TENTATIVES,
+    callsPerDay: s.APPELS_PAR_JOUR,
+    callDays: s.JOURS_D_APPELS,
     callbackDelay: s.DELAI_RAPPEL_MINUTES,
     waTemplate: s.MESSAGE_WHATSAPP,
     rates: readRates_(wilayas),
@@ -247,6 +249,7 @@ function dashboardData_(ctx, period) {
       callbacksToday: callbacksToday,
       toShip: ctx.orders.filter(has([STATUS.CONFIRMED])).length,
       unreachable: ctx.orders.filter(has([STATUS.UNREACHABLE])).length,
+      waitingLong: ctx.orders.filter(function (o) { return neverCalledLong_(o, now); }).length,
       parcelAlerts: trackingAlerts_(ctx.orders, getSettings_(), now).filter(function (a) { return a.level !== 'info'; }).length,
       stockLow: isAdmin_(currentUser_()) ? stockData_(ctx, getSettings_()).low : 0
     },
@@ -339,8 +342,15 @@ function queueItem_(o) {
     attempts: toNumber_(o.attempts),
     callback: iso_(o.callback),
     alert: String(o.alert),
-    alertLevel: alertLevel_(o.alert)
+    alertLevel: alertLevel_(o.alert),
+    waitingLong: neverCalledLong_(o, new Date())
   };
+}
+
+/** Commande jamais appelée, arrivée depuis plus de 24 h. */
+function neverCalledLong_(o, now) {
+  var d = toDate_(o.date);
+  return o.status === STATUS.TO_CONFIRM && !(toNumber_(o.attempts) > 0) && !!d && now.getTime() - d.getTime() > 24 * 3600000;
 }
 
 /** File d'appels : à appeler maintenant (due) et rappels programmés plus tard (later). */
@@ -364,6 +374,7 @@ function firstQueueDetail_(ctx, q, user) {
 
 function queueData_(ctx, user) {
   var now = new Date();
+  var recentFirst = getSettings_().ORDRE_FILE !== 'anciennes';
   var due = [];
   var later = [];
   var rank = {};
@@ -380,6 +391,8 @@ function queueData_(ctx, user) {
   due.sort(function (a, b) {
     var r = rank[a.o.status] - rank[b.o.status];
     if (r) return r;
+    // Nouvelles commandes : les plus récentes d'abord (réglage ORDRE_FILE). Rappels : l'heure prévue d'abord.
+    if (a.o.status === STATUS.TO_CONFIRM && recentFirst) return (b.d ? b.d.getTime() : 0) - (a.d ? a.d.getTime() : 0);
     var ta = (a.o.status === STATUS.TO_CONFIRM ? a.d : a.cb || a.d);
     var tb = (b.o.status === STATUS.TO_CONFIRM ? b.d : b.cb || b.d);
     return (ta ? ta.getTime() : 0) - (tb ? tb.getTime() : 0);
@@ -462,16 +475,9 @@ function api_recordCall(id, outcome, payload, opts) {
       f.callback = '';
       detail = 'Confirmée';
     } else if (outcome === 'no_answer') {
-      f.attempts = attempts + 1;
-      if (f.attempts >= env.settings.MAX_TENTATIVES) {
-        f.status = STATUS.UNREACHABLE;
-        f.callback = '';
-        detail = 'Pas de réponse (' + f.attempts + ' appels) : injoignable';
-      } else {
-        f.status = STATUS.NO_ANSWER;
-        f.callback = new Date(env.now.getTime() + env.settings.DELAI_RAPPEL_MINUTES * 60000);
-        detail = 'Pas de réponse (appel ' + f.attempts + '), rappel prévu';
-      }
+      var plan = noAnswerFields_(o, env);
+      Object.keys(plan.fields).forEach(function (k) { f[k] = plan.fields[k]; });
+      detail = plan.detail;
     } else if (outcome === 'callback') {
       var when = toDate_(payload.callback);
       if (!when || when <= env.now) throw new Error('Choisissez une date de rappel dans le futur.');

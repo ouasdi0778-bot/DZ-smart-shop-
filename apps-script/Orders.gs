@@ -164,6 +164,8 @@ function serializeOrder_(o) {
     adSource: String(o.adSource == null ? '' : o.adSource),
     shopifyId: String(o.shopifyId),
     stockMove: String(o.stockMove == null ? '' : o.stockMove),
+    callDay: callDay_(o, new Date()),
+    callsToday: parseDayCalls_(o.dayCalls).day === dayKey_(new Date()) ? parseDayCalls_(o.dayCalls).n : 0,
     sms: String(o.sms == null ? '' : o.sms),
     alert: String(o.alert),
     alertLevel: alertLevel_(o.alert),

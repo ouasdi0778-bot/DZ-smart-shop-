@@ -63,6 +63,7 @@ var ORDER_COLUMNS = [
   { key: 'campaign', title: 'Campagne', kind: 'auto', width: 150, aliases: ['Campagne pub', 'UTM campaign'] },
   { key: 'adSource', title: 'Source pub', kind: 'auto', width: 100, aliases: ['UTM source', 'Plateforme pub'] },
   { key: 'shopifyId', title: 'ID Shopify', kind: 'auto', width: 130, aliases: ['Shopify ID'] },
+  { key: 'dayCalls', title: 'Appels du jour', kind: 'auto', width: 120, aliases: [] },
   { key: 'stockMove', title: 'Mouvement stock', kind: 'auto', width: 120, aliases: [] },
   { key: 'sms', title: 'SMS envoyés', kind: 'auto', width: 160, aliases: [] },
   { key: 'updated', title: 'Mis à jour', kind: 'auto', width: 130, aliases: ['Dernière mise à jour'] }
@@ -115,7 +116,11 @@ var CARRIERS = ['Yalidine', 'Ecotrack'];
 /** Réglages modifiables dans l'onglet Paramètres : [clé, valeur par défaut, description]. */
 var DEFAULT_SETTINGS = [
   ['NOM_BOUTIQUE', 'DZ Smart Shop', "Nom affiché dans l'application et dans les messages"],
-  ['MAX_TENTATIVES', 3, 'Appels sans réponse avant de passer la commande en « Injoignable »'],
+  ['APPELS_PAR_JOUR', 3, 'Appels sans réponse au maximum par jour (espacés de DELAI_RAPPEL_MINUTES). Ensuite, rappel le lendemain'],
+  ['JOURS_D_APPELS', 3, 'Nombre de jours d’appels, comptés depuis l’arrivée de la commande'],
+  ['ANNULATION_AUTO', 'OUI', 'OUI : sans réponse après les jours d’appels, la commande est annulée (motif « Injoignable »). NON : elle passe « Injoignable »'],
+  ['HEURE_DEBUT_APPELS', 9, 'Heure du premier rappel du lendemain (heure d’Algérie)'],
+  ['ORDRE_FILE', 'récentes', 'Ordre des nouvelles commandes dans la file d’appels : « récentes » (les plus récentes d’abord) ou « anciennes »'],
   ['DELAI_RAPPEL_MINUTES', 120, "Délai avant de rappeler un client qui n'a pas répondu"],
   ['DOUBLON_HEURES', 48, 'Deux commandes du même numéro dans ce délai = alerte « Doublon »'],
   ['SOCIETE_PAR_DEFAUT', 'Yalidine', "Société utilisée pour calculer les frais quand aucune n'est choisie"],

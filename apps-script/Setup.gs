@@ -91,7 +91,12 @@ function setupSettingsSheet_(ss) {
  */
 function migrateSettings_(sh) {
   var p = PropertiesService.getScriptProperties();
-  if (p.getProperty('MIGRATION_SMS_HEURES') || sh.getLastRow() < 2) return;
+  if (p.getProperty('MIGRATION_SMS_HEURES') || sh.getLastRow() < 2) {
+    migrateOnce_(sh, 'MIGRATION_TENTATIVES', function (row, key) {
+      if (key === 'MAX_TENTATIVES') sh.getRange(row, 3).setValue('N’est plus utilisé : remplacé par APPELS_PAR_JOUR et JOURS_D_APPELS');
+    });
+    return;
+  }
   var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues();
   for (var i = 0; i < rows.length; i++) {
     if (String(rows[i][0]).trim() === 'SMS_HEURES' && String(rows[i][1]).trim() === '8-21') {
@@ -100,6 +105,17 @@ function migrateSettings_(sh) {
     }
   }
   p.setProperty('MIGRATION_SMS_HEURES', '1');
+  migrateOnce_(sh, 'MIGRATION_TENTATIVES', function (row, key) {
+    if (key === 'MAX_TENTATIVES') sh.getRange(row, 3).setValue('N’est plus utilisé : remplacé par APPELS_PAR_JOUR et JOURS_D_APPELS');
+  });
+}
+
+/** Passe une fois sur chaque réglage (clé de propriété `flag` pour ne pas recommencer). */
+function migrateOnce_(sh, flag, fn) {
+  var p = PropertiesService.getScriptProperties();
+  if (p.getProperty(flag) || sh.getLastRow() < 2) return;
+  sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().forEach(function (r, i) { fn(i + 2, String(r[0]).trim()); });
+  p.setProperty(flag, '1');
 }
 
 function setupTeamSheet_(ss) {

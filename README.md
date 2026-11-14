@@ -12,7 +12,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 |---|---|
 | **Tableau de bord** | Commandes reçues, taux de confirmation et de livraison, montant livré, argent en route, liste « à faire », taux de livraison par wilaya, résultats par confirmatrice et par produit |
 | **Commandes** | Liste filtrable (statut, wilaya, période, recherche par nom, téléphone, n° de commande ou de suivi), modification d'une commande, ajout à la main, liste noire |
-| **Centre de confirmation** | File d'appels (rappels dus en premier, puis les plus anciennes), fiche client avec historique et alerte, boutons Appeler et WhatsApp (message pré-rempli), correction de la commande avec recalcul des frais et du total, résultat en un clic : Confirmer, Pas de réponse, Rappeler plus tard, Annuler (avec motif) |
+| **Centre de confirmation** | File d'appels (rappels dus en premier, puis les commandes les plus récentes : réglage `ORDRE_FILE`), fiche client avec historique et alerte, boutons Appeler et WhatsApp (message pré-rempli), correction de la commande avec recalcul des frais et du total, résultat en un clic : Confirmer, Pas de réponse, Rappeler plus tard, Annuler (avec motif) |
 | **Expéditions** | Commandes confirmées prêtes à partir (avec les problèmes à corriger avant l'envoi), **création des colis chez Ecotrack** en un clic avec n° de suivi écrit dans le classeur, et liste des colis créés qui attendent votre validation chez Ecotrack |
 | **Suivi** | Statut de chaque colis relu toutes les 30 minutes, **alertes « à traiter »** (colis suspendu, retour en cours, sans mouvement depuis 26 h, créé mais jamais validé…), **où est l'argent** (chez le livreur, livré pas encaissé, encaissé pas payé, prêt à verser, payé) avec les versements, et **chronologie** détaillée de chaque colis |
 
@@ -26,7 +26,7 @@ Ce qui se passe tout seul :
   - l'alerte client est calculée ;
   - la commande passe « À confirmer ».
 - **Alertes client** : `Liste noire`, `Numéro invalide`, `Doublon` (même numéro en moins de 48 h), `Risque · 2 refus`, `Fiable · 3/3 livrées`, `Nouveau client`.
-- **Pas de réponse** : un rappel est programmé dans 2 h. Au 3ᵉ appel sans réponse, la commande passe « Injoignable ».
+- **Pas de réponse** : jusqu'à **3 appels par jour** (espacés de 2 h), puis rappel **le lendemain à 9 h**, pendant **3 jours**. Sans réponse après le 3ᵉ jour, la commande est **annulée automatiquement**, avec le motif « Injoignable (annulation automatique) ». Elle peut être remise à confirmer si le client rappelle. Détails plus bas.
 - **Deux confirmatrices sur la même commande** : la seconde reçoit un message « déjà traitée », rien n'est écrasé.
 - **Journal** : chaque action (qui, quand, quoi) est notée dans l'onglet Journal.
 
@@ -55,7 +55,7 @@ Cette commande peut être relancée à tout moment : elle ne supprime rien et co
 
 - **Tarifs** : le prix de livraison de chaque wilaya, à domicile et en stop desk, pour Yalidine et Ecotrack.
 - **Équipe** : l'adresse Gmail et le prénom de chaque confirmatrice. Le prénom s'affiche dans l'application et dans la colonne Confirmatrice.
-- **Paramètres** : nom de la boutique, nombre d'appels avant « Injoignable », délai de rappel, motifs d'annulation, modèle du message WhatsApp.
+- **Paramètres** : nom de la boutique, appels par jour et nombre de jours d'appels, délai de rappel, motifs d'annulation, modèle du message WhatsApp.
 - **Produits** (facultatif) : vos produits et leurs prix, proposés lors de la saisie d'une commande.
 
 ### 4. Publier l'application
@@ -91,6 +91,23 @@ Chaque page correspond à une étape. Une commande passe toute seule à la suiva
 - **La recherche** de la page Commandes (nom, téléphone, n°) trouve **toutes** les commandes, où qu'elles soient, et indique leur page (« → Expédier », « → Suivi › Terminées »…).
 - Avant la création du colis, une commande confirmée peut être **remise à confirmer** (bouton Modifier dans Expédier).
 - Le tableau de bord et les bénéfices comptent toujours toutes les commandes.
+
+## Appels sans réponse
+
+| Réglage (Paramètres) | Par défaut | Rôle |
+|---|---|---|
+| `APPELS_PAR_JOUR` | 3 | Appels sans réponse au maximum par jour |
+| `DELAI_RAPPEL_MINUTES` | 120 | Délai entre deux appels du même jour |
+| `HEURE_DEBUT_APPELS` | 9 | Heure du rappel du lendemain |
+| `JOURS_D_APPELS` | 3 | Jours d'appels, comptés depuis l'arrivée de la commande (jour 1 = jour de la commande) |
+| `ANNULATION_AUTO` | OUI | OUI : annulée après les jours d'appels ; NON : passe « Injoignable » |
+| `ORDRE_FILE` | récentes | Nouvelles commandes de la file : « récentes » d'abord, ou « anciennes » |
+
+- La fiche affiche **jour 2/3 · 1/3 appels aujourd'hui** ; la colonne « Appels du jour » garde ce compte.
+- **Chaque nuit**, les commandes sans réponse dont les jours d'appels sont passés sont annulées, même si tous les appels n'ont pas été faits.
+- **Jamais annulées automatiquement** : une commande « Rappeler » (le client a répondu), ou une commande jamais appelée.
+- Une commande **jamais appelée depuis plus de 24 h** est signalée en rouge dans la file et au tableau de bord : avec l'ordre « récentes d'abord », elle pourrait sinon être oubliée.
+- L'ancien réglage `MAX_TENTATIVES` n'est plus utilisé.
 
 ## Envoyer les colis à Ecotrack
 
@@ -344,7 +361,7 @@ Ce que fait l'outil pour rester rapide :
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 96 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 98 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
@@ -367,6 +384,7 @@ apps-script/
   Stock.gs      catalogue par modèle, stock réservé, sorti et rentré
   Profit.gs     bénéfice des commandes, dépenses, rentabilité par produit et par campagne
   Sms.gs        SMS automatiques selon le statut (httpSMS)
+  Calls.gs      appels sans réponse : 3 par jour pendant 3 jours, annulation automatique
   Api.gs        application web, menu du classeur, fonctions appelées par l'interface
   Setup.gs      création/réparation du classeur et du traitement automatique
   Index.html    page de l'application

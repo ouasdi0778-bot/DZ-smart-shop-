@@ -262,6 +262,7 @@
       [d.todo.callbacksToday, 'rappels prévus plus tard aujourd’hui', 'confirmation', '', 'Voir', st['Rappeler']],
       [d.todo.toShip, 'commandes confirmées à expédier', 'expeditions', '', 'Expédier', st['Confirmée']],
       [d.todo.unreachable, 'clients injoignables', 'commandes', 'Injoignable', 'Voir', st['Injoignable']],
+      [d.todo.waitingLong, 'commandes jamais appelées depuis plus de 24 h', 'confirmation', '', 'Appeler', st['Annulée']],
       [d.todo.parcelAlerts, 'colis à traiter (suspendus, retours, sans mouvement…)', 'suivi', '', 'Suivi', st['Retour']]
     ];
     if (d.todo.stockLow) todo.push([d.todo.stockLow, 'modèles en stock bas', 'benefices', '', 'Stock', st['Rappeler'], 'stock']);
@@ -818,6 +819,7 @@
         '<span class="small" style="color:var(--ink-2)">' + h(x.id) + ' · ' + h(wilayaName(x.wilaya)) + ' · ' + money(x.total) + '</span>' +
         '<span class="q-tags">' + alertPill(x.alert, x.alertLevel) + (x.status !== 'À confirmer' ? pill(x.status) : '') +
           (x.attempts ? '<span class="pill" style="background:#EEF0F3;color:#3D4350">' + plural(x.attempts, 'appel', 'appels') + '</span>' : '') +
+          (x.waitingLong ? '<span class="pill" style="background:#FBE7E7;color:#A12626">jamais appelée · +24 h</span>' : '') +
         '</span></button>';
     };
     var html = '<div class="q-top"><span class="queue-title">À appeler · ' + q.due.length + '</span>' +
@@ -876,7 +878,8 @@
     $('#detail').innerHTML =
       '<div class="card">' +
         '<div class="detail-head"><div><h2>' + h(o.client || 'Client sans nom') + ' · ' + h(o.id) + '</h2>' +
-          '<p class="muted">' + h(fmtPhone(o.phone)) + ' · reçue ' + h(ago(o.date)) + (o.attempts ? ' · ' + plural(o.attempts, 'appel', 'appels') : '') + '</p></div>' +
+          '<p class="muted">' + h(fmtPhone(o.phone)) + ' · reçue ' + h(ago(o.date)) + (o.attempts ? ' · ' + plural(o.attempts, 'appel', 'appels') : '') +
+            ' · jour ' + Math.min(o.callDay, S.boot.callDays) + '/' + S.boot.callDays + ' · ' + o.callsToday + '/' + S.boot.callsPerDay + ' appels aujourd’hui</p></div>' +
           '<div class="quick"><button type="button" class="btn queue-toggle" data-act="toggle-queue">File (' + dueCount + ')</button>' + callBtn + waBtn + '</div>' +
         '</div>' +
         '<div class="history" style="background:' + a.bg + '"><span class="strong" style="color:' + a.fg + '">' + h(o.alert || 'Nouveau client') + '</span><span>' + h(histText) + '</span></div>' +
@@ -1023,7 +1026,9 @@
       delete S.pending[id];
       var msgs = {
         confirm: 'Commande ' + o.id + ' confirmée',
-        no_answer: o.status === 'Injoignable' ? 'Commande ' + o.id + ' : client injoignable' : 'Pas de réponse noté, rappel ' + fmtDate(o.callback),
+        no_answer: o.status === 'Annulée' ? 'Commande ' + o.id + ' annulée automatiquement : aucune réponse en ' + S.boot.callDays + ' jours'
+          : o.status === 'Injoignable' ? 'Commande ' + o.id + ' : client injoignable'
+          : 'Pas de réponse (' + o.callsToday + '/' + S.boot.callsPerDay + ' aujourd’hui), rappel ' + fmtDate(o.callback),
         callback: 'Rappel programmé ' + fmtDate(o.callback),
         cancel: 'Commande ' + o.id + ' annulée'
       };

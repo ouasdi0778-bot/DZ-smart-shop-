@@ -125,7 +125,13 @@ function readSettings_() {
       else if (key === 'SHOPIFY_TAG' || /^SMS_/.test(key)) s[key] = '';
     });
   }
-  s.MAX_TENTATIVES = Math.max(1, toNumber_(s.MAX_TENTATIVES) || 3);
+  var between = function (v, def, min, max) { var n = Math.round(toNumber_(v)); return n >= min && n <= max ? n : def; };
+  s.APPELS_PAR_JOUR = between(s.APPELS_PAR_JOUR, 3, 1, 10);
+  s.JOURS_D_APPELS = between(s.JOURS_D_APPELS, 3, 1, 15);
+  s.HEURE_DEBUT_APPELS = between(s.HEURE_DEBUT_APPELS, 9, 0, 23);
+  s.ANNULATION_AUTO = !/^(non|no|false|faux|0)$/i.test(String(s.ANNULATION_AUTO == null ? 'OUI' : s.ANNULATION_AUTO).trim());
+  s.ORDRE_FILE = /anc/i.test(String(s.ORDRE_FILE || '')) ? 'anciennes' : 'récentes';
+  s.MAX_TENTATIVES = s.APPELS_PAR_JOUR * s.JOURS_D_APPELS; // total des appels possibles
   s.DELAI_RAPPEL_MINUTES = Math.max(5, toNumber_(s.DELAI_RAPPEL_MINUTES) || 120);
   s.DOUBLON_HEURES = Math.max(0, toNumber_(s.DOUBLON_HEURES));
   s.SOCIETE_PAR_DEFAUT = String(s.SOCIETE_PAR_DEFAUT || CARRIERS[0]).trim();
