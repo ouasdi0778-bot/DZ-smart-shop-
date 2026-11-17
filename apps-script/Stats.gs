@@ -265,13 +265,14 @@ function mergeDays_(days, keys, primes) {
 function ratio_(a, b) { return b ? a / b : null; }
 
 /** Indicateurs d'une période. */
-function kpis_(t, expenses) {
+function kpis_(t, expenses, gains) {
   var finished = t.d + t.r;
+  gains = gains || 0;
   return {
     orders: t.n, confirmed: t.c, shipped: t.s, delivered: t.d, returned: t.r, cancelled: t.x, pending: t.q, inProgress: t.t,
     confirmRate: ratio_(t.c, t.n), deliveryRate: ratio_(t.d, finished), returnRate: ratio_(t.r, finished), cancelRate: ratio_(t.x, t.n),
     revenue: t.rev, sales: t.sales, deliveryFees: t.fee, deliveryNet: t.dnet, productCost: t.cost, returnFees: t.retf, packaging: t.pack,
-    ordersProfit: t.profit, expenses: Math.round(expenses), net: Math.round(t.profit - expenses),
+    ordersProfit: t.profit, expenses: Math.round(expenses), gains: Math.round(gains), net: Math.round(t.profit - expenses + gains),
     lostToReturns: t.retf + (t.r ? Math.round(t.pack * t.r / Math.max(t.d + t.r, 1)) : 0),
     avgBasket: t.d ? Math.round(t.rev / t.d) : null,
     profitPerDelivered: t.d ? Math.round(t.profit / t.d) : null,
@@ -299,6 +300,7 @@ function statsRange_(period, from, to) {
   var today = ymd_(new Date());
   if (from && to && /^\d{4}-\d{2}-\d{2}$/.test(from) && /^\d{4}-\d{2}-\d{2}$/.test(to)) return from <= to ? { from: from, to: to } : { from: to, to: from };
   if (period === 'today') return { from: today, to: today };
+  if (period === 'yesterday') { var y = addDayDays_(today, -1); return { from: y, to: y }; }
   if (period === 'month') return { from: today.slice(0, 8) + '01', to: today };
   if (period === 'lastmonth') {
     var first = today.slice(0, 8) + '01';
@@ -307,6 +309,26 @@ function statsRange_(period, from, to) {
   }
   var n = Math.min(Math.max(Math.round(toNumber_(period)) || 30, 1), 366);
   return { from: addDayDays_(today, -(n - 1)), to: today };
+}
+
+/**
+ * Période des pages Bénéfices et Tableau de bord : comme statsRange_, plus « all » (tout,
+ * from = '') ; renvoie aussi la période précédente de même durée (sauf pour « all »).
+ */
+function periodRange_(period, from, to) {
+  var today = ymd_(new Date());
+  if (period === 'all' && !(from && to)) return { from: '', to: today, prevFrom: '', prevTo: '', days: 0, all: true };
+  var r = statsRange_(period, from, to);
+  var len = dayCount_(r.from, r.to);
+  return { from: r.from, to: r.to, prevFrom: addDayDays_(r.from, -len), prevTo: addDayDays_(r.from, -1), days: len, all: false };
+}
+
+/** Commande dont la date (heure d'Algérie) est dans la période. */
+function inDayRange_(date, from, to) {
+  var d = toDate_(date);
+  if (!d) return false;
+  var k = ymd_(d);
+  return (!from || k >= from) && (!to || k <= to);
 }
 
 /** Statistiques : mesurée (Administration › État de l'outil). */
@@ -345,15 +367,18 @@ function statsApi_(period, from, to) {
   var prev = mergeDays_(days, prevKeys, null);
 
   // Dépenses (publicité comprise) de chaque période.
+  // Une dépense sur plusieurs jours est répartie par jour ; les gains s'ajoutent au bénéfice net.
   var expenses = readExpenses_(settings);
-  var inRange = function (e, a, b) { var k = e.date ? ymd_(e.date) : ''; return k && k >= a && k <= b; };
-  var spend = function (a, b) { return expenses.filter(function (e) { return inRange(e, a, b); }).reduce(function (s, e) { return s + e.amountDA; }, 0); };
+  var spend = function (a, b) { return expenses.reduce(function (s, e) { return e.gain ? s : s + expenseShare_(e, a, b); }, 0); };
+  var gains = function (a, b) { return expenses.reduce(function (s, e) { return e.gain ? s + expenseShare_(e, a, b) : s; }, 0); };
   var adBy = { cp: {}, src: {} };
   expenses.forEach(function (e) {
-    if (!e.ad || !inRange(e, range.from, range.to)) return;
+    if (!e.ad || e.gain) return;
+    var part = expenseShare_(e, range.from, range.to);
+    if (!part) return;
     var ck = normalizeLoose_(e.campaign);
-    if (ck) adBy.cp[ck] = (adBy.cp[ck] || 0) + e.amountDA;
-    if (e.platform) adBy.src[normalizeLoose_(e.platform)] = (adBy.src[normalizeLoose_(e.platform)] || 0) + e.amountDA;
+    if (ck) adBy.cp[ck] = (adBy.cp[ck] || 0) + part;
+    if (e.platform) adBy.src[normalizeLoose_(e.platform)] = (adBy.src[normalizeLoose_(e.platform)] || 0) + part;
   });
   var withSpend = function (kind) {
     return function (g, name) {
@@ -364,10 +389,13 @@ function statsApi_(period, from, to) {
     };
   };
 
-  var k = kpis_(cur, spend(range.from, range.to));
-  var kp = kpis_(prev, spend(prevFrom, prevTo));
+  var k = kpis_(cur, spend(range.from, range.to), gains(range.from, range.to));
+  var kp = kpis_(prev, spend(prevFrom, prevTo), gains(prevFrom, prevTo));
   // Argent maintenant (colis en cours) : à recevoir, et prévu selon votre taux de livraison.
-  var m = trackingMoney_(ctx.orders, new Date(), 30).money;
+  // Versements d'Ecotrack : ceux qui ont bougé depuis le début de la période.
+  var sinceDays = Math.max(dayCount_(range.from, ymd_(new Date())), 1);
+  var tm = trackingMoney_(ctx.orders, new Date(), sinceDays);
+  var m = tm.money;
   var rate = k.deliveryRate !== null ? k.deliveryRate : kp.deliveryRate;
   var wilayas = groupList_(cur.groups.w, function (g, name, r) { g.lost = Math.round(r[STATS.R] * settings.FRAIS_RETOUR); });
   var overallReturn = k.returnRate || 0;
@@ -386,7 +414,10 @@ function statsApi_(period, from, to) {
       toReceive: m.delivered.amount + m.cashed.amount + m.ready.amount,
       enRoute: m.enRoute.amount,
       expected: rate !== null ? Math.round(m.enRoute.amount * rate) : null,
-      deliveryRate: rate
+      deliveryRate: rate,
+      buckets: m,
+      paidDays: sinceDays,
+      payments: tm.payments
     },
     wilayas: wilayas,
     products: groupList_(cur.groups.p),

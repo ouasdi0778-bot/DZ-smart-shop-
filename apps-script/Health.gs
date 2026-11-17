@@ -5,7 +5,7 @@
  * - Une seule tâche chaque minute (everyMinute) fait tout le travail régulier :
  *   commandes Releasit (chaque minute), SMS (s'il y en a en attente),
  *   nouvelles lignes du classeur et Shopify (toutes les 5 minutes), statuts
- *   Ecotrack (toutes les 30 minutes). Quand il n'y a rien à faire, elle s'arrête
+ *   Ecotrack (toutes les SUIVI_ECOTRACK_MINUTES minutes, 60 par défaut). Quand il n'y a rien à faire, elle s'arrête
  *   tout de suite : Google limite le temps de travail des tâches automatiques
  *   (environ 90 minutes par jour pour un compte Gmail).
  * - L'état de chaque tâche (dernier passage, erreur, durée) et les minutes
@@ -31,13 +31,24 @@ var TASKS_ = [
   { key: 'sms', label: 'SMS automatiques', every: 1, staleMin: 60 },
   { key: 'newrows', label: 'Nouvelles lignes du classeur', every: 5, staleMin: 60 },
   { key: 'shopify', label: 'Importation Shopify', every: 5, staleMin: 90 },
-  { key: 'ecotrack', label: 'Statuts des colis Ecotrack', every: 30, staleMin: 180 },
+  { key: 'ecotrack', label: 'Statuts des colis Ecotrack', every: 60, staleMin: 180 },
   { key: 'nightly', label: 'Entretien de nuit', every: 1440, staleMin: 27 * 60 }
 ];
 
 function taskInfo_(key) {
-  for (var i = 0; i < TASKS_.length; i++) if (TASKS_[i].key === key) return TASKS_[i];
+  for (var i = 0; i < TASKS_.length; i++) {
+    if (TASKS_[i].key !== key) continue;
+    if (key !== 'ecotrack') return TASKS_[i];
+    // Lecture Ecotrack : intervalle réglable (30, 60 ou 120 minutes).
+    var every = ecotrackEvery_();
+    return { key: key, label: TASKS_[i].label, every: every, staleMin: Math.max(TASKS_[i].staleMin, every * 3) };
+  }
   return null;
+}
+
+/** Minutes entre deux lectures automatiques des statuts Ecotrack (réglage SUIVI_ECOTRACK_MINUTES). */
+function ecotrackEvery_() {
+  try { return getSettings_().SUIVI_ECOTRACK_MINUTES; } catch (e) { return 60; }
 }
 
 function readJsonProp_(raw, fallback) {
@@ -161,7 +172,8 @@ function taskEnabled_(key) {
 function healthProblems_(h, night, now, limitMin) {
   var out = {};
   var ago = function (iso) { return durationText_(now.getTime() - new Date(iso).getTime()); };
-  TASKS_.forEach(function (info) {
+  TASKS_.forEach(function (base) {
+    var info = taskInfo_(base.key);
     var t = info.key === 'nightly' ? night : (h.tasks || {})[info.key];
     if (!t || !t.at || t.off || !taskEnabled_(info.key)) return;
     if (t.fails >= 2) out['fail:' + info.key] = info.label + ' : ' + plural_(t.fails, 'échec', 'échecs') + ' de suite (' + t.err + ')';
@@ -259,7 +271,8 @@ function healthData_() {
   var now = new Date();
   var settings = getSettings_();
   var problems = healthProblems_(h, night, now, settings.LIMITE_MINUTES_JOUR);
-  var tasks = TASKS_.map(function (info) {
+  var tasks = TASKS_.map(function (base) {
+    var info = taskInfo_(base.key);
     var t = info.key === 'nightly' ? night : (h.tasks || {})[info.key];
     var enabled = taskEnabled_(info.key) && !(info.key === 'releasit' && t && t.off);
     var state = !enabled ? 'off' : !t || !t.at ? 'wait'

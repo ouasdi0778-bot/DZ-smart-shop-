@@ -735,10 +735,13 @@ function syncEcotrackStatuses_(opts) {
       } else {
         var raw = String(rec.status == null ? '' : rec.status).trim();
         var mapped = mapEcotrackStatus_(raw);
+        // Date réelle du changement chez Ecotrack quand la réponse la donne (sinon : l'heure de la lecture).
+        var real = ecoRecordDate_(rec, now);
         if (raw && raw !== String(o.carrierStatus)) {
           f.carrierStatus = raw;
           // Le premier statut lu ne remet pas à zéro l'horloge du colis (date de création).
-          if (!isBlank_(o.carrierStatus) || isBlank_(o.carrierMoved)) f.carrierMoved = now;
+          if (real) f.carrierMoved = real;
+          else if (!isBlank_(o.carrierStatus) || isBlank_(o.carrierMoved)) f.carrierMoved = now;
         }
         if (raw && raw !== String(o.carrierStatus)) {
           // Nouvelle étape : les appels de suivi de l'étape précédente ne comptent plus.
@@ -765,7 +768,7 @@ function syncEcotrackStatuses_(opts) {
           if (mapped === STATUS.CANCELLED) f.cancelReason = 'Annulée chez Ecotrack';
           if (mapped === STATUS.DELIVERED && isBlank_(o.deliveredAt)) {
             ensureOrderColumn_(ctx, 'deliveredAt');
-            f.deliveredAt = now;
+            f.deliveredAt = real || now;
           }
           summary.updated++;
           log_(actor, o.id, 'Statut du colis', raw + ' → ' + mapped);
@@ -787,13 +790,23 @@ function syncEcotrackStatuses_(opts) {
   return summary;
 }
 
+/** Date du dernier changement de statut chez Ecotrack, si la réponse la donne (sinon null). */
+function ecoRecordDate_(rec, now) {
+  var d = ecoDate_(firstOf_(rec, ['status_updated_at', 'status_date', 'date_status', 'last_status_date', 'last_update', 'updated_at']));
+  if (!d || d.dayOnly) return null;
+  var t = d.date.getTime();
+  // Une date dans le futur ou vieille de plus de 60 jours est ignorée (réponse mal comprise).
+  if (t > now.getTime() + 300000 || t < now.getTime() - 60 * 86400000) return null;
+  return d.date;
+}
+
 function markSynced_() {
   var p = PropertiesService.getScriptProperties();
   p.setProperty(ECO.PROP_LAST_SYNC, new Date().toISOString());
   clearEcotrackError_();
 }
 
-/** Point d'entrée du déclencheur automatique (toutes les 30 minutes). */
+/** Point d'entrée de la lecture automatique (toutes les SUIVI_ECOTRACK_MINUTES minutes). */
 function syncEcotrackStatuses() {
   try {
     return syncEcotrackStatuses_();

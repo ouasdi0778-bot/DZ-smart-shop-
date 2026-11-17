@@ -1,13 +1,13 @@
 /**
  * Tracking.gs : page « Suivi » des colis Ecotrack.
  *
- *  - colis en cours (statut en direct, relu toutes les 30 minutes) ;
+ *  - colis en cours (statut en direct, relu toutes les SUIVI_ECOTRACK_MINUTES minutes) ;
  *  - alertes « à traiter » : colis suspendu, retour en cours, retour bloqué,
  *    sans mouvement (délai selon l'étape et le Sud), créé mais pas validé,
  *    argent en retard, introuvable, statut inconnu ; le résultat de l'appel au
  *    client et les remarques du livreur sont dans FollowUp.gs ;
- *  - argent : chez le livreur, livré pas encaissé, encaissé pas payé, prêt à
- *    verser, payé, et versements ;
+ *  - argent (trackingMoney_) : chez le livreur, livré pas encaissé, encaissé
+ *    pas payé, prêt à verser, payé, et versements — affiché dans Statistiques › Argent ;
  *  - chronologie d'un colis (get/tracking/info).
  *
  * Les statuts viennent d'Ecotrack.gs (ECO_STATUSES_), qui les relit.
@@ -231,19 +231,21 @@ function parseTrackingInfo_(json) {
   list.forEach(function (e, i) {
     if (e === null || e === undefined) return;
     if (typeof e === 'string') {
-      events.push({ code: e, label: activityLabel_(e), date: '', dateText: '', note: '', order: i });
+      events.push({ code: e, label: activityLabel_(e), date: '', dayOnly: false, dateText: '', note: '', order: i });
       return;
     }
     if (typeof e !== 'object') return;
     var code = String(firstOf_(e, ['activity', 'status', 'statut', 'event', 'type', 'name', 'label']));
     var note = String(firstOf_(e, ['content', 'remarque', 'message', 'comment', 'note', 'description', 'details']));
-    var rawDate = firstOf_(e, ['date', 'created_at', 'datetime', 'at', 'time', 'updated_at']);
+    var rawDate = firstOf_(e, ['date', 'created_at', 'datetime', 'date_time', 'at', 'updated_at', 'time']);
     if (!code && !note) return;
-    var d = toDate_(rawDate);
+    // Heure envoyée à part (« date » = jour seulement) ; les dates sans fuseau sont à l'heure d'Algérie.
+    var d = ecoDate_(rawDate, rawDate === e.time ? '' : firstOf_(e, ['time', 'heure', 'hour']));
     events.push({
       code: code,
       label: code ? activityLabel_(code) : note,
-      date: d ? d.toISOString() : '',
+      date: d ? d.date.toISOString() : '',
+      dayOnly: !!(d && d.dayOnly),
       dateText: d || isBlank_(rawDate) ? '' : String(rawDate),
       note: code ? note : '',
       order: i
@@ -254,7 +256,7 @@ function parseTrackingInfo_(json) {
     events.sort(function (a, b) { return String(a.date).localeCompare(String(b.date)) || a.order - b.order; });
   }
   return events.map(function (e) {
-    return { code: e.code, label: e.label, date: e.date, dateText: e.dateText, note: e.note };
+    return { code: e.code, label: e.label, date: e.date, dayOnly: e.dayOnly, dateText: e.dateText, note: e.note };
   });
 }
 
@@ -283,7 +285,7 @@ function api_parcelHistory(id) {
     id: String(o.id), client: String(o.client), tracking: tracking,
     carrierLabel: ecotrackLabel_(o.carrierStatus),
     events: events,
-    raw: events.length ? '' : JSON.stringify(json).slice(0, 2000),
+    raw: JSON.stringify(json).slice(0, 2000),
     remarksOk: remarks.ok,
     remarksError: remarks.ok ? '' : remarks.message,
     remarks: remarks.notes.map(function (n) {
@@ -298,8 +300,8 @@ function api_parcelHistory(id) {
 /* ------------------------------------------------------------------ */
 
 /**
- * Données de la page Suivi. days = période de l'argent « payé » et des
- * versements : 7, 30 ou 90 jours.
+ * Données de la page Suivi. days = période de l'onglet « Terminées » : 7, 30 ou 90 jours.
+ * L'argent (où est l'argent, versements) est dans Statistiques › Argent.
  */
 /** Suivi : mesurée (Administration › État de l'outil). */
 function api_trackingOverview() {
@@ -363,19 +365,17 @@ function trackingOverviewApi_(days) {
   });
   finished.sort(function (a, b) { return String(b.since).localeCompare(String(a.since)); });
 
-  var m = trackingMoney_(ctx.orders, now, days);
   return {
     finished: finished.slice(0, 300),
     finishedTotal: finished.length,
     configured: cfg.configured,
     lastSync: String(props.getProperty(ECO.PROP_LAST_SYNC) || ''),
+    every: settings.SUIVI_ECOTRACK_MINUTES,
     lastError: String(props.getProperty(ECO.PROP_LAST_ERROR) || ''),
     alertHours: settings.SUIVI_ALERTE_HEURES,
     days: days,
     alerts: alerts,
     parcels: parcels,
-    money: m.money,
-    payments: m.payments,
     limitMs: limit
   };
 }

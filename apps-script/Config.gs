@@ -7,7 +7,7 @@
  */
 
 var APP_NAME = 'DZ Smart Shop';
-var APP_VERSION = '1.1.0';
+var APP_VERSION = '1.2.0';
 
 /** Noms des onglets du classeur. */
 var SHEET = {
@@ -72,6 +72,7 @@ var ORDER_COLUMNS = [
   { key: 'dayCalls', title: 'Appels du jour', kind: 'auto', width: 120, aliases: [] },
   { key: 'stockMove', title: 'Mouvement stock', kind: 'auto', width: 120, aliases: [] },
   { key: 'sms', title: 'SMS envoyés', kind: 'auto', width: 160, aliases: [] },
+  { key: 'callLog', title: 'Historique appels', kind: 'auto', width: 280, aliases: ['Historique des appels'] },
   { key: 'confirmedAt', title: 'Confirmée le', kind: 'auto', width: 130, aliases: ['Date de confirmation'] },
   { key: 'updated', title: 'Mis à jour', kind: 'auto', width: 130, aliases: ['Dernière mise à jour'] }
 ];
@@ -129,9 +130,11 @@ var DEFAULT_SETTINGS = [
   ['HEURE_DEBUT_APPELS', 9, 'Heure du premier rappel du lendemain (heure d’Algérie)'],
   ['ORDRE_FILE', 'récentes', 'Ordre des nouvelles commandes dans la file d’appels : « récentes » (les plus récentes d’abord) ou « anciennes »'],
   ['DELAI_RAPPEL_MINUTES', 120, "Délai avant de rappeler un client qui n'a pas répondu"],
+  ['ATTENTE_MAX_HEURES', 24, 'Une commande ni confirmée ni annulée qui attend depuis ce nombre d’heures est marquée « en retard » dans Confirmation'],
   ['DOUBLON_HEURES', 48, 'Deux commandes du même numéro dans ce délai = alerte « Doublon »'],
   ['SOCIETE_PAR_DEFAUT', 'Yalidine', "Société utilisée pour calculer les frais quand aucune n'est choisie"],
   ['MOTIFS_ANNULATION', "Faux numéro; Client a changé d'avis; Trop cher; Doublon; Commande test; Délai trop long; Autre", "Motifs proposés à l'annulation, séparés par des points-virgules"],
+  ['SUIVI_ECOTRACK_MINUTES', 60, 'Lecture automatique des statuts Ecotrack : toutes les 30, 60 ou 120 minutes. Le bouton « Actualiser les statuts » du Suivi lit tout de suite'],
   ['SUIVI_ALERTE_HEURES', 26, "Un colis créé chez Ecotrack mais pas encore validé depuis ce nombre d'heures est signalé"],
   ['SUIVI_HEURES_TRI', 48, 'Colis au ramassage ou au centre de tri sans mouvement depuis ce nombre d’heures : alerte « sans mouvement »'],
   ['SUIVI_HEURES_ROUTE', 72, 'Colis en route vers la wilaya (ou en préparation avant livraison) sans mouvement depuis ce nombre d’heures : alerte « sans mouvement »'],
@@ -154,6 +157,7 @@ var DEFAULT_SETTINGS = [
   ['TAUX_DOLLAR', 250, 'Prix d’un dollar en dinars, pour les dépenses en USD (publicité). Mettez-le à jour quand il change : les dépenses déjà saisies gardent leur taux'],
   ['PRIMES', '', 'Prime des confirmatrices par commande livrée, en dinars, avec sa date de début : « 2026-11-01=50; 2027-01-01=60 ». Chaque commande prend le montant valable à sa date (se règle dans Statistiques › Équipe). Vide = pas de prime'],
   ['CATEGORIES_DEPENSES', 'Publicité Facebook; Publicité TikTok; Emballage; Salaires; Loyer; Autre', 'Catégories proposées dans l’onglet Dépenses, séparées par des points-virgules'],
+  ['CATEGORIES_GAINS', 'Remboursement; Vente directe; Bonus; Autre', 'Catégories proposées pour les gains (argent reçu en dehors des commandes), séparées par des points-virgules'],
   ['COUT_MOYEN', 'OUI', 'OUI : à chaque entrée de marchandise, le coût d’achat devient la moyenne (ancien stock et nouvelle entrée). NON : le coût d’achat ne change que si vous le modifiez'],
   ['STOCK_SEUIL', 2, 'Un modèle dont le stock disponible tombe à ce nombre (ou moins) est signalé « stock bas ». Le seuil d’une ligne de l’onglet Produits passe avant'],
   ['SMS_HEURES', '0-24', 'Heures d’envoi des SMS (heure d’Algérie), par exemple 8-21 : en dehors, ils attendent. 0-24 ou vide = à toute heure'],
@@ -171,6 +175,7 @@ var DEFAULT_SETTINGS = [
   ['SMS_ANNULEE', '', 'SMS « Annulée » (vide = pas de SMS)'],
   ['LIMITE_MINUTES_JOUR', 90, 'Temps de travail des tâches automatiques permis par Google chaque jour (environ 90 minutes pour un compte Gmail, 360 pour Google Workspace). Un e-mail vous prévient à 80 %'],
   ['ARCHIVE_JOURS', 100, "Chaque nuit, les commandes terminées sans mouvement depuis ce nombre de jours partent dans l'onglet Archive (une commande livrée dont l'argent n'est pas encore versé reste). 0 = ne jamais archiver"],
+  ['CORBEILLE_JOURS', 0, 'Chaque nuit, les commandes dans la corbeille depuis ce nombre de jours sont effacées pour de bon (leur numéro reste bloqué : elles ne reviennent pas). 0 = jamais'],
   ['JOURNAL_JOURS', 90, "Chaque nuit, les lignes du Journal plus anciennes que ce nombre de jours sont effacées. 0 = tout garder"],
   ['MESSAGE_WHATSAPP', 'Bonjour {prenom}, ici {boutique}. Nous avons bien reçu votre commande {numero} : {produit}, total {total}, livraison à {commune}. Pouvez-vous nous la confirmer ? Merci !', 'Modèle du message WhatsApp. Champs : {prenom} {client} {numero} {produit} {total} {commune} {wilaya} {boutique}']
 ];

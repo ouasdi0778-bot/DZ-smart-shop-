@@ -169,20 +169,17 @@ function api_dashboard() {
   return timed_('Tableau de bord', function () { return dashboardApi_.apply(null, a); });
 }
 
-function dashboardApi_(period) {
-  return dashboardData_(readOrders_(), period);
+/** period : today, yesterday, 7, 30, month, lastmonth, all ; ou from / to (aaaa-mm-jj) pour une période libre. */
+function dashboardApi_(period, from, to) {
+  return dashboardData_(readOrders_(), period, from, to);
 }
 
-function dashboardData_(ctx, period) {
+function dashboardData_(ctx, period, from, to) {
   var now = new Date();
-  var since = periodStart_(period || '7', now);
-  var inPeriod = ctx.orders.filter(function (o) {
-    if (!since) return true;
-    var d = toDate_(o.date);
-    return d && d >= since;
-  });
+  var range = periodRange_(String(period || '7'), from, to);
+  var inPeriod = ctx.orders.filter(function (o) { return inDayRange_(o.date, range.from, range.to); });
   // Sur « Tout », les commandes archivées comptent aussi (elles sont toutes terminées).
-  if (!since) inPeriod = inPeriod.concat(readArchivedOrders_());
+  if (range.all) inPeriod = inPeriod.concat(readArchivedOrders_());
   var has = function (list) { return function (o) { return list.indexOf(o.status) >= 0; }; };
   var count = function (arr, list) { return arr.filter(has(list)).length; };
   var sum = function (arr) { return arr.reduce(function (a, o) { return a + toNumber_(o.total); }, 0); };
@@ -227,7 +224,8 @@ function dashboardData_(ctx, period) {
   };
 
   return {
-    period: period || '7',
+    period: from && to ? 'custom' : String(period || '7'),
+    range: { from: range.from, to: range.to, all: !!range.all },
     received: received,
     waiting: waiting,
     decided: decided,
@@ -245,7 +243,7 @@ function dashboardData_(ctx, period) {
       callbacksToday: callbacksToday,
       toShip: ctx.orders.filter(has([STATUS.CONFIRMED])).length,
       unreachable: ctx.orders.filter(has([STATUS.UNREACHABLE])).length,
-      waitingLong: ctx.orders.filter(function (o) { return neverCalledLong_(o, now); }).length,
+      waitingLong: ctx.orders.filter(function (o) { return neverCalledLong_(o, now, getSettings_().ATTENTE_MAX_HEURES); }).length,
       parcelAlerts: trackingAlerts_(ctx.orders, getSettings_(), now).filter(function (a) { return a.level !== 'info'; }).length,
       stockLow: canSeeStock_(currentUser_()) ? stockData_(ctx, getSettings_()).low : 0
     },
@@ -355,7 +353,13 @@ function listData_(ctx, filter) {
 /* Centre de confirmation                                             */
 /* ------------------------------------------------------------------ */
 
-function queueItem_(o) {
+function queueItem_(o, now, settings) {
+  now = now || new Date();
+  var d = toDate_(o.date);
+  var calls = parseCallLog_(o.callLog);
+  var lateHours = settings ? settings.ATTENTE_MAX_HEURES : 24;
+  var waitHours = d ? Math.floor((now.getTime() - d.getTime()) / 3600000) : 0;
+  var cb = toDate_(o.callback);
   return {
     id: String(o.id),
     client: String(o.client),
@@ -364,19 +368,26 @@ function queueItem_(o) {
     product: String(o.product),
     total: toNumber_(o.total),
     date: iso_(o.date),
-    status: o.status,
+    status: String(o.status == null ? '' : o.status),
     attempts: toNumber_(o.attempts),
     callback: iso_(o.callback),
+    // Rappel dont l'heure est arrivée (pas de réponse ou rappel demandé).
+    recall: !!cb && cb <= now && (o.status === STATUS.NO_ANSWER || o.status === STATUS.CALLBACK),
     alert: String(o.alert),
     alertLevel: alertLevel_(o.alert),
-    waitingLong: neverCalledLong_(o, new Date())
+    waitingLong: neverCalledLong_(o, now, lateHours),
+    late: waitHours >= lateHours,
+    waitHours: waitHours,
+    calls: calls.slice(-6).map(function (c) { return { when: c.when, text: c.text }; }),
+    callable: isCallable_(o),
+    reason: waitingReason_(o)
   };
 }
 
-/** Commande jamais appelée, arrivée depuis plus de 24 h. */
-function neverCalledLong_(o, now) {
+/** Commande jamais appelée, arrivée depuis plus de « hours » heures (ATTENTE_MAX_HEURES). */
+function neverCalledLong_(o, now, hours) {
   var d = toDate_(o.date);
-  return o.status === STATUS.TO_CONFIRM && !(toNumber_(o.attempts) > 0) && !!d && now.getTime() - d.getTime() > 24 * 3600000;
+  return o.status === STATUS.TO_CONFIRM && !(toNumber_(o.attempts) > 0) && !!d && now.getTime() - d.getTime() > (hours || 24) * 3600000;
 }
 
 /** File d'appels : à appeler maintenant (due) et rappels programmés plus tard (later). */
@@ -406,22 +417,31 @@ function firstQueueDetail_(ctx, q, user) {
 
 function queueData_(ctx, user) {
   var now = new Date();
-  var recentFirst = getSettings_().ORDRE_FILE !== 'anciennes';
+  var settings = getSettings_();
+  var recentFirst = settings.ORDRE_FILE !== 'anciennes';
   var due = [];
   var later = [];
+  var waiting = [];
   var rank = {};
   rank[STATUS.CALLBACK] = 0;
   rank[STATUS.TO_CONFIRM] = 1;
   rank[STATUS.NO_ANSWER] = 2;
 
   ctx.orders.forEach(function (o) {
-    if (QUEUE_STATUSES.indexOf(o.status) < 0) return;
+    if (QUEUE_STATUSES.indexOf(o.status) < 0) {
+      // Ni confirmée ni annulée, mais hors de la file : elle reste visible avec son motif.
+      if (waitingReason_(o)) waiting.push({ o: o, d: toDate_(o.date) });
+      return;
+    }
     var cb = toDate_(o.callback);
     var item = { o: o, cb: cb, d: toDate_(o.date) };
     if (cb && cb > now) later.push(item); else due.push(item);
   });
+  waiting.sort(function (a, b) { return (b.d ? b.d.getTime() : 0) - (a.d ? a.d.getTime() : 0); });
+  // Rappels dont l'heure est arrivée (rappel demandé, ou pas de réponse) : en tête de file.
+  var rankOf = function (x) { return x.cb && (x.o.status === STATUS.CALLBACK || x.o.status === STATUS.NO_ANSWER) ? 0 : rank[x.o.status]; };
   due.sort(function (a, b) {
-    var r = rank[a.o.status] - rank[b.o.status];
+    var r = rankOf(a) - rankOf(b);
     if (r) return r;
     // Nouvelles commandes : les plus récentes d'abord (réglage ORDRE_FILE). Rappels : l'heure prévue d'abord.
     if (a.o.status === STATUS.TO_CONFIRM && recentFirst) return (b.d ? b.d.getTime() : 0) - (a.d ? a.d.getTime() : 0);
@@ -440,10 +460,13 @@ function queueData_(ctx, user) {
     if (CONFIRMED_STATUSES.indexOf(o.status) >= 0) mine.confirmed++;
   });
 
+  var item = function (x) { return queueItem_(x.o, now, settings); };
   return {
-    due: due.map(function (x) { return queueItem_(x.o); }),
-    later: later.map(function (x) { return queueItem_(x.o); }),
-    stats: { due: due.length, later: later.length, pending: pendingCount_(ctx), handledToday: mine.handled, confirmedToday: mine.confirmed },
+    due: due.map(item),
+    later: later.map(item),
+    waiting: waiting.map(item),
+    lateHours: settings.ATTENTE_MAX_HEURES,
+    stats: { due: due.length, later: later.length, waiting: waiting.length, pending: pendingCount_(ctx), handledToday: mine.handled, confirmedToday: mine.confirmed },
     now: now.toISOString()
   };
 }
@@ -497,7 +520,7 @@ function api_recordCall(id, outcome, payload, opts) {
     var ctx = readOrders_();
     var o = findOrder_(ctx, id);
     if (!o) throw new Error('Commande ' + id + ' introuvable.');
-    if (QUEUE_STATUSES.indexOf(o.status) < 0) {
+    if (!isCallable_(o)) {
       throw new Error('La commande ' + id + ' a déjà été traitée (statut « ' + o.status + ' »' +
         (o.agent ? ', par ' + o.agent : '') + ').');
     }
@@ -506,31 +529,39 @@ function api_recordCall(id, outcome, payload, opts) {
     var f = applyEdits_(o, payload.fields, env, false);
     var attempts = toNumber_(o.attempts);
     var detail = '';
+    var logText = '';
 
     if (outcome === 'confirm') {
       f.status = STATUS.CONFIRMED;
       f.attempts = attempts + 1;
       f.callback = '';
       detail = 'Confirmée';
+      logText = 'Confirmée';
     } else if (outcome === 'no_answer') {
       var plan = noAnswerFields_(o, env);
       Object.keys(plan.fields).forEach(function (k) { f[k] = plan.fields[k]; });
       detail = plan.detail;
+      logText = 'Pas de réponse' + (f.status === STATUS.CANCELLED ? ', annulée automatiquement' : f.status === STATUS.UNREACHABLE ? ', injoignable' : '');
     } else if (outcome === 'callback') {
       var when = toDate_(payload.callback);
       if (!when || when <= env.now) throw new Error('Choisissez une date de rappel dans le futur.');
       f.status = STATUS.CALLBACK;
       f.callback = when;
-      detail = 'Rappel programmé le ' + Utilities.formatDate(when, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+      detail = 'Rappel programmé le ' + Utilities.formatDate(when, 'Africa/Algiers', 'dd/MM/yyyy HH:mm');
+      logText = 'A répondu, rappel demandé pour le ' + Utilities.formatDate(when, 'Africa/Algiers', 'dd/MM HH:mm');
     } else if (outcome === 'cancel') {
       f.status = STATUS.CANCELLED;
       f.cancelReason = String(payload.reason || 'Autre');
       f.attempts = attempts + 1;
       f.callback = '';
       detail = 'Annulée : ' + f.cancelReason;
+      logText = 'Annulée : ' + f.cancelReason;
     } else {
       throw new Error('Résultat d’appel inconnu : ' + outcome);
     }
+    // Historique des appels de la commande (affiché dans Confirmation).
+    ensureOrderColumn_(ctx, 'callLog');
+    f.callLog = addCallLog_(o, env.now, logText, user);
 
     if (f.phone !== undefined) {
       var merged = {};
@@ -546,7 +577,7 @@ function api_recordCall(id, outcome, payload, opts) {
     var res = serializeOrder_(o);
     if (opts.next) {
       var next = findOrder_(ctx, opts.next);
-      if (next && QUEUE_STATUSES.indexOf(next.status) >= 0) {
+      if (next && isCallable_(next)) {
         env.index = phoneIndex_(ctx.orders);
         res.next = orderDetail_(ctx, env, next, user);
       }

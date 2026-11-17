@@ -1161,7 +1161,17 @@ test('Tâche de chaque minute : fait seulement ce qui est dû, note l’état et
   assert.strictEqual(FAKE.count(), calls, 'rien de dû la minute suivante : aucun appel à Ecotrack');
   agedTask('ecotrack', 31);
   everyMinute();
-  assert.ok(FAKE.count() > calls, 'statuts relus après 30 minutes');
+  assert.strictEqual(FAKE.count(), calls, 'lecture Ecotrack toutes les heures par défaut : rien après 31 minutes');
+  agedTask('ecotrack', 61);
+  everyMinute();
+  assert.ok(FAKE.count() > calls, 'statuts relus après une heure');
+  // Réglage SUIVI_ECOTRACK_MINUTES = 30 : relus après 31 minutes.
+  setSetting('SUIVI_ECOTRACK_MINUTES', 30);
+  calls = FAKE.count();
+  agedTask('ecotrack', 31);
+  everyMinute();
+  assert.ok(FAKE.count() > calls, 'statuts relus après 30 minutes avec le réglage à 30');
+  setSetting('SUIVI_ECOTRACK_MINUTES', 60);
   // SMS : seulement s'il y en a en attente.
   saveSmsConfig_(HTTPSMS.key, '0550 12 34 56');
   assert.ok(!everyMinute().tasks.sms, 'file vide : rien à faire');
@@ -1190,23 +1200,23 @@ test('Alertes : e-mail au propriétaire seulement, une fois par problème, puis 
   ship(['#M2']);
   everyMinute();
   FAKE.down = true;
-  agedTask('ecotrack', 31);
+  agedTask('ecotrack', 61);
   everyMinute();
   assert.strictEqual(__mock.state.mails.length, 0, 'un seul échec : pas encore d’e-mail');
-  agedTask('ecotrack', 31);
+  agedTask('ecotrack', 61);
   everyMinute();
   assert.strictEqual(__mock.state.mails.length, 1);
   var mail = __mock.state.mails[0];
   assert.strictEqual(mail.to, 'admin@example.com');
   assert.ok(/problème/.test(mail.subject) && /Statuts des colis Ecotrack : 2 échecs de suite/.test(mail.body), mail.body);
-  agedTask('ecotrack', 31);
+  agedTask('ecotrack', 61);
   everyMinute();
   assert.strictEqual(__mock.state.mails.length, 1, 'pas de deuxième e-mail pour le même problème');
   asAdmin();
   assert.ok(api_health().problems.some(function (p) { return p.key === 'fail:ecotrack'; }));
   assert.strictEqual(api_bootstrap().health.problems, 1);
   FAKE.down = false;
-  agedTask('ecotrack', 31);
+  agedTask('ecotrack', 61);
   everyMinute();
   assert.strictEqual(__mock.state.mails.length, 2);
   assert.ok(/réparé/.test(__mock.state.mails[1].subject) && /Statuts des colis Ecotrack/.test(__mock.state.mails[1].body));
@@ -1839,7 +1849,7 @@ test('Suivi : la date de création du colis n’est pas remise à zéro par la p
   assert.ok(!alertsOf(api_trackingOverview(30))['#Z1'], 'plus d’alerte');
 });
 
-test('Suivi : argent chez le livreur, à encaisser, à verser, payé, versements', function () {
+test('Statistiques › Argent : argent chez le livreur, à encaisser, à verser, payé, versements (plus dans Suivi)', function () {
   setup();
   addParcel('G1', { 'Statut': 'En livraison', 'Statut société': 'en_livraison', 'Total': 1000 });
   addParcel('G2', { 'Statut société': 'vers_hub', 'Total': 2000 });
@@ -1852,17 +1862,30 @@ test('Suivi : argent chez le livreur, à encaisser, à verser, payé, versements
   addParcel('G9', { 'Statut': 'Livrée', 'Statut société': 'paye_et_archive', 'Total': 700, 'N° de versement': '200', 'Dernier mouvement colis': hoursAgo(24 * 40) });
   addParcel('G10', { 'Société': 'Yalidine', 'Statut': 'Livrée', 'Statut société': 'encaisse_non_paye', 'Total': 5555 });
 
-  var r = api_trackingOverview(30);
+  var r = trackingMoney_(readOrders_().orders, new Date(), 30);
   assert.deepStrictEqual(r.money.enRoute, { count: 2, amount: 3000 });
   assert.deepStrictEqual(r.money.delivered, { count: 1, amount: 1500 });
   assert.deepStrictEqual(r.money.cashed, { count: 1, amount: 2500 });
   assert.deepStrictEqual(r.money.ready, { count: 1, amount: 3000 });
   assert.deepStrictEqual(r.money.paid, { count: 2, amount: 3000 }, 'payés sur 30 jours');
   assert.deepStrictEqual(r.payments.map(function (p) { return [p.id, p.count, p.amount, p.paid]; }), [['312', 2, 3000, true]]);
-  var r90 = api_trackingOverview(90);
+  var r90 = trackingMoney_(readOrders_().orders, new Date(), 90);
   assert.deepStrictEqual(r90.money.paid, { count: 3, amount: 3700 });
   assert.deepStrictEqual(r90.payments.map(function (p) { return p.id; }), ['312', '200'], 'versement le plus récent d’abord');
-  assert.strictEqual(api_trackingOverview(12).days, 30, 'période inconnue : 30 jours');
+
+  // La page Suivi ne calcule plus l'argent : il est dans Statistiques › Argent, sur la période choisie.
+  var tr = api_trackingOverview(12);
+  assert.strictEqual(tr.days, 30, 'période inconnue : 30 jours');
+  assert.strictEqual(tr.money, undefined);
+  assert.strictEqual(tr.payments, undefined);
+  asAdmin();
+  var st = api_stats('30');
+  assertSerializable(st, 'api_stats');
+  assert.deepStrictEqual(st.money.buckets.enRoute, { count: 2, amount: 3000 });
+  assert.deepStrictEqual(st.money.buckets.paid, { count: 2, amount: 3000 });
+  assert.deepStrictEqual(st.money.payments.map(function (p) { return p.id; }), ['312']);
+  assert.deepStrictEqual(api_stats('', ymd_(new Date(Date.now() - 50 * 86400000)), ymd_(new Date())).money.payments.map(function (p) { return p.id; }), ['312', '200'],
+    'période libre de 50 jours : le versement d’il y a 40 jours compte');
 });
 
 test('Suivi : liste des colis en cours', function () {
@@ -1909,7 +1932,10 @@ test('Suivi : chronologie d’un colis (get/tracking/info)', function () {
   assert.strictEqual(h.events[0].note, 'validé par vous');
   assert.strictEqual(h.events[2].note, 'Client absent');
   assert.ok(h.events[0].date && h.events[0].date < h.events[1].date);
-  assert.strictEqual(h.raw, '');
+  // Ecotrack donne l'heure d'Algérie sans fuseau : 09:00 à Alger = 08:00 UTC, quel que soit le fuseau du projet.
+  assert.strictEqual(h.events[0].date, '2026-11-12T08:00:00.000Z');
+  assert.strictEqual(h.events[0].dayOnly, false);
+  assert.ok(h.raw.indexOf('picked') >= 0, 'réponse brute jointe (repliée dans la page) pour vérifier une date');
 
   // Réponse de forme inconnue : on la renvoie telle quelle plutôt que de rien afficher.
   FAKE.historyShape = 'weird';
@@ -1928,6 +1954,20 @@ test('Suivi : chronologie d’un colis (get/tracking/info)', function () {
   assert.deepStrictEqual(parseTrackingInfo_(['picked', 'livred']).map(function (e) { return e.label; }), ['Colis récupéré par le transporteur', 'Colis livré']);
   assert.deepStrictEqual(parseTrackingInfo_({ data: [{ status: 'Return_received' }] }).map(function (e) { return e.label; }), ['Retour réceptionné par le vendeur']);
   assert.deepStrictEqual(parseTrackingInfo_(null), []);
+
+  // Dates d'Ecotrack : toutes les formes connues, toujours à l'heure d'Algérie.
+  var iso = function (v, t) { var d = ecoDate_(v, t); return d ? [d.date.toISOString(), d.dayOnly] : null; };
+  assert.deepStrictEqual(iso('2026-11-14 10:07:12'), ['2026-11-14T09:07:12.000Z', false]);
+  assert.deepStrictEqual(iso('2026-11-14T09:07:12.000000Z'), ['2026-11-14T09:07:12.000Z', false], 'avec Z : déjà en UTC');
+  assert.deepStrictEqual(iso('2026-11-14T10:07:12+01:00'), ['2026-11-14T09:07:12.000Z', false]);
+  assert.deepStrictEqual(iso('14/11/2026 10:07'), ['2026-11-14T09:07:00.000Z', false]);
+  assert.deepStrictEqual(iso('2026-11-14'), ['2026-11-13T23:00:00.000Z', true], 'jour seul : affiché sans heure');
+  assert.deepStrictEqual(iso('2026-11-14', '15:30'), ['2026-11-14T14:30:00.000Z', false], 'heure envoyée à part');
+  assert.deepStrictEqual(iso({ date: '2026-11-14 10:07:12.000000', timezone: 'Africa/Algiers' }), ['2026-11-14T09:07:12.000Z', false]);
+  assert.strictEqual(ecoDate_(''), null);
+  assert.strictEqual(ecoDate_('pas une date'), null);
+  var ev = parseTrackingInfo_({ activities: [{ activity: 'picked', date: '2026-11-14', time: '11:00' }, { activity: 'livred', date: '2026-11-15' }] });
+  assert.deepStrictEqual(ev.map(function (e) { return [e.date, e.dayOnly]; }), [['2026-11-14T10:00:00.000Z', false], ['2026-11-14T23:00:00.000Z', true]]);
 });
 
 test('Suivi : « traité » sans la colonne dans le classeur = message clair', function () {
@@ -3502,6 +3542,279 @@ test('Stock : rôle Magasinier (stock oui, bénéfices non) ; compteur des comma
   var c = api_counts();
   assert.deepStrictEqual([c.queue, c.pending], [1, 2], '1 à appeler maintenant, 2 en attente (dont un rappel dans 2 h)');
   assert.strictEqual(api_queue().stats.pending, 2);
+});
+
+/* ---------------- Version 1.2 ---------------- */
+
+test('Confirmation : en attente (injoignable, sans statut, statut inconnu), en retard, rappel arrivé, historique des appels', function () {
+  baseSetup();
+  var now = Date.now();
+  addRaw({ 'N°': '#C1', 'Date': new Date(now - 30 * 3600000), 'Client': 'Vieille', 'Téléphone': '0550000101', 'Wilaya': 'Alger', 'Prix': 2000 });
+  addRaw({ 'N°': '#C2', 'Date': new Date(now - 2 * 3600000), 'Client': 'Récente', 'Téléphone': '0550000102', 'Wilaya': 'Alger', 'Prix': 2000 });
+  addRaw({ 'N°': '#C3', 'Date': new Date(now - 5 * 3600000), 'Client': 'Injoignable', 'Téléphone': '0550000103', 'Wilaya': 'Alger', 'Prix': 2000 });
+  addRaw({ 'N°': '#C4', 'Date': new Date(now - 4 * 3600000), 'Client': 'Rappel', 'Téléphone': '0550000104', 'Wilaya': 'Alger', 'Prix': 2000 });
+  processNewRows();
+  var ctx = readOrders_();
+  writeFields_(ctx, findOrder_(ctx, '#C3'), { status: 'Injoignable', attempts: 9 });
+  writeFields_(ctx, findOrder_(ctx, '#C4'), { status: 'Pas de réponse', attempts: 1, callback: new Date(now - 60000) });
+  // Ligne abîmée (copier-coller) : statut inconnu.
+  addRaw({ 'N°': '#C5', 'Date': new Date(now - 3600000), 'Client': 'Abîmée', 'Téléphone': '0550000105', 'Wilaya': 'Alger', 'Statut': '#14566' });
+  invalidateOrdersCache_();
+
+  var q = api_queue();
+  assertSerializable(q, 'api_queue');
+  var due = {};
+  q.due.forEach(function (x) { due[x.id] = x; });
+  assert.ok(due['#C1'].late && due['#C1'].waitingLong, 'arrivée il y a 30 h, jamais appelée : en retard (ATTENTE_MAX_HEURES = 24)');
+  assert.strictEqual(due['#C2'].late, false);
+  assert.strictEqual(due['#C4'].recall, true, 'l’heure du rappel est passée : « à rappeler maintenant »');
+  assert.deepStrictEqual(q.waiting.map(function (x) { return [x.id, x.callable]; }), [['#C5', false], ['#C3', true]], 'restent visibles, les plus récentes d’abord');
+  assert.ok(/Injoignable : 9 appels sans réponse/.test(q.waiting[1].reason), q.waiting[1].reason);
+  assert.ok(/Statut inconnu « #14566 »/.test(q.waiting[0].reason));
+  assert.strictEqual(q.stats.waiting, 2);
+  setSetting('ATTENTE_MAX_HEURES', 48);
+  assert.strictEqual(api_queue().due.filter(function (x) { return x.id === '#C1'; })[0].late, false, 'réglage ATTENTE_MAX_HEURES');
+
+  // Historique des appels, écrit à chaque résultat.
+  api_recordCall('#C2', 'no_answer', {});
+  api_recordCall('#C2', 'callback', { callback: new Date(now + 3600000).toISOString() });
+  var o = order('#C2');
+  assert.strictEqual(o.calls.length, 2);
+  assert.ok(/^Pas de réponse · Admin$/.test(o.calls[0].text), o.calls[0].text);
+  assert.ok(/^A répondu, rappel demandé pour le \d\d\/\d\d \d\d:\d\d · Admin$/.test(o.calls[1].text), o.calls[1].text);
+  assert.ok(/^\d\d\/\d\d \d\d:\d\d$/.test(o.calls[0].when));
+  assert.strictEqual(api_queue().later.filter(function (x) { return x.id === '#C2'; })[0].calls.length, 2, 'visible dans la carte de la file');
+  assert.ok(headerOf('Commandes').indexOf('Historique appels') >= 0, 'colonne ajoutée au classeur au premier appel');
+  assert.ok(/Pas de réponse · Admin \| /.test(String(findOrder_(readOrders_(), '#C2').callLog)));
+
+  // Une injoignable peut être rappelée depuis Confirmation ; une commande au statut inconnu non.
+  var r = api_recordCall('#C3', 'confirm', {});
+  assert.strictEqual(r.status, 'Confirmée');
+  assert.throws(function () { api_recordCall('#C5', 'confirm', {}); }, /déjà été traitée/);
+  assert.deepStrictEqual(api_queue().waiting.map(function (x) { return x.id; }), ['#C5']);
+  // Historique limité aux 12 derniers appels.
+  var log = '';
+  for (var i = 0; i < 15; i++) log = addCallLog_({ callLog: log }, new Date(), 'Pas de réponse', { name: 'X' });
+  assert.strictEqual(parseCallLog_(log).length, 12);
+});
+
+test('Corbeille : supprimer en plusieurs (expédiées ignorées), restaurer en plusieurs, vider, numéros toujours bloqués', function () {
+  ecoSetup();
+  addConfirmed('#T1');
+  addConfirmed('#T2');
+  addConfirmed('#T3');
+  addConfirmed('#T4');
+  ship(['#T4']);
+  asAgent();
+  assert.throws(function () { api_deleteOrders(['#T1']); }, /Seul un administrateur/);
+  asAdmin();
+  assert.throws(function () { api_deleteOrders([]); }, /Cochez/);
+  var r = api_deleteOrders(['#T1', '#T2', '#T3', '#T4', '#T1', '#nope'], 'Tests');
+  assertSerializable(r, 'api_deleteOrders');
+  assert.deepStrictEqual(r.deleted.sort(), ['#T1', '#T2', '#T3']);
+  assert.deepStrictEqual(r.skipped.map(function (x) { return [x.id, x.why]; }), [['#T4', 'déjà envoyée à une société de livraison'], ['#nope', 'introuvable']]);
+  assert.ok(/3 commandes mises à la corbeille · 2 ignorées/.test(r.message), r.message);
+  assert.deepStrictEqual(orderRowIds(), ['#T4']);
+  assert.deepStrictEqual(api_listTrash().rows.map(function (x) { return x.reason; }), ['Tests', 'Tests', 'Tests']);
+
+  var back = api_restoreOrders(['#T1', '#T2', '#T9']);
+  assert.deepStrictEqual(back.restored, ['#T1', '#T2']);
+  assert.strictEqual(back.skipped.length, 1);
+  assert.deepStrictEqual(orderRowIds().sort(), ['#T1', '#T2', '#T4']);
+  assert.deepStrictEqual(api_listTrash().rows.map(function (x) { return x.id; }), ['#T3']);
+
+  // Supprimer définitivement les cochées, puis vider tout.
+  api_deleteOrders(['#T1'], '');
+  var p1 = api_purgeTrash(['#T3']);
+  assert.deepStrictEqual(p1.purged, ['#T3']);
+  assert.deepStrictEqual(api_listTrash().rows.map(function (x) { return x.id; }), ['#T1']);
+  var all = api_purgeTrash();
+  assert.deepStrictEqual(all.purged, ['#T1']);
+  assert.deepStrictEqual(api_listTrash().rows, []);
+  assert.strictEqual(api_purgeTrash().message, 'Rien à effacer.');
+  var blocked = sheet('Numéros effacés');
+  assert.ok(blocked && blocked.isSheetHidden(), 'onglet caché des numéros effacés');
+  var ids = trashIds_();
+  assert.ok(ids['#T1'] && ids['#T3'], 'les n° effacés restent bloqués : Releasit et Shopify ne les recréent pas');
+  assert.ok(logActions().indexOf('Corbeille vidée') >= 0);
+  asAgent();
+  assert.throws(function () { api_purgeTrash(); }, /Seul un administrateur/);
+});
+
+test('Corbeille : vidage automatique de nuit après CORBEILLE_JOURS jours', function () {
+  baseSetup();
+  addOrder('#W1', 'Sac');
+  addOrder('#W2', 'Sac');
+  processNewRows();
+  api_deleteOrders(['#W1', '#W2'], '');
+  var trash = sheet('Corbeille');
+  var header = trash.getRange(1, 1, 1, trash.getLastColumn()).getValues()[0];
+  trash.getRange(2, header.indexOf('Supprimée le') + 1).setValue(new Date(Date.now() - 40 * 86400000));
+  assert.strictEqual(purgeOldTrash_(), 0, 'réglage à 0 : jamais');
+  setSetting('CORBEILLE_JOURS', 30);
+  assert.strictEqual(getSettings_().CORBEILLE_JOURS, 30);
+  var night = nightlyMaintenance();
+  assert.strictEqual(night.trash, 1);
+  assert.deepStrictEqual(api_listTrash().rows.map(function (x) { return x.id; }), ['#W2'], 'seulement celle d’il y a 40 jours');
+  setSetting('CORBEILLE_JOURS', 2);
+  assert.strictEqual(getSettings_().CORBEILLE_JOURS, 7, 'au moins 7 jours');
+});
+
+test('Commandes : supprimer en plusieurs garde les autres lignes intactes (lignes non voisines)', function () {
+  baseSetup();
+  ['#R1', '#R2', '#R3', '#R4', '#R5'].forEach(function (id) { addOrder(id, 'Sac', { 'Client': 'Client ' + id }); });
+  processNewRows();
+  api_deleteOrders(['#R2', '#R4', '#R5'], 'x');
+  assert.deepStrictEqual(orderRowIds(), ['#R1', '#R3']);
+  assert.strictEqual(order('#R3').client, 'Client #R3');
+});
+
+test('Dépenses : sur un intervalle (réparties par jour), gains, corriger, supprimer (une ou plusieurs)', function () {
+  baseSetup();
+  setCatalog([{ 'Produit': 'Sac', "Coût d'achat": 600, 'Stock': 50 }]);
+  var day = 86400000;
+  var key = function (n) { return ymd_(new Date(Date.now() - n * day)); };
+  addOrder('#P1', 'Sac', { 'Statut': 'Livrée', 'Société': 'Ecotrack', 'Date': new Date(Date.now() - day) });
+  // 10 jours de publicité à 1 000 DA, du jour J-9 à aujourd'hui : 100 DA par jour.
+  var a = api_addExpense({ type: 'Dépense', category: 'Publicité Facebook', campaign: 'Promo', amount: 1000, currency: 'DA', date: key(9), end: key(0) });
+  assert.strictEqual(a.message, 'Dépense ajoutée : 1 000 DA, réparti sur 10 jours.');
+  assert.throws(function () { api_addExpense({ category: 'Loyer', amount: 5, currency: 'DA', date: key(0), end: key(3) }); }, /fin est avant/);
+  var g = api_addExpense({ type: 'Gain', category: 'Remboursement', amount: 300, currency: 'DA', date: key(1) });
+  assert.strictEqual(g.message, 'Gain ajouté : 300 DA.');
+  assert.deepStrictEqual(headerOf('Dépenses').slice(-2), ['Fin', 'Type']);
+
+  var d7 = api_profit('7');
+  assertSerializable(d7, 'api_profit');
+  assert.strictEqual(d7.totals.expenses, 700, '7 jours sur 10 : 700 DA');
+  assert.strictEqual(d7.totals.adSpend, 700);
+  assert.strictEqual(d7.totals.gains, 300);
+  assert.strictEqual(d7.totals.net, d7.totals.ordersProfit - 700 + 300);
+  assert.strictEqual(api_profit('today').totals.expenses, 100);
+  assert.strictEqual(api_profit('yesterday').totals.gains, 300);
+  assert.strictEqual(api_profit('', key(30), key(8)).totals.expenses, 200, 'période libre : J-9 et J-8 seulement');
+  assert.strictEqual(api_profit('all').totals.expenses, 1000);
+  var promo = d7.campaigns.filter(function (c) { return c.name === 'Promo'; })[0];
+  assert.strictEqual(promo.spend, 700, 'la campagne reçoit sa part de la période');
+  assert.deepStrictEqual(d7.gainsByCategory, [{ category: 'Remboursement', amount: 300 }]);
+
+  // Liste : une ligne par dépense, avec sa part dans la période.
+  var exp = d7.expenses.filter(function (e) { return !e.gain; })[0];
+  assert.deepStrictEqual([exp.date, exp.end, exp.days, exp.amountDA, exp.inPeriod], [key(9), key(0), 10, 1000, 700]);
+  assert.ok(exp.id && exp.sig);
+
+  // Corriger : la ligne est vérifiée (empreinte) avant d'être modifiée.
+  assert.throws(function () { api_updateExpense(exp.id, 'autre', { category: 'Loyer', amount: 5, currency: 'DA' }); }, /a changé/);
+  var up = api_updateExpense(exp.id, exp.sig, { type: 'Dépense', category: 'Publicité TikTok', campaign: 'Promo', amount: 2000, currency: 'DA', date: key(9), end: key(0) });
+  assert.ok(/corrigée/.test(up.message));
+  assert.strictEqual(api_profit('7').totals.expenses, 1400);
+  assert.ok(logActions().indexOf('Dépense corrigée') >= 0);
+
+  // Supprimer en plusieurs.
+  var list = api_profit('all').expenses;
+  assert.strictEqual(list.length, 2);
+  assert.throws(function () { api_deleteExpenses([]); }, /Cochez/);
+  var del = api_deleteExpenses(list.map(function (e) { return { id: e.id, sig: e.sig }; }));
+  assert.strictEqual(del.deleted, 2);
+  assert.deepStrictEqual(api_profit('all').expenses, []);
+  assert.strictEqual(sheet('Dépenses').getLastRow(), 1);
+  asAgent();
+  assert.throws(function () { api_deleteExpenses([{ id: '2' }]); }, /Réservé/);
+});
+
+test('Bénéfices : comparaison, bénéfice par jour, où part l’argent, seuil de rentabilité, simulateur, ROAS', function () {
+  baseSetup(); // Ecotrack Alger : 700 domicile
+  setCatalog([{ 'Produit': 'Sac', "Coût d'achat": 600, 'Stock': 50 }]);
+  var day = 86400000;
+  var key = function (n) { return ymd_(new Date(Date.now() - n * day)); };
+  addOrder('#Q1', 'Sac', { 'Statut': 'Livrée', 'Société': 'Ecotrack', 'Campagne': 'Promo', 'Source pub': 'facebook', 'Date': new Date(Date.now() - day) });
+  addOrder('#Q2', 'Sac', { 'Statut': 'Livrée', 'Société': 'Ecotrack', 'Date': new Date(Date.now() - 2 * day) });
+  addOrder('#Q3', 'Sac', { 'Statut': 'Retour', 'Société': 'Ecotrack', 'Date': new Date(Date.now() - 2 * day) });
+  addOrder('#Q4', 'Sac', { 'Statut': 'Livrée', 'Société': 'Ecotrack', 'Date': new Date(Date.now() - 9 * day) }); // période d'avant
+  api_addExpense({ category: 'Publicité Facebook', campaign: 'Promo', amount: 700, currency: 'DA', date: key(6), end: key(0) });
+
+  var d = api_profit('7');
+  var t = d.totals;
+  // Livrée : 2250 − 700 − 600 = 950 ; retour : −50.
+  assert.strictEqual(t.ordersProfit, 950 + 950 - 50);
+  assert.deepStrictEqual([d.range.from, d.range.to, d.range.prevFrom, d.range.prevTo, d.range.unit], [key(6), key(0), key(13), key(7), 'day']);
+  assert.strictEqual(d.prev.ordersProfit, 950, 'période d’avant : la commande d’il y a 9 jours');
+  assert.strictEqual(d.series.length, 7);
+  var s1 = d.series.filter(function (b) { return b.from === key(1); })[0];
+  assert.deepStrictEqual([s1.revenue, s1.profit, s1.expenses, s1.net], [2250, 950, 100, 850]);
+  assert.strictEqual(d.series.reduce(function (a, b) { return a + b.net; }, 0), t.net, 'la somme des jours = bénéfice net');
+  // Où part l'argent : encaissé − livraison − achat − retours − emballage = bénéfice des commandes.
+  assert.strictEqual(t.revenue - t.deliveryFees - t.productCost - t.returnFees - t.packaging, t.ordersProfit);
+  // Seuil : 100 DA de dépenses par jour ; une livrée rapporte (1850 / 2) = 925 en moyenne.
+  assert.deepStrictEqual([d.breakEven.needPerDay, d.breakEven.margin, d.breakEven.perDayNeeded, d.breakEven.perDayNow, d.breakEven.ok], [100, 925, 0.11, 0.29, true]);
+  // Simulateur : 3 terminées, une livrée rapporte 950, un retour coûte 50.
+  assert.deepStrictEqual([d.sim.finished, d.sim.avgDelivered, d.sim.avgReturnLoss], [3, 950, 50]);
+  // ROAS et bénéfice par livrée.
+  var promo = d.campaigns.filter(function (c) { return c.name === 'Promo'; })[0];
+  assert.deepStrictEqual([promo.spend, promo.roas, promo.profitPerDelivered], [700, 3.21, 950]);
+  assert.strictEqual(t.roas, Math.round(t.revenue / 700 * 100) / 100);
+  var sac = d.products.filter(function (p) { return p.name === 'Sac'; })[0];
+  assert.strictEqual(sac.profitPerDelivered, Math.round(1850 / 2));
+  // Longue période : regroupée par semaine ou par mois.
+  assert.strictEqual(api_profit('', key(100), key(0)).range.unit, 'week');
+  assert.strictEqual(api_profit('', key(500), key(0)).range.unit, 'month');
+  assert.strictEqual(api_profit('all').prev, null, '« Tout » : pas de comparaison');
+});
+
+test('Tableau de bord et Statistiques : période libre, hier ; dépenses réparties et gains dans le bénéfice net', function () {
+  baseSetup();
+  var day = 86400000;
+  var key = function (n) { return ymd_(new Date(Date.now() - n * day)); };
+  addOrder('#Y1', 'Sac', { 'Date': new Date(Date.now() - day) });
+  addOrder('#Y2', 'Sac', { 'Date': new Date(Date.now() - 5 * day) });
+  addOrder('#Y3', 'Sac', { 'Date': new Date() });
+  processNewRows();
+  assert.strictEqual(api_dashboard('yesterday').received, 1);
+  var dd = api_dashboard('', key(6), key(1));
+  assertSerializable(dd, 'api_dashboard');
+  assert.strictEqual(dd.received, 2);
+  assert.deepStrictEqual([dd.period, dd.range.from, dd.range.to], ['custom', key(6), key(1)]);
+  assert.strictEqual(api_dashboard('all').range.all, true);
+
+  asAdmin();
+  api_addExpense({ category: 'Loyer', amount: 3000, currency: 'DA', date: key(29), end: key(0) });
+  api_addExpense({ type: 'Gain', category: 'Bonus', amount: 500, currency: 'DA', date: key(0) });
+  var st = api_stats('7');
+  assert.strictEqual(st.kpis.expenses, 700, '7 jours sur 30 du loyer');
+  assert.strictEqual(st.kpis.gains, 500);
+  assert.strictEqual(st.kpis.net, st.kpis.ordersProfit - 700 + 500);
+});
+
+test('Ecotrack : « dernier mouvement » = date réelle donnée par Ecotrack, réglage de l’intervalle, réglages en page', function () {
+  ecoSetup();
+  addConfirmed('#U1');
+  var t = results(ship(['#U1']))['#U1'].tracking;
+  FAKE.validate(t);
+  var rec = FAKE.orders.filter(function (o) { return o.tracking === t; })[0];
+  var when = new Date(Math.floor((Date.now() - 5 * 3600000) / 1000) * 1000);
+  // Heure d'Algérie (UTC+1), sans fuseau, comme Ecotrack.
+  rec.updated_at = new Date(when.getTime() + 3600000).toISOString().replace('T', ' ').slice(0, 19);
+  syncEcotrackStatuses_();
+  var o = order('#U1');
+  assert.strictEqual(new Date(o.carrierMoved).getTime(), when.getTime(), 'heure du changement chez Ecotrack, pas celle de la lecture');
+  // Une date absurde (dans le futur) est ignorée.
+  FAKE.setStatus(t, 'en_hub');
+  rec.updated_at = '2099-01-01 10:00:00';
+  syncEcotrackStatuses_();
+  assert.ok(new Date(order('#U1').carrierMoved).getTime() <= Date.now() + 1000);
+
+  assert.strictEqual(getSettings_().SUIVI_ECOTRACK_MINUTES, 60);
+  setSetting('SUIVI_ECOTRACK_MINUTES', 25);
+  assert.strictEqual(getSettings_().SUIVI_ECOTRACK_MINUTES, 30, 'valeur la plus proche parmi 30, 60, 120');
+  setSetting('SUIVI_ECOTRACK_MINUTES', 200);
+  assert.strictEqual(getSettings_().SUIVI_ECOTRACK_MINUTES, 120);
+  assert.strictEqual(taskInfo_('ecotrack').every, 120);
+  assert.strictEqual(taskInfo_('ecotrack').staleMin, 360, 'alerte « pas de passage » adaptée à l’intervalle');
+  asAdmin();
+  var groups = api_settingsGet().groups;
+  var item = null;
+  groups.forEach(function (g) { g.items.forEach(function (it) { if (it.key === 'SUIVI_ECOTRACK_MINUTES') item = it; }); });
+  assert.deepStrictEqual([item.type, item.choices], ['choice', ['30', '60', '120']]);
+  assert.strictEqual(api_trackingOverview(30).every, 120);
 });
 
 test('fichier unique dist/Code.gs : à jour et fonctionnel', function () {

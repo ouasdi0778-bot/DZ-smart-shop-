@@ -220,6 +220,7 @@ function lightenSheets_() {
     [SHEET.LOG, 100, true],
     [SHEET.ARCHIVE, 100, true],
     [TRASH.SHEET, 50, true],
+    [TRASH.BLOCKED, 50, true],
     [SHEET.CLIENTS, 200, true],
     [SHEET.SETTINGS, 20, true],
     [SHEET.TEAM, 20, true],
@@ -237,7 +238,7 @@ function lightenSheets_() {
 /** Déclencheur de nuit : archivage, Journal raccourci, onglets allégés. */
 function nightlyMaintenance() {
   var t0 = Date.now();
-  var out = { archived: 0, journal: 0, rows: 0, autoCancelled: 0, stats: 0, errors: [] };
+  var out = { archived: 0, journal: 0, rows: 0, autoCancelled: 0, stats: 0, trash: 0, errors: [] };
   var step = function (name, fn) {
     try { fn(); } catch (e) { out.errors.push(name + ' : ' + (e && e.message ? e.message : e)); }
   };
@@ -245,6 +246,7 @@ function nightlyMaintenance() {
   step('stock', function () { withLock_(function () { applyStockMoves_(readOrders_()); }); });
   step('archivage', function () { out.archived = archiveOldOrders_().archived; });
   step('journal', function () { out.journal = trimJournal_(getSettings_().JOURNAL_JOURS); });
+  step('corbeille', function () { out.trash = purgeOldTrash_(); });
   step('allègement', function () { out.rows = lightenSheets_(); });
   step('statistiques', function () { out.stats = rebuildStats_().days; });
   if (out.errors.length) log_({ name: 'Automatique' }, '', 'Erreur maintenance', out.errors.join(' · '));

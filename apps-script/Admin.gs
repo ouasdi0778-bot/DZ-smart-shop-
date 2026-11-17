@@ -16,22 +16,22 @@ var ROLES_ = ['Administrateur', 'Confirmatrice', 'Magasinier'];
 /** Groupes de réglages, dans l'ordre de la page. Les réglages non listés vont dans « Autres ». */
 var SETTING_GROUPS_ = [
   { title: 'Boutique', keys: ['NOM_BOUTIQUE', 'SOCIETE_PAR_DEFAUT', 'MESSAGE_WHATSAPP'] },
-  { title: 'Appels et confirmation', keys: ['APPELS_PAR_JOUR', 'JOURS_D_APPELS', 'ANNULATION_AUTO', 'HEURE_DEBUT_APPELS', 'ORDRE_FILE', 'DELAI_RAPPEL_MINUTES', 'DOUBLON_HEURES', 'MOTIFS_ANNULATION'] },
-  { title: 'Suivi des colis', keys: ['SUIVI_ALERTE_HEURES', 'SUIVI_HEURES_TRI', 'SUIVI_HEURES_ROUTE', 'SUIVI_HEURES_SUD', 'SUIVI_HEURES_LIVRAISON', 'WILAYAS_SUD', 'RETOUR_BLOQUE_JOURS', 'ARGENT_RETARD_JOURS', 'MOTS_INJOIGNABLE', 'MOTS_REFUS', 'MOTS_REPORTE', 'MOTS_ADRESSE'] },
+  { title: 'Appels et confirmation', keys: ['APPELS_PAR_JOUR', 'JOURS_D_APPELS', 'ANNULATION_AUTO', 'HEURE_DEBUT_APPELS', 'ORDRE_FILE', 'DELAI_RAPPEL_MINUTES', 'ATTENTE_MAX_HEURES', 'DOUBLON_HEURES', 'MOTIFS_ANNULATION'] },
+  { title: 'Suivi des colis', keys: ['SUIVI_ECOTRACK_MINUTES', 'SUIVI_ALERTE_HEURES', 'SUIVI_HEURES_TRI', 'SUIVI_HEURES_ROUTE', 'SUIVI_HEURES_SUD', 'SUIVI_HEURES_LIVRAISON', 'WILAYAS_SUD', 'RETOUR_BLOQUE_JOURS', 'ARGENT_RETARD_JOURS', 'MOTS_INJOIGNABLE', 'MOTS_REFUS', 'MOTS_REPORTE', 'MOTS_ADRESSE'] },
   { title: 'Expédition', keys: ['FORMAT_BORDEREAU', 'RAMASSAGE'] },
   { title: 'SMS', keys: ['SMS_HEURES'], prefix: 'SMS_' },
   { title: 'Stock', keys: ['COUT_MOYEN', 'STOCK_SEUIL'] },
-  { title: 'Bénéfices et primes', keys: ['FRAIS_RETOUR', 'COUT_EMBALLAGE', 'TAUX_DOLLAR', 'CATEGORIES_DEPENSES', 'PRIMES'] },
+  { title: 'Bénéfices et primes', keys: ['FRAIS_RETOUR', 'COUT_EMBALLAGE', 'TAUX_DOLLAR', 'CATEGORIES_DEPENSES', 'CATEGORIES_GAINS', 'PRIMES'] },
   { title: 'Shopify', keys: ['SHOPIFY_TAG', 'SHOPIFY_JOURS_INITIAL', 'SHOPIFY_API_VERSION'] },
-  { title: 'Entretien', keys: ['ARCHIVE_JOURS', 'JOURNAL_JOURS', 'LIMITE_MINUTES_JOUR'] }
+  { title: 'Entretien', keys: ['ARCHIVE_JOURS', 'JOURNAL_JOURS', 'CORBEILLE_JOURS', 'LIMITE_MINUTES_JOUR'] }
 ];
 
 /** Réglages à choix (fonction : CARRIERS est défini dans un autre fichier). */
 function settingChoices_(key) {
-  var map = { ORDRE_FILE: ['récentes', 'anciennes'], FORMAT_BORDEREAU: ['A4', '10x15'], SOCIETE_PAR_DEFAUT: CARRIERS };
+  var map = { ORDRE_FILE: ['récentes', 'anciennes'], FORMAT_BORDEREAU: ['A4', '10x15'], SOCIETE_PAR_DEFAUT: CARRIERS, SUIVI_ECOTRACK_MINUTES: ['30', '60', '120'] };
   return map[key] || null;
 }
-var LONG_SETTINGS_ = ['MESSAGE_WHATSAPP', 'MOTIFS_ANNULATION', 'MOTS_INJOIGNABLE', 'MOTS_REFUS', 'MOTS_REPORTE', 'MOTS_ADRESSE', 'CATEGORIES_DEPENSES', 'WILAYAS_SUD', 'PRIMES'];
+var LONG_SETTINGS_ = ['MESSAGE_WHATSAPP', 'MOTIFS_ANNULATION', 'MOTS_INJOIGNABLE', 'MOTS_REFUS', 'MOTS_REPORTE', 'MOTS_ADRESSE', 'CATEGORIES_DEPENSES', 'CATEGORIES_GAINS', 'WILAYAS_SUD', 'PRIMES'];
 
 function settingType_(key, def) {
   if (settingChoices_(key)) return 'choice';

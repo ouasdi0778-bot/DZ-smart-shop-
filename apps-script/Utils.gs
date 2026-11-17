@@ -65,6 +65,40 @@ function toNumber_(value) {
 }
 
 /** Date à partir d'une date du tableur, d'un texte « 12/11/2026 10:42 » ou ISO. */
+/**
+ * Date envoyée par Ecotrack : { date, dayOnly } ou null.
+ * Sans fuseau indiqué, l'heure est celle d'Algérie (UTC+1, sans heure d'été),
+ * quel que soit le fuseau du projet Apps Script. timeValue : heure envoyée à part.
+ */
+function ecoDate_(value, timeValue) {
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : { date: value, dayOnly: false };
+  if (value && typeof value === 'object') return value.date ? ecoDate_(value.date, timeValue) : null; // { date, timezone }
+  if (isBlank_(value)) return null;
+  var s = String(value).trim();
+  if (/^\d{10}(\d{3})?$/.test(s)) return { date: new Date(s.length === 10 ? +s * 1000 : +s), dayOnly: false };
+  var y, mo, d, hh, mi, ss, zone = '';
+  var m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i);
+  if (m) { y = +m[1]; mo = +m[2]; d = +m[3]; hh = m[4]; mi = m[5]; ss = m[6]; zone = m[7] || ''; }
+  else {
+    m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})(?:[ T,à]+(\d{1,2})[:h](\d{2})(?::(\d{2}))?)?$/i);
+    if (!m) { var any = new Date(s); return isNaN(any.getTime()) ? null : { date: any, dayOnly: false }; }
+    d = +m[1]; mo = +m[2]; y = +m[3]; hh = m[4]; mi = m[5]; ss = m[6];
+  }
+  var dayOnly = hh === undefined;
+  if (dayOnly && !isBlank_(timeValue)) {
+    var t = String(timeValue).match(/(\d{1,2})[:h](\d{2})(?::(\d{2}))?/);
+    if (t) { hh = t[1]; mi = t[2]; ss = t[3]; dayOnly = false; }
+  }
+  var ms = Date.UTC(y, mo - 1, d, +(hh || 0), +(mi || 0), +(ss || 0));
+  if (/^z$/i.test(zone)) { /* déjà en UTC */ }
+  else if (zone) {
+    var z = zone.match(/([+-])(\d{2}):?(\d{2})/);
+    ms -= (z[1] === '-' ? -1 : 1) * (+z[2] * 60 + +z[3]) * 60000;
+  } else ms -= 3600000; // heure d'Algérie
+  var date = new Date(ms);
+  return isNaN(date.getTime()) ? null : { date: date, dayOnly: dayOnly };
+}
+
 function toDate_(value) {
   if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
   if (isBlank_(value)) return null;
@@ -142,6 +176,10 @@ function readSettings_() {
   s.NOM_BOUTIQUE = String(s.NOM_BOUTIQUE || APP_NAME).trim();
   s.MESSAGE_WHATSAPP = String(s.MESSAGE_WHATSAPP || '');
   s.SUIVI_ALERTE_HEURES = Math.max(1, toNumber_(s.SUIVI_ALERTE_HEURES) || 26);
+  // 30, 60 ou 120 minutes (la valeur la plus proche).
+  var every = toNumber_(s.SUIVI_ECOTRACK_MINUTES) || 60;
+  s.SUIVI_ECOTRACK_MINUTES = every <= 45 ? 30 : every <= 90 ? 60 : 120;
+  s.ATTENTE_MAX_HEURES = Math.max(1, toNumber_(s.ATTENTE_MAX_HEURES) || 24);
   s.FORMAT_BORDEREAU = /10|15|therm|etiq/i.test(normalizeText_(s.FORMAT_BORDEREAU)) ? '10x15' : 'A4';
   var hoursOf = function (v, def) { var n = toNumber_(v); return n >= 1 ? n : def; };
   s.SUIVI_HEURES_TRI = hoursOf(s.SUIVI_HEURES_TRI, 48);
@@ -170,11 +208,16 @@ function readSettings_() {
   s.COUT_MOYEN = !/^(non|no|false|faux|0)$/i.test(String(s.COUT_MOYEN == null ? 'OUI' : s.COUT_MOYEN).trim());
   s.categories = String(s.CATEGORIES_DEPENSES || '').split(';').map(function (c) { return c.trim(); }).filter(function (c) { return c; });
   if (!s.categories.length) s.categories = ['Autre'];
+  s.gainCategories = String(s.CATEGORIES_GAINS == null ? '' : s.CATEGORIES_GAINS).split(';').map(function (c) { return c.trim(); }).filter(function (c) { return c; });
+  if (!s.gainCategories.length) s.gainCategories = ['Autre'];
   // Heures d'envoi des SMS : « 8-21 » ; vide ou illisible = à toute heure.
   var hours = String(s.SMS_HEURES || '').match(/(\d{1,2})\D+(\d{1,2})/);
   s.smsFrom = hours ? Math.min(+hours[1], 23) : 0;
   s.smsTo = hours ? Math.min(Math.max(+hours[2], s.smsFrom + 1), 24) : 24;
   s.JOURNAL_JOURS = days(s.JOURNAL_JOURS);
+  // Corbeille : 0 = jamais ; sinon au moins 7 jours.
+  var trashDays = Math.round(toNumber_(s.CORBEILLE_JOURS));
+  s.CORBEILLE_JOURS = trashDays <= 0 ? 0 : Math.max(trashDays, 7);
   s.SHOPIFY_TAG = String(s.SHOPIFY_TAG == null ? '' : s.SHOPIFY_TAG).trim();
   s.SHOPIFY_JOURS_INITIAL = Math.min(Math.max(toNumber_(s.SHOPIFY_JOURS_INITIAL) || 3, 1), 60);
   s.SHOPIFY_API_VERSION = /^\d{4}-\d{2}$/.test(String(s.SHOPIFY_API_VERSION || '').trim()) ? String(s.SHOPIFY_API_VERSION).trim() : '2026-04';

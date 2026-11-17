@@ -189,6 +189,7 @@ function serializeOrder_(o) {
     callDay: callDay_(o, new Date()),
     callsToday: parseDayCalls_(o.dayCalls).day === dayKey_(new Date()) ? parseDayCalls_(o.dayCalls).n : 0,
     sms: String(o.sms == null ? '' : o.sms),
+    calls: parseCallLog_(o.callLog).map(function (c) { return { when: c.when, text: c.text }; }),
     alert: String(o.alert),
     alertLevel: alertLevel_(o.alert),
     notes: String(o.notes),

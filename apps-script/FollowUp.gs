@@ -80,7 +80,8 @@ function parseRemarks_(json) {
     }
     text = String(text || '').replace(/\s+/g, ' ').trim();
     if (!text) return;
-    var d = toDate_(rawDate);
+    var ed = ecoDate_(rawDate);
+    var d = ed ? ed.date : null;
     var mine = text.indexOf(FOLLOW.PREFIX.trim()) === 0 || /exp[eé]diteur|vendeur|seller|partenaire|client_api|api/i.test(author);
     notes.push({ text: text, date: d ? d.toISOString() : '', dateText: d || isBlank_(rawDate) ? '' : String(rawDate), author: author, mine: mine, order: i });
   });

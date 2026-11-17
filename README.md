@@ -6,23 +6,23 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.1
+## Ce que fait la version 1.2
 
 | Écran | Contenu |
 |---|---|
-| **Tableau de bord** | Commandes reçues, taux de confirmation et de livraison, montant livré, argent en route, liste « à faire », taux de livraison par wilaya, résultats par confirmatrice et par produit |
-| **Commandes** | Liste filtrable (statut, wilaya, période, recherche par nom, téléphone, n° de commande ou de suivi), modification d'une commande, ajout à la main, liste noire |
-| **Centre de confirmation** | File d'appels (rappels dus en premier, puis les commandes les plus récentes : réglage `ORDRE_FILE`), fiche client avec historique et alerte, boutons Appeler et WhatsApp (message pré-rempli), correction de la commande avec recalcul des frais et du total, résultat en un clic : Confirmer, Pas de réponse, Rappeler plus tard, Annuler (avec motif) |
+| **Tableau de bord** | Commandes reçues, taux de confirmation et de livraison, montant livré, argent en route, liste « à faire », taux de livraison par wilaya, résultats par confirmatrice et par produit ; **période au choix** (aujourd'hui, hier, 7 ou 30 jours, ce mois, mois dernier, tout, ou du … au …) |
+| **Commandes** | Liste filtrable (statut, wilaya, période, recherche par nom, téléphone, n° de commande ou de suivi), modification d'une commande, ajout à la main, liste noire, **suppression en plusieurs** (administrateur), **corbeille** (restaurer, supprimer définitivement, vider) |
+| **Centre de confirmation** | Trois blocs : **à appeler maintenant**, **rappels à venir**, **en attente** (injoignable, statut inconnu… avec le motif) ; une commande n'en sort que confirmée ou annulée ; **historique des appels** de chaque commande ; rappel arrivé à l'heure **en orange**, commande en retard en rouge ; fiche client avec historique et alerte, boutons Appeler et WhatsApp (message pré-rempli), correction de la commande avec recalcul des frais et du total, résultat en un clic : Confirmer, Pas de réponse, Rappeler plus tard, Annuler (avec motif) |
 | **Expéditions** | Commandes confirmées prêtes à partir (avec les problèmes à corriger avant l'envoi), **création des colis chez Ecotrack** en un clic avec n° de suivi écrit dans le classeur, **impression des bordereaux** Ecotrack (A4 ou étiquette 10×15) et **validation de l'expédition** (avec ou sans ramassage) |
-| **Suivi** | Statut de chaque colis relu toutes les 30 minutes, **alertes « à traiter »** (colis suspendu, retour en cours ou bloqué, sans mouvement selon l'étape, argent en retard…), **résultat de l'appel** (remarque au livreur, demande de retour), motif du livreur, **où est l'argent** et **chronologie** de chaque colis |
+| **Suivi** | Statut de chaque colis relu **toutes les heures** (réglable : 30 min, 1 h ou 2 h), **alertes « à traiter »** (colis suspendu, retour en cours ou bloqué, sans mouvement selon l'étape, argent en retard…), **résultat de l'appel** (remarque au livreur, demande de retour), motif du livreur et **chronologie** de chaque colis (heures d'Algérie) |
 | **Stock** | Catalogue par modèle, entrées, inventaire, historique (administrateur et magasinier) |
-| **Bénéfices** | Bénéfice des commandes, dépenses (publicité comprise), rentabilité par produit et par campagne (administrateur) |
-| **Statistiques** | Commandes et argent par période, comparés à la période d'avant : parcours des commandes, motifs, heures, wilayas, produits, équipe (avec la prime), publicité ; export pour Excel (administrateur) |
+| **Bénéfices** | Bénéfice net sur la **période de votre choix** comparé à la période d'avant, **graphiques** (bénéfice par jour, où part l'argent, seuil de rentabilité, simulateur du taux de livraison), produits classés par bénéfice, publicité (coût par livrée, ROAS), **dépenses et gains** sur un jour ou un intervalle, à corriger ou supprimer (administrateur) |
+| **Statistiques** | Commandes et argent par période, comparés à la période d'avant : parcours des commandes, motifs, heures, wilayas, produits, équipe (avec la prime), publicité, **où est l'argent et versements d'Ecotrack** ; export pour Excel (administrateur) |
 | **Administration** | État de l'outil, connexions (Ecotrack, SMS, Shopify, Releasit), réglages en formulaires, équipe, clients, entretien du classeur (administrateur) |
 
 Ce qui se passe tout seul :
 
-- **Une seule tâche automatique chaque minute** fait le travail régulier, puis s'arrête tout de suite s'il n'y a rien à faire : commandes Releasit (chaque minute), SMS en attente, nouvelles lignes et Shopify (toutes les 5 minutes), statuts Ecotrack (toutes les 30 minutes). Une deuxième tâche fait l'entretien **chaque nuit à 3 h**. En cas de panne, **un e-mail part au propriétaire** (voir « État de l'outil »).
+- **Une seule tâche automatique chaque minute** fait le travail régulier, puis s'arrête tout de suite s'il n'y a rien à faire : commandes Releasit (chaque minute), SMS en attente, nouvelles lignes et Shopify (toutes les 5 minutes), statuts Ecotrack (**toutes les heures**, réglage `SUIVI_ECOTRACK_MINUTES` : 30, 60 ou 120). Une deuxième tâche fait l'entretien **chaque nuit à 3 h**. En cas de panne, **un e-mail part au propriétaire** (voir « État de l'outil »).
 - **Chaque minute**, les nouvelles commandes écrites par Releasit COD dans l'onglet RELEASIT sont recopiées dans Commandes (voir plus bas).
 - **Toutes les 5 minutes**, chaque nouvelle ligne de l'onglet Commandes (statut vide) est préparée :
   - le téléphone est remis au format `0550123456` ;
@@ -94,7 +94,8 @@ Chaque page correspond à une étape. Une commande passe toute seule à la suiva
 | **Suivi › En cours** | Expédiées, en livraison, retours en cours | elles sont livrées, ou le retour est reçu (→ Terminées) |
 | **Suivi › Terminées** | Livrées (avec l'état de l'argent : à recevoir, payé), retours reçus | elles sont archivées après 100 jours |
 
-- **🗑 Corbeille** (administrateur) : les commandes supprimées, avec la date, l'auteur et le motif, et un bouton **Restaurer**.
+- **🗑 Corbeille** (administrateur) : les commandes supprimées, avec la date, l'auteur et le motif. Cochez-en une ou plusieurs : **Restaurer** ou **Supprimer définitivement** ; ou **Vider la corbeille**. Une commande effacée pour de bon garde son n° bloqué (onglet caché « Numéros effacés ») : Releasit et Shopify ne la recréent pas. Réglage `CORBEILLE_JOURS` : vidage automatique chaque nuit des commandes à la corbeille depuis ce nombre de jours (0 = jamais).
+- **Supprimer en plusieurs** (administrateur) : page Commandes › **Sélectionner plusieurs**, cochez (ou « Tout cocher »), puis **Mettre à la corbeille** avec un motif. Les commandes déjà envoyées à une société de livraison sont protégées : elles sont ignorées.
 - ⚠️ **N'effacez pas de lignes à la main dans l'onglet Commandes** : elles disparaissent sans trace. Utilisez « Annuler » ou « Supprimer » (Corbeille).
 - **Le menu** affiche, à côté de Confirmation, **« à appeler maintenant / total en attente »** (par exemple 5/12 : ni confirmées ni annulées), le nombre de commandes à expédier (Expédier) et les alertes (Suivi).
 - **La recherche** de la page Commandes (nom, téléphone, n°) trouve **toutes** les commandes, où qu'elles soient, et indique leur page (« → Expédier », « → Suivi › Terminées »…).
@@ -115,7 +116,17 @@ Chaque page correspond à une étape. Une commande passe toute seule à la suiva
 - La fiche affiche **jour 2/3 · 1/3 appels aujourd'hui** ; la colonne « Appels du jour » garde ce compte.
 - **Chaque nuit**, les commandes sans réponse dont les jours d'appels sont passés sont annulées, même si tous les appels n'ont pas été faits.
 - **Jamais annulées automatiquement** : une commande « Rappeler » (le client a répondu), ou une commande jamais appelée.
-- Une commande **jamais appelée depuis plus de 24 h** est signalée en rouge dans la file et au tableau de bord : avec l'ordre « récentes d'abord », elle pourrait sinon être oubliée.
+- Une commande **ni confirmée ni annulée depuis plus de 24 h** (`ATTENTE_MAX_HEURES`) est marquée **« en retard »** en rouge dans la file ; jamais appelée, elle l'est aussi au tableau de bord.
+
+### La page Confirmation (v1.2)
+
+| Bloc | Contenu |
+|---|---|
+| **À appeler maintenant** | nouvelles commandes et rappels dus. Un rappel dont l'heure est arrivée passe **en tête, en orange** (« À rappeler maintenant ») ; l'application vous prévient même si vous êtes sur une autre page, et le compteur du menu augmente |
+| **Rappels à venir** | pas de réponse ou rappel demandé, avec l'heure prévue |
+| **En attente** | ni confirmées ni annulées, mais hors de la file, avec le **motif** : injoignable (vous pouvez réessayer, confirmer ou annuler), sans statut, **statut inconnu** (ligne du classeur abîmée : ouvrez la fiche pour la corriger) |
+
+- **Historique des appels** : chaque résultat (pas de réponse, rappel demandé, confirmée, annulée) est noté avec l'heure et la confirmatrice dans la colonne **« Historique appels »** (les 12 derniers). Il s'affiche sur la carte (« 10:05 pas de réponse → 14:30 pas de réponse ») et dans la fiche, avec le prochain rappel.
 - L'ancien réglage `MAX_TENTATIVES` n'est plus utilisé.
 
 ## Envoyer les colis à Ecotrack
@@ -156,11 +167,11 @@ L'intégration suit la [documentation de l'API Ecotrack](https://documenter.getp
 - La fenêtre de confirmation prévient si des colis **n'ont pas de bordereau imprimé** dans l'outil (vous pouvez valider quand même, par exemple si vous l'avez imprimé sur le site d'Ecotrack).
 - Case **Demander le ramassage** : cochée par défaut selon le réglage `RAMASSAGE` (`OUI`). Décochez-la si vous déposez les colis à l'agence.
 - Après la validation : la commande passe **« Expédiée »** et va dans **Suivi**, le **stock baisse** (« Colis parti ») et le **SMS « expédiée »** part. Un refus d'Ecotrack est affiché avec son motif, et la commande reste « Confirmée ».
-- **Vous pouvez aussi valider sur le site d'Ecotrack** : à l'ouverture de l'onglet *Créés, à valider*, l'outil relit ces colis chez Ecotrack (au plus une fois par minute) ; ceux déjà validés passent tout de suite dans Suivi. Sinon, la lecture automatique des statuts le fait dans les 30 minutes.
+- **Vous pouvez aussi valider sur le site d'Ecotrack** : à l'ouverture de l'onglet *Créés, à valider*, l'outil relit ces colis chez Ecotrack (au plus une fois par minute) ; ceux déjà validés passent tout de suite dans Suivi. Sinon, la lecture automatique des statuts le fait dans l'heure.
 
 ### Statuts
 
-Les statuts sont relus **toutes les 30 minutes** (ou à la demande avec « Actualiser les statuts »), 100 colis par requête. Le statut exact d'Ecotrack est gardé dans la colonne **Statut société** et traduit ainsi :
+Les statuts sont relus **toutes les heures** (réglage `SUIVI_ECOTRACK_MINUTES` : 30, 60 ou 120, dans Administration › Réglages › Suivi des colis ; ou à la demande avec « Actualiser les statuts »), 100 colis par requête. Le statut exact d'Ecotrack est gardé dans la colonne **Statut société** et traduit ainsi :
 
 | Statut Ecotrack | Dans l'outil |
 |---|---|
@@ -221,9 +232,10 @@ La page **Suivi** réunit :
   | 📵 Pas de réponse | rappel dans 2 h (`DELAI_RAPPEL_MINUTES`), 3 essais ; au 3ᵉ, l'outil **propose** « Demander le retour » ou « Laisser le livreur réessayer » |
 
   Les autres alertes gardent **Marquer comme traité** : elles disparaissent jusqu'au prochain changement du colis (ou pendant leur délai, pour une alerte liée au temps). Chaque action est notée dans le Journal.
-- **Où est l'argent** : chez le livreur, livré pas encaissé, encaissé pas payé, prêt à être versé, payé (sur 7, 30 ou 90 jours), et la liste des **versements** (n° fourni par Ecotrack). Les montants sont les totaux à encaisser, avant déduction des frais d'Ecotrack.
+- **L'argent** (chez le livreur, livré pas encaissé, encaissé pas payé, prêt à être versé, payé, et les **versements**) est dans **Statistiques › Argent**, sur la période choisie : le Suivi est plus léger.
 - **Colis en cours**, filtrables : à valider, en route, en livraison, suspendus, retours.
-- **Chronologie** d'un colis (`get/tracking/info`), aussi dans la fiche de chaque commande : validé, récupéré, au centre de tri, confié au livreur, tentative de livraison, livré, encaissé, payé… Si la réponse d'Ecotrack n'est pas reconnue, elle est affichée telle quelle.
+- **Chronologie** d'un colis (`get/tracking/info`), aussi dans la fiche de chaque commande : validé, récupéré, au centre de tri, confié au livreur, tentative de livraison, livré, encaissé, payé… Les dates sont lues **à l'heure d'Algérie** (quel que soit le fuseau du projet Apps Script), avec l'année si ce n'est pas l'année en cours ; une étape sans heure affiche seulement le jour. La réponse brute d'Ecotrack est jointe (repliée) pour vérifier une date en cas de doute.
+- **« Dernier mouvement »** d'un colis : la date du changement de statut **donnée par Ecotrack** quand sa réponse la contient, sinon l'heure où l'outil a vu le changement. Tant qu'Ecotrack ne change pas le statut, cette date ne bouge pas : c'est normal. Le haut de la page indique quand les statuts ont été vérifiés pour la dernière fois (« vérifiés chez Ecotrack il y a 12 min »).
 - Après la livraison, un colis Ecotrack reste suivi **jusqu'au versement de l'argent** (encaissé, prêt, payé), et un retour **jusqu'à sa réception**.
 
 ## Stock (page à part)
@@ -262,17 +274,29 @@ Page **Bénéfices** (menu de gauche ; sur téléphone : **☰ Plus**), visible 
 | Retour | − frais de retour (`FRAIS_RETOUR`, 50 DA) − emballage |
 | En route, en confirmation, annulée | Non comptée |
 
-- **Onglet Dépenses** (la publicité en fait partie) : **Date | Catégorie | Campagne | Montant | Devise (DA ou USD) | Taux | Note**.
-  - Les catégories se règlent dans `CATEGORIES_DEPENSES`.
+- **Onglet Dépenses** (la publicité en fait partie) : **Date | Catégorie | Campagne | Montant | Devise (DA ou USD) | Taux | Note | Fin | Type**.
+  - **Fin** : pour une dépense étalée (publicité du 1er au 10…). Le montant est **réparti à parts égales sur chaque jour** : une période ne compte que ses jours (7 jours sur 10 = 70 % du montant). Vide = un seul jour.
+  - **Type** : « Dépense » (vide = dépense) ou **« Gain »** : argent reçu en dehors des commandes (remboursement, vente directe, bonus…), **ajouté au bénéfice net**.
+  - Les catégories se règlent dans `CATEGORIES_DEPENSES` et `CATEGORIES_GAINS`.
   - Une dépense en dollars prend le **taux du jour** (`TAUX_DOLLAR`) quand elle est saisie dans l'application, ou la première fois qu'elle est lue si elle est tapée dans le classeur. Changer le taux plus tard ne modifie pas les anciennes dépenses.
 - **Livraison** = prix de la société de livraison (onglet Tarifs ; ceux d'Ecotrack sont récupérés par l'API) **− livraison payée par le client**. Positive, elle vous coûte (par exemple 700 − 450 = 250, ou 700 en livraison gratuite). Négative, vous gagnez dessus (par exemple 400 − 600 = −200). Le bénéfice est le même que « total encaissé − prix de la société − achat » ; la livraison est simplement montrée à part.
-- **Résumé** : ventes des produits, livraison, bénéfice des commandes, dépenses, **bénéfice net**, publicité par commande livrée, avec le détail ligne par ligne. Un avertissement apparaît s'il manque un coût d'achat ou un tarif de livraison ; dans ce cas, les frais payés par le client sont utilisés.
-- **Produits** : commandes, livrées, retours, taux de livraison, chiffre livré et bénéfice par modèle.
+- **Période au choix** : aujourd'hui, hier, 7 ou 30 jours, ce mois, mois dernier, tout, ou **Personnalisé** (du … au …). Le choix est retenu sur l'appareil.
+- **Résumé** : ventes des produits, livraison, bénéfice des commandes, dépenses, autres gains, **bénéfice net**, publicité par commande livrée, chacun **comparé à la période d'avant** (▲ +12 %), puis :
+
+  | Graphique | Ce qu'il montre |
+  |---|---|
+  | **Bénéfice net par jour** | barres vertes (gagné) ou rouges (perdu) ; par semaine ou par mois sur une longue période ; touchez une barre pour le détail |
+  | **Où part l'argent** | sur 100 DA encaissés : livraison, achat, retours, emballage, publicité, autres dépenses, et ce qui reste |
+  | **Seuil de rentabilité** | livrées par jour (ou par semaine) nécessaires pour couvrir vos dépenses, et combien vous en faites |
+  | **Simulateur** | un curseur : « avec 75 % de livraison, votre bénéfice net serait de … » |
+
+  Un avertissement apparaît s'il manque un coût d'achat ou un tarif de livraison ; dans ce cas, les frais payés par le client sont utilisés.
+- **Produits** : classés par **bénéfice** (barres), avec commandes, livrées, retours, taux de livraison, ventes, bénéfice et **bénéfice par livrée**.
 - **Publicité** :
-  - **par plateforme** (Facebook, TikTok, selon « UTM source ») et **par campagne** (« UTM campaign ») : commandes, livrées, bénéfice, dépense, **net**, publicité par commande livrée ;
+  - **par plateforme** (Facebook, TikTok, selon « UTM source ») et **par campagne** (« UTM campaign ») : commandes, livrées, bénéfice, dépense, **coût par livrée**, **ROAS** (×3 = 3 DA encaissés pour 1 DA de publicité), **net** ;
   - pour relier commandes et publicités, ajoutez « UTM source » et « UTM campaign » à la fin de l'onglet RELEASIT, et dans le lien des annonces : `utm_source=facebook&utm_campaign={{campaign.name}}` (Facebook) ou `utm_source=tiktok&utm_campaign=__CAMPAIGN_NAME__` (TikTok) ;
   - écrivez le même nom de campagne dans vos dépenses.
-- **Dépenses** : ajout rapide depuis le téléphone, et liste de la période.
+- **Dépenses et gains** : ajout depuis le téléphone (type, du / au, catégorie, campagne, montant, devise), liste de la période avec la part de chaque ligne dans la période ; **Corriger** (le formulaire se remplit), **Supprimer**, ou cochez plusieurs lignes et **Supprimer (n)**. Chaque correction et suppression est notée dans le Journal.
 
 ## Apparence
 
@@ -487,7 +511,7 @@ Ce que fait l'outil pour rester rapide :
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 124 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 132 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
@@ -506,17 +530,17 @@ apps-script/
   Labels.gs     bordereaux Ecotrack (PDF), « imprimé », validation de l'expédition
   FollowUp.gs   remarques du livreur, résultat de l'appel, demande de retour, client signalé
   Health.gs     la tâche de chaque minute, l'état de l'outil, les e-mails de panne
-  Stats.gs      statistiques : résumés par jour (onglet caché Stats), primes
+  Stats.gs      statistiques : résumés par jour (onglet caché Stats), primes, période libre (aussi Tableau de bord et Bénéfices)
   Admin.gs      page Administration, pages chargées à la demande
   Speed.gs      mémoire courte des commandes, préchargement, mesure du temps des pages
   Shopify.gs    importation des commandes Shopify (Releasit COD), wilayas en arabe
   Releasit.gs   transfert des commandes de l'onglet RELEASIT (écrites par Releasit COD)
-  Rules.gs      verrouillage selon l'étape, annulation d'un colis Ecotrack, corbeille
+  Rules.gs      verrouillage selon l'étape, annulation d'un colis Ecotrack, corbeille (en plusieurs, vider, numéros bloqués)
   Maintenance.gs  archivage de nuit, Journal raccourci, onglets allégés
   Stock.gs      catalogue par modèle, stock réservé, sorti et rentré
-  Profit.gs     bénéfice des commandes, dépenses, rentabilité par produit et par campagne
+  Profit.gs     bénéfice des commandes, dépenses et gains (sur un intervalle), graphiques, rentabilité par produit et par campagne
   Sms.gs        SMS automatiques selon le statut (httpSMS)
-  Calls.gs      appels sans réponse : 3 par jour pendant 3 jours, annulation automatique
+  Calls.gs      appels sans réponse : 3 par jour pendant 3 jours, annulation automatique, historique des appels, motif « en attente »
   Api.gs        application web, menu du classeur, fonctions appelées par l'interface
   Setup.gs      création/réparation du classeur et du traitement automatique
   Index.html    page de l'application

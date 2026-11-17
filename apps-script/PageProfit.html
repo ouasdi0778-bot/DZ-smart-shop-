@@ -1,12 +1,13 @@
 /**
  * Page Bénéfices (administrateur) : chargée seulement quand on ouvre la page (voir App.html, loadModule).
+ * Période libre (retenue sur l'appareil), graphiques dessinés ici en SVG, dépenses et gains
+ * (sur un jour ou un intervalle), correction et suppression (une ou plusieurs lignes).
  */
 (function (DZ) {
   'use strict';
   var S = DZ.S;
   var view = DZ.view;
   var $ = DZ.$;
-  var $all = DZ.$all;
   var table = DZ.table;
   var call = DZ.call;
   var h = DZ.h;
@@ -20,28 +21,35 @@
   var input = DZ.input;
   var readForm = DZ.readForm;
   var icon = DZ.icon;
+  var dayText = DZ.dayText;
+
+  var P = S.profit;
+  var GREEN = '#146C2E';
+  var RED = '#A12626';
+  var INK = '#2A2F3A';
 
   /* ================================================================ */
-  /* Bénéfices (administrateur)                                       */
+  /* Chargement                                                       */
   /* ================================================================ */
 
   function pageProfit() {
     view.innerHTML = '<div id="profit"><p class="loading">Chargement…</p></div>';
-    if (S.profit.tab === 'stock') S.profit.tab = 'resume';
-    if (S.profit.data && S.profit.data.period === S.profit.period) { renderProfit(); loadProfit(true); } else loadProfit();
+    if (P.tab === 'stock') P.tab = 'resume';
+    if (P.data && P.data.key === DZ.periodKey(P.p)) { renderProfit(); loadProfit(true); } else loadProfit();
   }
 
   function loadProfit(keep) {
     var t = ++S.token;
-    var p = S.profit;
     var box = $('#profit-body');
     if (box && !keep) box.innerHTML = '<p class="loading">Chargement…</p>';
+    var key = DZ.periodKey(P.p);
     DZ.syncStart();
-    return call('api_profit', p.period).then(function (d) {
+    return call.apply(null, ['api_profit'].concat(DZ.periodArgs(P.p))).then(function (d) {
       DZ.syncEnd();
       if (t !== S.token || S.route !== 'benefices') return;
       DZ.perfDone('benefices');
-      p.data = d;
+      d.key = key;
+      P.data = d;
       renderProfit();
     }).catch(function (e) {
       DZ.syncEnd();
@@ -49,50 +57,213 @@
     });
   }
 
+  /* ================================================================ */
+  /* Outils                                                           */
+  /* ================================================================ */
+
   function signed(n) {
     return '<span class="' + (n < 0 ? 'neg' : 'pos') + '">' + money(n) + '</span>';
   }
+  function rate(r) { return r === null || r === undefined ? '—' : Math.round(r * 100) + ' %'; }
+  function roas(r) { return r === null || r === undefined ? '—' : '×' + String(r).replace('.', ','); }
+
+  /** Évolution par rapport à la période d'avant. goodWhenUp = false : une hausse est mauvaise (dépenses). */
+  function delta(cur, prev, goodWhenUp, kind) {
+    if (cur === null || cur === undefined || prev === null || prev === undefined) return '';
+    var diff, text;
+    if (kind === 'rate') {
+      diff = Math.round((cur - prev) * 100);
+      if (!diff) return '<span class="delta">=</span>';
+      text = (diff > 0 ? '+' : '') + diff + ' pts';
+    } else {
+      if (!prev) return '';
+      diff = Math.round((cur - prev) / Math.abs(prev) * 100);
+      if (!diff) return '<span class="delta">=</span>';
+      text = (diff > 0 ? '+' : '') + diff + ' %';
+    }
+    var good = goodWhenUp === false ? diff < 0 : diff > 0;
+    return '<span class="delta ' + (good ? 'up' : 'down') + '">' + (diff > 0 ? '▲ ' : '▼ ') + text + '</span> ';
+  }
+
+  function rangeText(r) {
+    if (!r) return '';
+    if (r.all) return 'Depuis le début (archives comprises)';
+    return r.from === r.to ? 'Le ' + dayText(r.from) : 'Du ' + dayText(r.from) + ' au ' + dayText(r.to);
+  }
+
+  function bucketLabel(b, unit) {
+    if (unit === 'month') return ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'][Number(b.from.slice(5, 7)) - 1] + ' ' + b.from.slice(2, 4);
+    return dayText(b.from).slice(0, 5);
+  }
+
+  /* ================================================================ */
+  /* Page                                                             */
+  /* ================================================================ */
 
   function renderProfit() {
-    var p = S.profit;
-    var d = p.data;
+    var d = P.data;
     var box = $('#profit');
     if (!box || !d) return;
-    var periods = [['today', 'Aujourd’hui'], ['7', '7 jours'], ['30', '30 jours'], ['all', 'Tout']];
-    var tabs = [['resume', 'Résumé'], ['produits', 'Produits'], ['campagnes', 'Publicité'], ['depenses', 'Dépenses']];
-    var html = '<div class="page-head"><div><h1>Bénéfices</h1><p class="sub">Commandes comptées à leur date de commande · visible seulement par l’administrateur</p></div>' +
-      '<div class="seg" role="group" aria-label="Période">' + periods.map(function (x) {
-        return '<button type="button" data-act="profit-period" data-period="' + x[0] + '" aria-pressed="' + (p.period === x[0]) + '">' + x[1] + '</button>';
-      }).join('') + '</div></div>' +
-      '<div class="tabs" role="group" aria-label="Rubrique">' + tabs.map(function (x) {
-        return '<button type="button" class="chip" data-act="profit-tab" data-tab="' + x[0] + '" aria-pressed="' + (p.tab === x[0]) + '">' + x[1] + '</button>';
-      }).join('') + '</div><div id="profit-body"></div>';
+    var tabs = [['resume', 'Résumé'], ['produits', 'Produits'], ['campagnes', 'Publicité'], ['depenses', 'Dépenses et gains']];
+    var r = d.range || {};
+    var html = '<div class="page-head"><div><h1>Bénéfices</h1><p class="sub">' + h(rangeText(r)) +
+      (d.prev ? ' · comparé au ' + dayText(r.prevFrom) + '–' + dayText(r.prevTo) : '') + ' · commandes comptées à leur date de commande</p></div></div>' +
+      '<div id="profit-period">' + DZ.periodPicker(P.p, 'profit-period') + '</div>' +
+      '<div class="tabs chips" role="group" aria-label="Rubrique" style="margin-top:12px">' + tabs.map(function (x) {
+        return '<button type="button" class="chip" data-act="profit-tab" data-tab="' + x[0] + '" aria-pressed="' + (P.tab === x[0]) + '">' + x[1] + '</button>';
+      }).join('') + '</div><div id="profit-body" style="margin-top:14px"></div>';
     box.innerHTML = html;
     var body = $('#profit-body');
-    if (p.tab === 'produits') body.innerHTML = profitProducts(d);
-    else if (p.tab === 'campagnes') body.innerHTML = profitCampaigns(d);
-    else if (p.tab === 'depenses') body.innerHTML = profitExpenses(d);
+    if (P.tab === 'produits') body.innerHTML = profitProducts(d);
+    else if (P.tab === 'campagnes') body.innerHTML = profitCampaigns(d);
+    else if (P.tab === 'depenses') { body.innerHTML = profitExpenses(d); fillExpenseForm(); }
     else body.innerHTML = profitSummary(d);
   }
 
+  /* ---------------- Résumé ---------------- */
+
   function profitSummary(d) {
     var t = d.totals;
+    var p = d.prev || {};
     var kpis = [
-      ['Ventes des produits', money(t.productSales), plural(t.delivered, 'commande livrée', 'commandes livrées') + ' · encaissé ' + money(t.revenue)],
-      ['Livraison', signed(-t.deliveryNet), t.deliveryNet > 0 ? 'Elle vous coûte (Ecotrack − payé par les clients)' : t.deliveryNet < 0 ? 'Vous gagnez dessus (payé par les clients − Ecotrack)' : 'Ni gain ni perte'],
-      ['Bénéfice des commandes', signed(t.ordersProfit), 'Après livraison, achat et retours'],
-      ['Dépenses', money(t.expenses), 'Dont publicité : ' + money(t.adSpend)],
-      ['Bénéfice net', signed(t.net), 'Ce qui vous reste sur la période'],
-      ['Publicité par commande livrée', t.costPerDelivered === null ? '—' : money(t.costPerDelivered), t.deliveryRate === null ? 'Aucune commande terminée' : 'Taux de livraison : ' + Math.round(t.deliveryRate * 100) + ' %']
-    ];
+      ['Ventes des produits', money(t.productSales), delta(t.productSales, p.productSales) + plural(t.delivered, 'livrée', 'livrées') + ' · encaissé ' + money(t.revenue)],
+      ['Livraison', signed(-t.deliveryNet), t.deliveryNet > 0 ? 'Elle vous coûte (Ecotrack − payé par les clients)' : t.deliveryNet < 0 ? 'Vous gagnez dessus' : 'Ni gain ni perte'],
+      ['Bénéfice des commandes', signed(t.ordersProfit), delta(t.ordersProfit, p.ordersProfit) + 'après livraison, achat et retours'],
+      ['Dépenses', money(t.expenses), delta(t.expenses, p.expenses, false) + 'dont publicité : ' + money(t.adSpend)],
+      t.gains || p.gains ? ['Autres gains', signed(t.gains), delta(t.gains, p.gains) + 'argent reçu hors commandes'] : null,
+      ['Bénéfice net', signed(t.net), delta(t.net, p.net) + 'ce qui vous reste'],
+      ['Publicité par livrée', t.costPerDelivered === null ? '—' : money(t.costPerDelivered), delta(t.costPerDelivered, p.costPerDelivered, false) + (t.deliveryRate === null ? 'aucune commande terminée' : 'taux de livraison ' + rate(t.deliveryRate))]
+    ].filter(Boolean);
     var html = '<div class="stack"><section class="grid-kpi" aria-label="Chiffres clés">' + kpis.map(function (k) {
-      return '<div class="card kpi"><span class="label">' + h(k[0]) + '</span><span class="value">' + k[1] + '</span><span class="note">' + h(k[2]) + '</span></div>';
+      return '<div class="card kpi"><span class="label">' + h(k[0]) + '</span><span class="value">' + k[1] + '</span><span class="note">' + k[2] + '</span></div>';
     }).join('') + '</section>';
     var warn = [];
     if (d.warnings.missingCost) warn.push(plural(d.warnings.missingCost, 'commande livrée sans coût d’achat', 'commandes livrées sans coût d’achat') + ' (' + h(d.warnings.missingCostLabels.join(', ')) + ') : complétez la page Stock.');
     if (d.warnings.missingFee) warn.push(plural(d.warnings.missingFee, 'commande sans tarif de livraison', 'commandes sans tarif de livraison') + ' dans l’onglet Tarifs : les frais payés par le client sont utilisés.');
-    if (warn.length) html += '<div class="stock-warn" style="flex-direction:column;align-items:flex-start">' + warn.map(function (w) { return '<span>' + icon('alert') + '' + w + '</span>'; }).join('') + '</div>';
-    html += '<section class="card"><h2>Détail</h2><div class="money-lines">' +
+    if (warn.length) html += '<div class="stock-warn" style="flex-direction:column;align-items:flex-start">' + warn.map(function (w) { return '<span>' + icon('alert') + w + '</span>'; }).join('') + '</div>';
+    html += netChart(d) + whereMoney(d) + breakEven(d) + simulator(d) + detailLines(d) + '</div>';
+    return html;
+  }
+
+  /** a) Bénéfice net par jour (ou semaine, ou mois) : barres vertes au-dessus de zéro, rouges en dessous. */
+  function netChart(d) {
+    var rows = d.series || [];
+    var unit = d.range.unit === 'week' ? 'semaine' : d.range.unit === 'month' ? 'mois' : 'jour';
+    var html = '<section class="card"><h2>Bénéfice net par ' + unit + '</h2>';
+    if (!rows.length || rows.every(function (b) { return !b.net && !b.revenue; })) return html + '<p class="empty">Rien sur la période.</p></section>';
+    var W = 640, H = 170, pad = 24;
+    var max = 1, min = 0;
+    rows.forEach(function (b) { max = Math.max(max, b.net, 0); min = Math.min(min, b.net); });
+    var span = max - min || 1;
+    var y0 = 8 + (max / span) * (H - 16);
+    var slot = (W - pad) / rows.length;
+    var bw = Math.max(Math.min(slot * 0.7, 26), 2);
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + (H + 18) + '" class="chart" role="img" aria-label="Bénéfice net par ' + unit + '">';
+    svg += '<line x1="' + pad + '" y1="' + y0.toFixed(1) + '" x2="' + W + '" y2="' + y0.toFixed(1) + '" class="axis"/>';
+    svg += '<text x="0" y="12" class="tick">' + h(money(max).replace(/\s?DA$/, '')) + '</text>';
+    if (min < 0) svg += '<text x="0" y="' + H + '" class="tick">' + h(money(min).replace(/\s?DA$/, '')) + '</text>';
+    rows.forEach(function (b, i) {
+      var x = pad + i * slot + (slot - bw) / 2;
+      var hgt = Math.abs(b.net) / span * (H - 16);
+      var y = b.net >= 0 ? y0 - hgt : y0;
+      svg += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(hgt, b.net ? 1 : 0).toFixed(1) + '" rx="2" fill="' + (b.net < 0 ? RED : GREEN) + '"><title>' +
+        h(bucketLabel(b, d.range.unit) + (b.to !== b.from ? '–' + dayText(b.to).slice(0, 5) : '') + ' · net ' + money(b.net) + ' · encaissé ' + money(b.revenue) + ' · bénéfice des commandes ' + money(b.profit) +
+          ' · dépenses ' + money(b.expenses) + (b.gains ? ' · gains ' + money(b.gains) : '')) + '</title></rect>';
+      if (i === 0 || i === rows.length - 1 || (rows.length > 10 && i % Math.ceil(rows.length / 6) === 0) || rows.length <= 10) {
+        svg += '<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (H + 14) + '" class="tick" text-anchor="middle">' + h(bucketLabel(b, d.range.unit)) + '</text>';
+      }
+    });
+    svg += '</svg>';
+    var best = rows.reduce(function (a, b) { return !a || b.net > a.net ? b : a; }, null);
+    var worst = rows.reduce(function (a, b) { return !a || b.net < a.net ? b : a; }, null);
+    return html + '<div class="chart-wrap">' + svg + '<div class="legend"><span><i style="background:' + GREEN + '"></i>Gagné</span><span><i style="background:' + RED + '"></i>Perdu</span>' +
+      (rows.length > 1 && best ? '<span>Meilleur : ' + h(bucketLabel(best, d.range.unit)) + ' (' + money(best.net) + ')</span>' : '') +
+      (rows.length > 1 && worst && worst.net < 0 ? '<span>Pire : ' + h(bucketLabel(worst, d.range.unit)) + ' (' + money(worst.net) + ')</span>' : '') +
+      '</div></div><p class="small" style="margin-top:6px">Commandes à leur date de commande ; une dépense sur plusieurs jours est répartie sur chaque jour. Touchez une barre pour le détail.</p></section>';
+  }
+
+  /** b) Où part l'argent encaissé. */
+  function whereMoney(d) {
+    var t = d.totals;
+    var html = '<section class="card"><h2>Où part l’argent</h2>';
+    if (!t.revenue) return html + '<p class="empty">Aucune commande livrée sur la période.</p></section>';
+    var parts = [
+      ['Livraison (Ecotrack)', t.deliveryFees, '#5B34A8'],
+      ['Achat des produits', t.productCost, '#1E4FA8'],
+      ['Retours', t.returnFees, '#9A4200'],
+      ['Emballage', t.packaging, '#6B7280'],
+      ['Publicité', t.adSpend, '#C2410C'],
+      ['Autres dépenses', t.expenses - t.adSpend, '#8A5200']
+    ].filter(function (x) { return x[1] > 0; });
+    var left = t.net;
+    var total = t.revenue + Math.max(t.gains, 0);
+    var bar = '<div class="money-bar" role="img" aria-label="Répartition de l’argent encaissé">' + parts.map(function (x) {
+      return '<span style="width:' + Math.max(x[1] / total * 100, 0.5).toFixed(2) + '%;background:' + x[2] + '" title="' + h(x[0] + ' : ' + money(x[1])) + '"></span>';
+    }).join('') + (left > 0 ? '<span style="width:' + (left / total * 100).toFixed(2) + '%;background:' + GREEN + '" title="Bénéfice net : ' + h(money(left)) + '"></span>' : '') + '</div>';
+    var per100 = function (v) { return Math.round(v / t.revenue * 100); };
+    html += '<p class="small">Sur ' + money(100) + ' encaissés, il vous reste <strong class="' + (left < 0 ? 'neg' : 'pos') + '">' + money(per100(left)) + '</strong>.</p>' + bar +
+      '<div class="money-lines" style="margin-top:12px">' +
+      '<div><span class="strong">Encaissé (commandes livrées)</span><span class="strong">' + money(t.revenue) + '</span></div>' +
+      parts.map(function (x) {
+        return '<div><span><i class="dot" style="background:' + x[2] + '"></i>' + h(x[0]) + ' <span class="small">(' + per100(x[1]) + ' DA sur 100)</span></span>' + signed(-x[1]) + '</div>';
+      }).join('') +
+      (t.gains ? '<div><span><i class="dot" style="background:' + GREEN + '"></i>Autres gains</span>' + signed(t.gains) + '</div>' : '') +
+      '<div class="total"><span>Bénéfice net</span>' + signed(t.net) + '</div></div></section>';
+    return html;
+  }
+
+  /** f) Seuil de rentabilité. */
+  function breakEven(d) {
+    var b = d.breakEven;
+    var html = '<section class="card"><h2>Seuil de rentabilité</h2>';
+    if (!b || !b.needPerDay) return html + '<p class="small">Aucune dépense sur la période : chaque commande livrée est déjà du bénéfice.</p></section>';
+    if (b.perDayNeeded === null) {
+      return html + '<p>Vos dépenses : <strong>' + money(b.needPerDay) + ' par jour</strong>. ' +
+        (b.margin === null ? 'Aucune commande livrée sur la période : impossible de calculer le seuil.' : 'Vos commandes livrées ne rapportent rien en moyenne (' + money(b.margin) + ') : chaque vente vous coûte.') + '</p></section>';
+    }
+    var ok = b.ok !== undefined ? b.ok : b.perDayNow >= b.perDayNeeded;
+    var pctNow = Math.min(b.perDayNow / b.perDayNeeded * 100, 100);
+    // Moins d'une livrée par jour : on parle en livrées par semaine (plus parlant que « 0,4 par jour »).
+    var week = b.perDayNeeded < 1;
+    var unit = week ? 'par semaine' : 'par jour';
+    var k = week ? 7 : 1;
+    var num = function (v) { return String(Math.round(v * k * 10) / 10).replace('.', ','); };
+    var missing = b.perDayNeeded - b.perDayNow;
+    return html + '<p>Vos dépenses (moins les gains) : <strong>' + money(b.needPerDay) + ' par jour</strong>. Une commande livrée vous rapporte en moyenne <strong>' + money(b.margin) + '</strong> avant dépenses (retours compris).</p>' +
+      '<p style="margin-top:8px">Il faut <strong>' + num(b.perDayNeeded) + ' livrée(s) ' + unit + '</strong> pour couvrir vos dépenses. Vous en faites <strong class="' + (ok ? 'pos' : 'neg') + '">' + num(b.perDayNow) + '</strong>.</p>' +
+      '<div class="gauge" role="img" aria-label="' + num(b.perDayNow) + ' sur ' + num(b.perDayNeeded) + ' livrées ' + unit + '"><span style="width:' + pctNow.toFixed(1) + '%;background:' + (ok ? GREEN : '#C2410C') + '"></span></div>' +
+      '<p class="small" style="margin-top:6px">' + (ok ? 'Au-dessus du seuil : vous gagnez de l’argent sur la période.'
+        : 'En dessous du seuil' + (missing > 0 ? ' : il manque ' + num(missing) + ' livrée(s) ' + unit : '') + '. Les commandes encore en route ne sont pas encore comptées.') + '</p></section>';
+  }
+
+  /** g) Simulateur : et si le taux de livraison changeait ? */
+  function simulator(d) {
+    var s = d.sim;
+    var html = '<section class="card"><h2>Simulateur du taux de livraison</h2>';
+    if (!s || !s.finished || s.avgDelivered === null) return html + '<p class="small">Il faut des commandes livrées ou retournées sur la période pour simuler.</p></section>';
+    var cur = Math.round((s.rate || 0) * 100);
+    var target = Math.min(Math.max(P.simRate || Math.min(cur + 10, 95), 20), 100);
+    return html + '<p class="small">Sur ' + plural(s.finished, 'commande terminée', 'commandes terminées') + ' : une livrée rapporte en moyenne ' + money(s.avgDelivered) + ', un retour coûte ' + money(s.avgReturnLoss) + '. Votre taux actuel : <strong>' + cur + ' %</strong>.</p>' +
+      '<label class="sim-row"><span>Taux de livraison : <strong id="sim-rate">' + target + ' %</strong></span>' +
+      '<input type="range" min="20" max="100" step="1" value="' + target + '" data-sim aria-label="Taux de livraison simulé"></label>' +
+      '<div id="sim-out">' + simText(d, target) + '</div></section>';
+  }
+
+  function simText(d, pct) {
+    var s = d.sim;
+    var t = d.totals;
+    var r = pct / 100;
+    var profit = s.finished * r * s.avgDelivered - s.finished * (1 - r) * s.avgReturnLoss;
+    var net = Math.round(profit - t.expenses + t.gains);
+    var diff = net - t.net;
+    return '<p style="margin-top:8px">Avec <strong>' + pct + ' %</strong> de livraison : bénéfice net <strong class="' + (net < 0 ? 'neg' : 'pos') + '">' + money(net) + '</strong>' +
+      (diff ? ' <span class="delta ' + (diff > 0 ? 'up' : 'down') + '">' + (diff > 0 ? '+' : '') + money(diff) + '</span>' : '') + ' sur la période.</p>' +
+      '<p class="small">Un meilleur taux de livraison vient d’une confirmation plus sérieuse (adresse, disponibilité) et d’un suivi rapide des colis suspendus.</p>';
+  }
+
+  function detailLines(d) {
+    var t = d.totals;
+    return '<section class="card"><h2>Détail</h2><div class="money-lines">' +
       '<div><span>Ventes des produits livrés (sans la livraison)</span><span>' + money(t.productSales) + '</span></div>' +
       '<div><span>Livraison : Ecotrack ' + money(t.deliveryFees) + ' − payé par les clients ' + money(t.clientShipping) + '</span>' + signed(-t.deliveryNet) + '</div>' +
       '<div><span>Coût d’achat des produits livrés</span>' + signed(-t.productCost) + '</div>' +
@@ -100,91 +271,218 @@
       (t.packaging ? '<div><span>Emballage</span>' + signed(-t.packaging) + '</div>' : '') +
       '<div class="total"><span>Bénéfice des commandes</span>' + signed(t.ordersProfit) + '</div>' +
       d.expensesByCategory.map(function (e) { return '<div><span>' + h(e.category) + '</span>' + signed(-e.amount) + '</div>'; }).join('') +
+      (d.gainsByCategory || []).map(function (e) { return '<div><span>Gain · ' + h(e.category) + '</span>' + signed(e.amount) + '</div>'; }).join('') +
       '<div class="total"><span>Bénéfice net</span>' + signed(t.net) + '</div>' +
-      '</div><p class="small" style="margin-top:10px">' + t.inTransit + ' commande(s) encore en route ne sont pas comptées : leur bénéfice arrivera à la livraison.</p></section></div>';
-    return html;
+      '</div><p class="small" style="margin-top:10px">' + t.inTransit + ' commande(s) encore en route ne sont pas comptées : leur bénéfice arrivera à la livraison.</p></section>';
   }
 
-  function groupRows(list, first) {
-    return list.map(function (g) {
-      return [first(g), g.orders, g.delivered, g.returned, g.deliveryRate === null ? '—' : Math.round(g.deliveryRate * 100) + ' %',
-        money(g.sales), signed(-g.deliveryNet), signed(g.profit)];
-    });
-  }
+  /* ---------------- Produits (d) ---------------- */
 
   function profitProducts(d) {
     if (!d.products.length) return '<div class="card"><p class="empty">Aucune commande sur la période.</p></div>';
-    return '<section class="card"><h2>Par produit</h2>' +
-      table(['Produit', 'Commandes', 'Livrées', 'Retours', 'Taux de livraison', 'Ventes', 'Livraison', 'Bénéfice'], groupRows(d.products, function (g) { return h(g.name); }), [1, 2, 3, 4, 5, 6, 7]) +
-      '<p class="small" style="margin-top:10px">Livraison : en rouge, ce que la livraison vous coûte (Ecotrack plus cher que ce que paie le client) ; en vert, ce que vous gagnez dessus. ' +
-      'Une commande à plusieurs produits est partagée selon les quantités. Bénéfice avant dépenses (publicité…).</p></section>';
+    var byProfit = d.products.slice().sort(function (a, b) { return b.profit - a.profit; });
+    var top = byProfit.filter(function (g) { return g.profit !== 0; }).slice(0, 8);
+    var max = Math.max.apply(null, top.map(function (g) { return Math.abs(g.profit); }).concat([1]));
+    var html = '<div class="stack"><section class="card"><h2>Ce qui vous rapporte le plus</h2>' +
+      (top.length ? '<div class="hbars">' + top.map(function (g) {
+        return '<div class="hbar"><span class="hbar-label">' + h(g.name) + '</span><span class="hbar-track"><span style="width:' + Math.max(Math.abs(g.profit) / max * 100, 2).toFixed(1) + '%;background:' + (g.profit < 0 ? RED : GREEN) + '"></span></span>' +
+          '<span class="hbar-n ' + (g.profit < 0 ? 'neg' : '') + '">' + money(g.profit) + '</span></div>';
+      }).join('') + '</div>' : '<p class="empty">Pas encore de bénéfice calculé (aucune commande livrée ou retournée).</p>') +
+      '<p class="small" style="margin-top:8px">Classés par bénéfice (après livraison, achat et retours), pas par nombre de ventes.</p></section>';
+    html += '<section class="card"><h2>Par produit</h2>' +
+      table(['Produit', 'Commandes', 'Livrées', 'Retours', 'Livraison', 'Ventes', 'Bénéfice', 'Par livrée'], byProfit.map(function (g) {
+        return [h(g.name), g.orders, g.delivered, g.returned, rate(g.deliveryRate), money(g.sales), signed(g.profit), g.profitPerDelivered === null ? '—' : signed(g.profitPerDelivered)];
+      }), [1, 2, 3, 4, 5, 6, 7]) +
+      '<p class="small" style="margin-top:10px">Une commande à plusieurs produits est partagée selon les quantités. Bénéfice avant dépenses (publicité…). « Par livrée » : bénéfice divisé par les commandes livrées, retours compris.</p></section></div>';
+    return html;
   }
+
+  /* ---------------- Publicité (e) ---------------- */
 
   function adRows(list) {
     return list.map(function (g) {
-      return [h(g.name), g.orders, g.delivered, g.deliveryRate === null ? '—' : Math.round(g.deliveryRate * 100) + ' %', signed(g.profit),
-        money(g.spend), signed(g.net), g.costPerDelivered === null ? '—' : money(g.costPerDelivered)];
+      return [h(g.name), g.orders, g.delivered, rate(g.deliveryRate), signed(g.profit), money(g.spend),
+        g.costPerDelivered === null ? '—' : money(g.costPerDelivered), roas(g.roas), signed(g.net)];
     });
   }
 
   function profitCampaigns(d) {
-    var head = ['', 'Commandes', 'Livrées', 'Livraison', 'Bénéfice', 'Publicité', 'Net', 'Pub / livrée'];
-    var html = '<div class="stack"><section class="card"><h2>Par plateforme</h2>' +
-      table(['Plateforme'].concat(head.slice(1)), adRows(d.platforms), [1, 2, 3, 4, 5, 6, 7]) + '</section>' +
-      '<section class="card"><h2>Par campagne</h2>' +
-      table(['Campagne'].concat(head.slice(1)), adRows(d.campaigns), [1, 2, 3, 4, 5, 6, 7]) +
+    var t = d.totals;
+    var head = ['', 'Commandes', 'Livrées', 'Livraison', 'Bénéfice', 'Publicité', 'Coût / livrée', 'ROAS', 'Net'];
+    return '<div class="stack"><section class="grid-kpi">' +
+      '<div class="card kpi"><span class="label">Publicité</span><span class="value">' + money(t.adSpend) + '</span><span class="note">' + delta(t.adSpend, (d.prev || {}).adSpend, false) + '</span></div>' +
+      '<div class="card kpi"><span class="label">Coût par commande livrée</span><span class="value">' + (t.costPerDelivered === null ? '—' : money(t.costPerDelivered)) + '</span><span class="note">' + delta(t.costPerDelivered, (d.prev || {}).costPerDelivered, false) + '</span></div>' +
+      '<div class="card kpi"><span class="label">ROAS</span><span class="value">' + roas(t.roas) + '</span><span class="note">encaissé ÷ publicité</span></div></section>' +
+      '<section class="card"><h2>Par plateforme</h2>' + table(['Plateforme'].concat(head.slice(1)), adRows(d.platforms), [1, 2, 3, 4, 5, 6, 7, 8]) + '</section>' +
+      '<section class="card"><h2>Par campagne</h2>' + table(['Campagne'].concat(head.slice(1)), adRows(d.campaigns), [1, 2, 3, 4, 5, 6, 7, 8]) +
       (d.adUnassigned ? '<p class="small" style="margin-top:10px">' + money(d.adUnassigned) + ' de publicité sans campagne : comptés pour la plateforme, pas pour une campagne.</p>' : '') +
+      '<p class="small" style="margin-top:10px"><strong>ROAS</strong> ×3 = 3 DA encaissés pour 1 DA de publicité. <strong>Net</strong> = bénéfice des commandes − publicité : c’est lui qui dit si une campagne vous enrichit.</p>' +
       '<p class="small" style="margin-top:10px">Pour relier vos commandes à vos publicités : ajoutez « UTM source » et « UTM campaign » à la fin de l’onglet RELEASIT, et dans le lien de vos annonces : ' +
       '<span class="mono">utm_source=facebook&amp;utm_campaign={{campaign.name}}</span> (Facebook) ou <span class="mono">utm_source=tiktok&amp;utm_campaign=__CAMPAIGN_NAME__</span> (TikTok). ' +
       'Dans vos dépenses, écrivez le même nom de campagne.</p></section></div>';
-    return html;
+  }
+
+  /* ---------------- Dépenses et gains ---------------- */
+
+  function expenseById(id) {
+    var list = P.data ? P.data.expenses : [];
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    return null;
   }
 
   function profitExpenses(d) {
-    var today = new Date();
-    var iso = today.getFullYear() + '-' + ('0' + (today.getMonth() + 1)).slice(-2) + '-' + ('0' + today.getDate()).slice(-2);
-    var html = '<div class="stack"><section class="card"><h2>Ajouter une dépense</h2><div class="form-grid" id="expense-form">' +
-      field('Date', '<input name="date" type="date" value="' + iso + '">') +
-      field('Catégorie', '<select name="category">' + options(d.categories, d.categories[0]) + '</select>') +
-      field('Campagne (facultatif)', input('campaign', '', ' list="campaign-list" placeholder="Nom de la campagne"')) +
-      field('Montant', input('amount', '', ' type="number" min="0" step="0.01" inputmode="decimal"')) +
-      field('Devise', '<select name="currency"><option>USD</option><option>DA</option></select>') +
-      field('Note', input('note', ''), 'full') +
-      '</div><datalist id="campaign-list">' + d.knownCampaigns.map(function (c) { return '<option value="' + h(c) + '">'; }).join('') + '</datalist>' +
-      '<p class="small" style="margin:10px 0">Dollar : ' + money(d.rate) + ' (réglage TAUX_DOLLAR dans Paramètres). Une dépense garde le taux du jour où elle est saisie.</p>' +
-      '<button type="button" class="btn primary" data-act="expense-add">Ajouter la dépense</button></section>';
-    html += '<section class="card"><h2>Dépenses de la période</h2>' + (d.expenses.length ? table(
-      ['Date', 'Catégorie', 'Campagne', 'Montant', 'En dinars'],
-      d.expenses.map(function (e) {
-        return [h(fmtDay(e.date)), h(e.category), h(e.campaign || '—'),
-          e.currency === 'USD' ? h(e.amount + ' $ × ' + e.rate) : money(e.amount), money(e.amountDA)];
-      }), [3, 4]
-    ) : '<p class="empty">Aucune dépense sur la période.</p>') +
-      '<p class="small" style="margin-top:10px">Pour corriger ou supprimer une dépense : onglet Dépenses du classeur.</p></section></div>';
+    var e = P.edit ? expenseById(P.edit) : null;
+    if (P.edit && !e) P.edit = null;
+    var html = '<div class="stack"><section class="card" id="expense-card"><h2>' + (e ? 'Corriger ' + (e.gain ? 'un gain' : 'une dépense') : 'Ajouter une dépense ou un gain') + '</h2>' +
+      '<div class="form-grid" id="expense-form"></div>' +
+      '<datalist id="campaign-list">' + d.knownCampaigns.map(function (c) { return '<option value="' + h(c) + '">'; }).join('') + '</datalist>' +
+      '<p class="small" style="margin:10px 0">Pour une dépense étalée (publicité du 1er au 10…), remplissez « Au » : le montant est réparti sur chaque jour, et chaque période ne compte que ses jours. ' +
+      'Dollar : ' + money(d.rate) + ' (réglage TAUX_DOLLAR) ; une dépense garde le taux du jour où elle est saisie.</p>' +
+      '<div class="quick"><button type="button" class="btn primary" data-act="expense-save">' + (e ? 'Enregistrer la correction' : 'Ajouter') + '</button>' +
+      (e ? '<button type="button" class="btn" data-act="expense-cancel-edit">Annuler la correction</button>' : '') + '</div></section>';
+
+    var rows = d.expenses;
+    var ids = rows.map(function (x) { return x.id; });
+    var keep = {};
+    ids.forEach(function (id) { if (S.sel.expenses && S.sel.expenses[id]) keep[id] = true; });
+    S.sel.expenses = keep;
+    html += '<section class="card"><div class="detail-head"><h2>Dépenses et gains de la période · ' + rows.length + '</h2>' +
+      (rows.length ? '<label class="small sel-all">' + DZ.selAllBox('expenses', ids) + ' Tout cocher</label>' : '') + '</div>';
+    if (!rows.length) {
+      html += '<p class="empty">Aucune dépense ni gain sur la période.</p>';
+    } else {
+      html += '<div class="table-wrap"><table class="data cards"><thead><tr><th scope="col" class="sel">' + DZ.selAllBox('expenses', ids) + '</th>' +
+        ['Date', 'Type', 'Catégorie', 'Campagne', 'Montant', 'Dans la période', ''].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        rows.map(function (x) {
+          var when = x.end ? dayText(x.date) + ' → ' + dayText(x.end) + '<div class="small">' + x.days + ' jours</div>' : dayText(x.date) || '—';
+          return '<tr' + (P.edit === x.id ? ' class="row-edit"' : '') + '>' + DZ.selCell('expenses', x.id) +
+            '<td data-label="Date" class="multi">' + when + '</td>' +
+            '<td data-label="Type"><span class="pill" style="background:' + (x.gain ? '#DDF0E4;color:#146C2E' : '#EEF0F3;color:#3D4350') + '">' + (x.gain ? 'Gain' : 'Dépense') + '</span></td>' +
+            '<td data-label="Catégorie" class="multi">' + h(x.category) + (x.note ? '<div class="small">' + h(x.note) + '</div>' : '') + '</td>' +
+            '<td data-label="Campagne">' + h(x.campaign || '—') + '</td>' +
+            '<td data-label="Montant" class="num">' + (x.currency === 'USD' ? h(x.amount + ' $ × ' + x.rate) + '<div class="small">' + money(x.amountDA) + '</div>' : money(x.amountDA)) + '</td>' +
+            '<td data-label="Dans la période" class="num strong">' + (x.gain ? signed(x.inPeriod) : money(x.inPeriod)) + '</td>' +
+            '<td data-label=""><span class="quick" style="justify-content:flex-end">' +
+              '<button type="button" class="btn" style="min-height:34px;padding:0 10px" data-act="expense-edit" data-id="' + h(x.id) + '">' + icon('edit') + 'Corriger</button>' +
+              '<button type="button" class="btn danger" style="min-height:34px;padding:0 10px" data-act="expense-del-ask" data-id="' + h(x.id) + '">' + icon('trash') + 'Supprimer</button></span></td></tr>';
+        }).join('') + '</tbody></table></div>' + DZ.bulkBar('expenses');
+    }
+    html += '<p class="small" style="margin-top:10px">Tout est aussi dans l’onglet <strong>Dépenses</strong> du classeur (colonnes Fin et Type).</p></section></div>';
     return html;
   }
 
-  function fmtDay(iso) {
-    if (!iso) return '—';
-    var d = new Date(iso);
-    return ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2) + '/' + d.getFullYear();
+  /** Formulaire : vide (ajout) ou rempli avec la ligne à corriger. Le type choisit la liste des catégories. */
+  function fillExpenseForm(keepType) {
+    var d = P.data;
+    var box = $('#expense-form');
+    if (!box || !d) return;
+    var e = P.edit ? expenseById(P.edit) : null;
+    var cur = keepType ? readForm(box) : null;
+    var gain = cur ? cur.type === 'Gain' : e ? e.gain : P.lastType === 'Gain';
+    var cats = gain ? d.gainCategories : d.categories;
+    // Changement de type : la catégorie de l'autre liste n'est pas gardée.
+    if (cur && cats.indexOf(cur.category) < 0) cur.category = cats[0];
+    var v = cur || (e ? { date: e.date, end: e.end, category: e.category, campaign: e.campaign, amount: e.amount, currency: e.currency, note: e.note }
+      : { date: DZ.isoDay(new Date()), end: '', category: cats[0], campaign: '', amount: '', currency: gain ? 'DA' : 'USD', note: '' });
+    var catList = cats.indexOf(v.category) >= 0 || !v.category ? cats : [v.category].concat(cats);
+    box.innerHTML =
+      field('Type', '<select name="type">' + options(['Dépense', 'Gain'], gain ? 'Gain' : 'Dépense') + '</select>') +
+      field('Du', '<input name="date" type="date" value="' + h(v.date || '') + '">') +
+      field('Au (facultatif)', '<input name="end" type="date" value="' + h(v.end || '') + '">') +
+      field('Catégorie', '<select name="category">' + options(catList, cats.indexOf(v.category) >= 0 || v.category ? v.category : cats[0]) + '</select>') +
+      (gain ? '' : field('Campagne (facultatif)', input('campaign', v.campaign || '', ' list="campaign-list" placeholder="Nom de la campagne"'))) +
+      field('Montant', input('amount', v.amount === '' ? '' : v.amount, ' type="number" min="0" step="0.01" inputmode="decimal"')) +
+      field('Devise', '<select name="currency">' + options(['USD', 'DA'], v.currency || 'DA') + '</select>') +
+      field('Note', input('note', v.note || ''), 'full');
   }
 
-  function addExpense(btn) {
+  function saveExpense(btn) {
     var data = readForm($('#expense-form'));
+    if (data.end && data.date && data.end < data.date) { toast('La date « Au » est avant la date « Du ».', true); return; }
+    P.lastType = data.type;
+    var e = P.edit ? expenseById(P.edit) : null;
     btn.disabled = true;
-    call('api_addExpense', data).then(function (r) {
+    var req = e ? call('api_updateExpense', e.id, e.sig, data) : call('api_addExpense', data);
+    req.then(function (r) {
       toast(r.message);
       btn.disabled = false;
-      loadProfit();
+      P.edit = null;
+      loadProfit(true);
+    }).catch(function (err) { btn.disabled = false; toast(errText(err), true); });
+  }
+
+  function askDelete(ids) {
+    var list = ids.map(expenseById).filter(Boolean);
+    if (!list.length) return;
+    P.toDelete = list.map(function (x) { return { id: x.id, sig: x.sig }; });
+    DZ.showModal(DZ.modalHead(list.length > 1 ? 'Supprimer ' + list.length + ' lignes' : 'Supprimer') +
+      '<p>' + (list.length > 1 ? plural(list.length, 'ligne', 'lignes') + ' (dépenses ou gains) seront supprimées du classeur.' :
+        h((list[0].gain ? 'Gain' : 'Dépense') + ' · ' + list[0].category + ' · ') + money(list[0].amountDA) + (list[0].end ? ' (' + list[0].days + ' jours)' : '') + ' sera supprimé' + (list[0].gain ? '' : 'e') + ' du classeur.') + '</p>' +
+      '<p class="small" style="margin-top:6px">Impossible d’annuler (la ligne est notée dans le Journal).</p>' +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Retour</button>' +
+      '<button type="button" class="btn danger" data-act="expense-del">' + icon('trash') + 'Supprimer</button></div>');
+  }
+
+  function doDelete(btn) {
+    var items = P.toDelete || [];
+    if (!items.length) return;
+    btn.disabled = true;
+    call('api_deleteExpenses', items).then(function (r) {
+      DZ.closeModal();
+      toast(r.message);
+      items.forEach(function (x) { if (S.sel.expenses) delete S.sel.expenses[x.id]; if (P.edit === x.id) P.edit = null; });
+      P.toDelete = null;
+      loadProfit(true);
     }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
   }
 
+  DZ.BULK.expenses = function (n) {
+    return '<button type="button" class="btn danger" data-act="expense-del-sel"' + (n ? '' : ' disabled') + '>' + icon('trash') + 'Supprimer (' + n + ')</button>';
+  };
+
+  /* Curseur du simulateur et changement de type (dépense / gain) : sans appel au serveur. */
+  document.addEventListener('input', function (e) {
+    if (!e.target.hasAttribute || !e.target.hasAttribute('data-sim') || !P.data) return;
+    P.simRate = Number(e.target.value);
+    var lbl = $('#sim-rate');
+    if (lbl) lbl.textContent = P.simRate + ' %';
+    var out = $('#sim-out');
+    if (out) out.innerHTML = simText(P.data, P.simRate);
+  });
+  document.addEventListener('change', function (e) {
+    if (e.target.name === 'type' && e.target.closest && e.target.closest('#expense-form')) {
+      var form = readForm($('#expense-form'));
+      var cats = form.type === 'Gain' ? P.data.gainCategories : P.data.categories;
+      P.lastType = form.type;
+      fillExpenseForm(true);
+      var sel = $('#expense-form select[name="category"]');
+      if (sel && cats.indexOf(sel.value) < 0) sel.value = cats[0];
+      if (form.type === 'Gain') { var cur = $('#expense-form select[name="currency"]'); if (cur) cur.value = 'DA'; }
+    }
+  });
 
   Object.assign(DZ.ACTIONS, {
-    'profit-period': function (el) { S.profit.period = el.getAttribute('data-period'); loadProfit(); },
-    'profit-tab': function (el) { S.profit.tab = el.getAttribute('data-tab'); renderProfit(); },
-    'expense-add': addExpense
+    'profit-period': function (el) {
+      if (DZ.pickPeriod(P.p, el, 'benefices')) { renderPeriodOnly(); loadProfit(); } else renderPeriodOnly();
+    },
+    'profit-tab': function (el) { P.tab = el.getAttribute('data-tab'); renderProfit(); },
+    'expense-save': saveExpense,
+    'expense-edit': function (el) {
+      P.edit = el.getAttribute('data-id');
+      renderProfit();
+      var card = $('#expense-card');
+      if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
+    'expense-cancel-edit': function () { P.edit = null; renderProfit(); },
+    'expense-del-ask': function (el) { askDelete([el.getAttribute('data-id')]); },
+    'expense-del-sel': function () { askDelete(DZ.selIds('expenses')); },
+    'expense-del': doDelete
   });
+
+  function renderPeriodOnly() {
+    var box = $('#profit-period');
+    if (box) box.innerHTML = DZ.periodPicker(P.p, 'profit-period');
+  }
+
   DZ.modules.benefices = { page: pageProfit };
 })(window.DZ);

@@ -99,6 +99,34 @@
     }).join('') + '</div>';
   }
 
+  /** Où est l'argent (colis Ecotrack) et versements : déplacé ici depuis la page Suivi. */
+  function whereMoney(m) {
+    var b = m.buckets;
+    if (!b) return '';
+    var steps = [
+      ['Chez le livreur', b.enRoute, 'colis pas encore livrés'],
+      ['Livrés, pas encaissés', b.delivered, 'le livreur n’a pas encore remis l’argent'],
+      ['Encaissés, pas payés', b.cashed, 'Ecotrack a l’argent'],
+      ['Prêts à être versés', b.ready, 'paiement prêt chez Ecotrack'],
+      ['Payés (' + m.paidDays + ' j)', b.paid, 'argent reçu depuis le début de la période']
+    ];
+    var html = '<section class="card"><h2>Où est l’argent</h2><p class="small">Montants à encaisser des colis Ecotrack, avant déduction des frais d’Ecotrack.</p><div class="grid-kpi">' +
+      steps.map(function (s) { return kpi(s[0], money(s[1].amount), plural(s[1].count, 'colis', 'colis') + ' · ' + s[2]); }).join('') + '</div></section>';
+    html += '<section class="card"><h2>Versements d’Ecotrack</h2>';
+    if (!m.payments || !m.payments.length) {
+      html += '<p class="empty">Aucun versement sur la période. Le n° de versement s’affiche dès qu’Ecotrack le fournit.</p>';
+    } else {
+      html += dataTable('versements', [
+        ['Versement', function (r) { return 'n° ' + r.id; }],
+        ['Colis', function (r) { return num(r.count); }, true],
+        ['Montant', function (r) { return money(r.amount); }, true],
+        ['État', function (r) { return r.paid ? 'Payé' : 'En cours'; }],
+        ['Dernier mouvement', function (r) { return fmtDate(r.last); }]
+      ], m.payments);
+    }
+    return html + '</section>';
+  }
+
   /* ---------------- Tableaux et export ---------------- */
 
   var TABLES = {};
@@ -234,10 +262,12 @@
         kpi('Chez le livreur', money(m.enRoute), 'colis en route') +
         kpi('Argent prévu', m.expected === null ? '—' : money(m.expected), 'en route × votre taux de livraison (' + rate(m.deliveryRate) + ')') +
         '</div></section>';
+      html += whereMoney(m);
       html += '<section class="card"><h2>La période</h2><div class="grid-kpi">' +
         kpi('Encaissé', money(k.revenue), '', delta(k.revenue, p.revenue)) +
         kpi('Bénéfice des commandes', money(k.ordersProfit), '', delta(k.ordersProfit, p.ordersProfit)) +
         kpi('Dépenses', money(k.expenses), 'publicité comprise', delta(k.expenses, p.expenses, null, false)) +
+        (k.gains || p.gains ? kpi('Autres gains', money(k.gains), 'argent reçu hors commandes', delta(k.gains, p.gains)) : '') +
         kpi('Bénéfice net', '<span class="' + (k.net < 0 ? 'neg' : 'pos') + '">' + money(k.net) + '</span>', '', delta(k.net, p.net)) +
         kpi('Panier moyen', k.avgBasket === null ? '—' : money(k.avgBasket), 'par commande livrée', delta(k.avgBasket, p.avgBasket)) +
         kpi('Bénéfice par livrée', k.profitPerDelivered === null ? '—' : money(k.profitPerDelivered), '', delta(k.profitPerDelivered, p.profitPerDelivered)) +
