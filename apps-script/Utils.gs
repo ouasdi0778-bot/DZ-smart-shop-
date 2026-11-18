@@ -133,6 +133,7 @@ function periodStart_(period, now) {
 function withLock_(fn) {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(20000)) throw new Error('Le classeur est occupé, réessayez dans quelques secondes.');
+  if (!LOCK_DEPTH_) LOCK_SESSION_++;
   LOCK_DEPTH_++;
   try {
     return withLogBatch_(fn);
@@ -275,6 +276,8 @@ function writeLogRows_(rows) {
   if (!rows.length) return;
   var sh = ss_().getSheetByName(SHEET.LOG);
   if (!sh) return;
+  // Une seule ligne (le cas courant) : un seul appel au classeur, qui s'agrandit tout seul.
+  if (rows.length === 1) { sh.appendRow(rows[0]); return; }
   var r = sh.getLastRow() + 1;
   ensureRows_(sh, r + rows.length - 1);
   sh.getRange(r, 1, rows.length, 5).setValues(rows);
@@ -330,28 +333,52 @@ function fmtAmount_(n) {
   return String(Math.round(toNumber_(n))).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 }
 
+/**
+ * Réglages déjà lus pendant cette exécution (texte JSON) : un même réglage n'est lu
+ * qu'une fois par action, et tous les onglets de réglages sont demandés à la mémoire
+ * en un seul aller-retour (getAll) au premier besoin. Chaque appel de l'application
+ * est une nouvelle exécution : rien ne reste d'une action à l'autre.
+ */
+var CFG_MEMO_ = {};
+var CFG_PREFETCHED_ = false;
+
 /** Valeur gardée en mémoire (CacheService) ; calculée par compute() si absente. */
 function cached_(key, compute) {
+  if (Object.prototype.hasOwnProperty.call(CFG_MEMO_, key)) {
+    try { return JSON.parse(CFG_MEMO_[key]); } catch (e) { delete CFG_MEMO_[key]; }
+  }
   var cache = null;
   try { cache = CacheService.getScriptCache(); } catch (e) { cache = null; }
   if (cache) {
     var hit = null;
-    try { hit = cache.get(key); } catch (e) { hit = null; }
-    if (hit !== null && hit !== undefined) {
-      try { return JSON.parse(hit); } catch (e) { /* valeur abîmée : on relit l'onglet */ }
+    if (!CFG_PREFETCHED_ && allConfigKeys_().indexOf(key) >= 0) {
+      // Premier réglage demandé : tous les autres arrivent avec lui.
+      CFG_PREFETCHED_ = true;
+      try {
+        var all = cache.getAll(allConfigKeys_()) || {};
+        Object.keys(all).forEach(function (k) { if (all[k] !== null && all[k] !== undefined) CFG_MEMO_[k] = all[k]; });
+      } catch (e) { /* mémoire indisponible : lecture une par une */ }
+      if (Object.prototype.hasOwnProperty.call(CFG_MEMO_, key)) {
+        try { return JSON.parse(CFG_MEMO_[key]); } catch (e) { delete CFG_MEMO_[key]; }
+      }
+    } else {
+      try { hit = cache.get(key); } catch (e) { hit = null; }
+      if (hit !== null && hit !== undefined) {
+        try { var parsed = JSON.parse(hit); CFG_MEMO_[key] = hit; return parsed; } catch (e) { /* valeur abîmée : on relit l'onglet */ }
+      }
     }
   }
   var value = compute();
-  if (cache) {
-    try {
-      var text = JSON.stringify(value);
-      if (text.length < 90000) cache.put(key, text, CONFIG_TTL_);
-    } catch (e) { /* trop gros ou mémoire indisponible : sans importance */ }
-  }
+  try {
+    var text = JSON.stringify(value);
+    CFG_MEMO_[key] = text;
+    if (cache && text.length < 90000) cache.put(key, text, CONFIG_TTL_);
+  } catch (e) { /* trop gros ou mémoire indisponible : sans importance */ }
   return value;
 }
 
 /** Vide la mémoire (toute, ou seulement certaines clés). */
 function clearConfigCache_(keys) {
+  (keys || allConfigKeys_()).forEach(function (k) { delete CFG_MEMO_[k]; });
   try { CacheService.getScriptCache().removeAll(keys || allConfigKeys_()); } catch (e) { /* sans importance */ }
 }

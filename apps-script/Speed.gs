@@ -25,6 +25,8 @@ var SPEED = {
 var ORDERS_CACHE_ON_ = true;
 /** Profondeur du verrou en cours (voir withLock_) : sous le verrou, jamais de copie. */
 var LOCK_DEPTH_ = 0;
+/** N° de la prise du verrou en cours : une ligne lue sous ce verrou peut être réécrite d'un seul bloc (writeFields_). */
+var LOCK_SESSION_ = 0;
 
 function ordersGen_() {
   try { return CacheService.getScriptCache().get(SPEED.GEN) || ''; } catch (e) { return ''; }

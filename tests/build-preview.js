@@ -33,7 +33,7 @@ function safe(js) { return js.replace(/<\/script/gi, '<\\/script'); }
 
 var html = readHtml('Index').replace(/<\?!=\s*include\('(\w+)'\);?\s*\?>/g, function (m, name) {
   return readHtml(name);
-});
+}).replace(/<\?!=\s*device\s*\?>/g, function () { return 'JSON.parse(deviceInfo_())'; }); // clé de la mémoire sur l'appareil, comme doGet
 // Pages chargées à la demande (api_pageScript) : rangées comme dans le fichier unique.
 var lazyPages = 'var HTML_FILES_ = {' + bundle.HTML.filter(function (n) { return /^Page/.test(n); }).map(function (n) {
   return JSON.stringify(n) + ': ' + JSON.stringify(readHtml(n));
@@ -51,6 +51,8 @@ var fakeRun = [
   "if (/[?&]user=admin\\b/.test(location.search)) __mock.setUser('admin@example.com');",
   "if (/[?&]user=stock\\b/.test(location.search)) __mock.setUser('karim@example.com');",
   'function hasDate_(v) { if (v instanceof Date) return true; if (v && typeof v === "object") return Object.keys(v).some(function (k) { return hasDate_(v[k]); }); return false; }',
+  // ?latence=1500 : délai d'un appel au serveur, comme sur Apps Script (120 ms par défaut).
+  'var LATENCY_ = Number((location.search.match(/[?&]latence=(\\d+)/) || [])[1]) || 120;',
   'function runner_(handlers) {',
   '  return new Proxy({}, { get: function (t, name) {',
   '    if (name === "withSuccessHandler") return function (fn) { return runner_(Object.assign({}, handlers, { ok: fn })); };',
@@ -60,11 +62,12 @@ var fakeRun = [
   '      setTimeout(function () {',
   '        try {',
   '          if (/_$/.test(name) || typeof window[name] !== "function") throw new Error("Fonction serveur inconnue ou privée : " + name);',
+  '          CFG_MEMO_ = {}; CFG_PREFETCHED_ = false;', // chaque appel réel est une nouvelle exécution
   '          var res = window[name].apply(null, args);',
   '          if (hasDate_(res)) throw new Error("Une Date est renvoyée par " + name + " : google.script.run la refuserait");',
   '          if (handlers.ok) handlers.ok(res === undefined ? null : JSON.parse(JSON.stringify(res)));',
   '        } catch (e) { console.error(e); if (handlers.ko) handlers.ko(e); }',
-  '      }, 120);',
+  '      }, LATENCY_);',
   '    };',
   '  } });',
   '}',

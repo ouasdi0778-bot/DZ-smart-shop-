@@ -42,6 +42,8 @@ function readOrders_() {
   if (map.status === undefined || map.phone === undefined) {
     throw new Error('Colonnes « Statut » ou « Téléphone » introuvables dans l’onglet Commandes. Lancez « Installer / réparer le classeur ».');
   }
+  // Lue dans le classeur sous le verrou : ses lignes pourront être réécrites d'un seul bloc (writeFields_).
+  var session = sh && LOCK_DEPTH_ ? LOCK_SESSION_ : 0;
   var orders = [];
   for (var r = 1; r < values.length; r++) {
     var row = values[r];
@@ -53,9 +55,10 @@ function readOrders_() {
       o[col.key] = idx === undefined ? '' : row[idx];
     });
     o.status = String(o.status).trim();
+    if (session) Object.defineProperty(o, '_raw', { value: row, enumerable: false, writable: true });
     orders.push(o);
   }
-  var ctx = { map: map, width: header.length, orders: orders };
+  var ctx = { map: map, width: header.length, orders: orders, session: session };
   // L'onglet n'est ouvert que si on en a besoin (écriture) : une page lue depuis la mémoire n'ouvre pas le classeur.
   Object.defineProperty(ctx, 'sheet', {
     enumerable: true, configurable: true,
@@ -96,18 +99,48 @@ function writeFields_(ctx, order, fields) {
   });
   if (!cells.length) return;
   cells.sort(function (a, b) { return a.col - b.col; });
+  // Ligne lue sous ce même verrou : les cases entre deux cases modifiées sont connues et peuvent être
+  // réécrites telles quelles, pour tout écrire en un seul appel au classeur (chaque appel coûte ~150 ms).
+  var raw = order._raw && ctx.session && ctx.session === LOCK_SESSION_ && LOCK_DEPTH_ ? order._raw : null;
+  var known = raw ? knownColumns_(ctx) : null;
+  var canBridge = function (from, to) { // colonnes from+1 … to-1
+    if (!raw || to - from - 1 > WRITE_MAX_GAP_) return false;
+    for (var c = from + 1; c < to; c++) if (!known[c] || c >= raw.length) return false;
+    return true;
+  };
   var write = function (run) {
     run.forEach(function (c) {
       if (TEXT_KEYS_.indexOf(c.key) >= 0) ctx.sheet.getRange(order._row, c.col + 1).setNumberFormat('@');
     });
-    ctx.sheet.getRange(order._row, run[0].col + 1, 1, run.length).setValues([run.map(function (c) { return c.value; })]);
+    var first = run[0].col;
+    var last = run[run.length - 1].col;
+    var byCol = {};
+    run.forEach(function (c) { byCol[c.col] = c.value; });
+    var row = [];
+    for (var c = first; c <= last; c++) row.push(Object.prototype.hasOwnProperty.call(byCol, c) ? byCol[c] : raw[c]);
+    ctx.sheet.getRange(order._row, first + 1, 1, row.length).setValues([row]);
+    if (raw) run.forEach(function (c) { raw[c.col] = c.value; });
   };
   var run = [cells[0]];
   for (var i = 1; i < cells.length; i++) {
-    if (cells[i].col === run[run.length - 1].col + 1) run.push(cells[i]);
+    var prev = run[run.length - 1].col;
+    if (cells[i].col === prev + 1 || canBridge(prev, cells[i].col)) run.push(cells[i]);
     else { write(run); run = [cells[i]]; }
   }
   write(run);
+}
+
+/**
+ * Au plus ce nombre de cases inchangées réécrites entre deux cases modifiées (au-delà : deux écritures).
+ * Réécrire 40 cases ne coûte presque rien ; un appel de plus au classeur coûte ~150 ms.
+ */
+var WRITE_MAX_GAP_ = 60;
+
+/** Colonnes de l'outil (ORDER_COLUMNS) : seules celles-là sont réécrites telles quelles ; une colonne ajoutée à la main ne l'est jamais. */
+function knownColumns_(ctx) {
+  var out = {};
+  Object.keys(ctx.map).forEach(function (k) { out[ctx.map[k]] = true; });
+  return out;
 }
 
 /** Ajoute une commande en bas de l'onglet. */

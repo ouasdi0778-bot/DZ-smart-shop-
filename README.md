@@ -6,13 +6,13 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.2
+## Ce que fait la version 1.3
 
 | Écran | Contenu |
 |---|---|
 | **Tableau de bord** | Commandes reçues, taux de confirmation et de livraison, montant livré, argent en route, liste « à faire », taux de livraison par wilaya, résultats par confirmatrice et par produit ; **période au choix** (aujourd'hui, hier, 7 ou 30 jours, ce mois, mois dernier, tout, ou du … au …) |
 | **Commandes** | Liste filtrable (statut, wilaya, période, recherche par nom, téléphone, n° de commande ou de suivi), modification d'une commande, ajout à la main, liste noire, **suppression en plusieurs** (administrateur), **corbeille** (restaurer, supprimer définitivement, vider) |
-| **Centre de confirmation** | Trois blocs : **à appeler maintenant**, **rappels à venir**, **en attente** (injoignable, statut inconnu… avec le motif) ; une commande n'en sort que confirmée ou annulée ; **historique des appels** de chaque commande ; rappel arrivé à l'heure **en orange**, commande en retard en rouge ; fiche client avec historique et alerte, boutons Appeler et WhatsApp (message pré-rempli), correction de la commande avec recalcul des frais et du total, résultat en un clic : Confirmer, Pas de réponse, Rappeler plus tard, Annuler (avec motif) |
+| **Centre de confirmation** | Trois blocs : **à appeler maintenant**, **rappels à venir**, **en attente** (injoignable, statut inconnu… avec le motif) ; une commande n'en sort que confirmée ou annulée ; **historique des appels** de chaque commande ; rappel arrivé à l'heure **en orange**, commande en retard en rouge ; fiche client avec historique et alerte, boutons Appeler et WhatsApp (message pré-rempli), **toutes les informations de la commande modifiables** (client, téléphone, wilaya, commune, adresse, produit, quantité, prix, livraison, société, frais, notes) avec recalcul des frais et du total, résultat en un clic : Confirmer, Pas de réponse, Rappeler plus tard, Annuler (avec motif) |
 | **Expéditions** | Commandes confirmées prêtes à partir (avec les problèmes à corriger avant l'envoi), **création des colis chez Ecotrack** en un clic avec n° de suivi écrit dans le classeur, **impression des bordereaux** Ecotrack (A4 ou étiquette 10×15) et **validation de l'expédition** (avec ou sans ramassage) |
 | **Suivi** | Statut de chaque colis relu **toutes les heures** (réglable : 30 min, 1 h ou 2 h), **alertes « à traiter »** (colis suspendu, retour en cours ou bloqué, sans mouvement selon l'étape, argent en retard…), **résultat de l'appel** (remarque au livreur, demande de retour), motif du livreur et **chronologie** de chaque colis (heures d'Algérie) |
 | **Stock** | Catalogue par modèle, entrées, inventaire, historique (administrateur et magasinier) |
@@ -126,6 +126,7 @@ Chaque page correspond à une étape. Une commande passe toute seule à la suiva
 | **Rappels à venir** | pas de réponse ou rappel demandé, avec l'heure prévue |
 | **En attente** | ni confirmées ni annulées, mais hors de la file, avec le **motif** : injoignable (vous pouvez réessayer, confirmer ou annuler), sans statut, **statut inconnu** (ligne du classeur abîmée : ouvrez la fiche pour la corriger) |
 
+- **Tout se corrige pendant l'appel** : client, téléphone, wilaya, commune, adresse, **produit**, quantité, **prix des produits**, livraison, **société**, **frais de livraison** et notes. Le prix suit la quantité (et le prix du catalogue quand vous choisissez un autre produit) ; les frais suivent la wilaya, la livraison et la société. Un prix ou des frais **tapés à la main** sont gardés tels quels (remise, livraison offerte…).
 - **Historique des appels** : chaque résultat (pas de réponse, rappel demandé, confirmée, annulée) est noté avec l'heure et la confirmatrice dans la colonne **« Historique appels »** (les 12 derniers). Il s'affiche sur la carte (« 10:05 pas de réponse → 14:30 pas de réponse ») et dans la fiche, avec le prochain rappel.
 - L'ancien réglage `MAX_TENTATIVES` n'est plus utilisé.
 
@@ -472,7 +473,22 @@ Toute autre application ou automatisation qui **ajoute une ligne** dans l'onglet
 
 Ce que fait l'outil pour rester rapide :
 
-- **Une seule écriture par action** : une commande confirmée ou modifiée est écrite en un ou deux blocs, et le Journal en une ligne. Plus d'écriture case par case.
+### Version 1.3 : ce qui a changé
+
+| Moment | Avant | Maintenant |
+|---|---|---|
+| **Ouvrir l'application** | page vide jusqu'à la réponse de Google (1,5 à 4 s) | la dernière version des pages s'affiche **tout de suite** (mémoire sur l'appareil), puis se met à jour |
+| **Ouvrir une commande** | « Chargement… » (1 à 2 s) | aperçu **immédiat** (client, livraison, produit, total), fiche complète juste après ; une fiche déjà vue s'affiche tout de suite |
+| **Enregistrer une commande** | attendre la réponse | la fenêtre se ferme **tout de suite** ; si Google refuse, elle revient avec ce que vous aviez tapé |
+| **Chaque action côté Google** | 4 écritures pour une commande, 14 lectures de réglages | **1 écriture** par commande, **1 lecture** groupée des réglages : environ **deux fois moins** de temps côté Google (mesure sur l'imitation du classeur) |
+
+- **Mémoire sur l'appareil** : les pages Tableau de bord, Commandes, Confirmation, Expédier et Suivi sont gardées sur le téléphone ou l'ordinateur, **pour votre compte seulement** (repéré par une clé tirée de l'adresse, jamais l'adresse elle-même), **24 heures au plus**. Elles ne servent qu'à afficher l'écran pendant que Google répond : les données à jour remplacent toujours l'ancienne version, et toute action est vérifiée par Google. Un autre compte sur le même appareil ne voit pas votre mémoire. Une nouvelle version de l'outil l'efface.
+- ⚠️ **Pas de formules dans l'onglet Commandes** : pour écrire une commande en un seul appel, l'outil réécrit telles quelles les cases entre deux cases modifiées (seulement les colonnes de l'outil, jamais une colonne que vous avez ajoutée).
+- La vitesse d'Apps Script lui-même (environ 0,5 à 1,5 s par appel, et l'ouverture de la page par Google) ne peut pas être réduite depuis l'outil. Pour aller au-delà, il faudrait sortir d'Apps Script (voir « Prochaines étapes »).
+
+### Déjà en place
+
+- **Une seule écriture par action** : une commande confirmée ou modifiée est écrite en un seul bloc, et une ligne de Journal en un seul appel. Plus d'écriture case par case.
 - **Réglages gardés en mémoire** : Paramètres, Tarifs, Équipe, Clients (liste noire) et Produits ne sont plus relus à chaque clic. Dès que vous modifiez un de ces onglets, la mémoire est vidée et l'application voit le changement tout de suite. Si un autre programme les modifie, le changement est vu au plus tard après 10 minutes.
 - **Un seul aller-retour** :
   - l'ouverture de l'application apporte déjà la première page ;
@@ -511,7 +527,7 @@ Ce que fait l'outil pour rester rapide :
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 132 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 135 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
@@ -559,6 +575,7 @@ tests/          imitation de Google Apps Script, tests, données d'exemple, aper
 3. **SMS** : confirmation par réponse « 1 » / « 2 » du client, et accusé de réception des SMS (demande une adresse publique pour httpSMS).
 4. **Yalidine** (Ecotrack est fait, bordereaux compris) : création des colis, suivi des statuts et bordereaux.
 5. **Sauvegarde automatique** du classeur chaque nuit dans Google Drive, rapprochement des versements d'Ecotrack, résumé du matin par e-mail.
+6. **Encore plus rapide** : sortir le moteur d'Apps Script (Cloudflare Workers + base D1, gratuit pour ce volume), Google Sheets restant la copie lisible. Chaque clic passerait d'environ 1 s à environ 0,1 s.
 
 ## Limites connues
 

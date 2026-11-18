@@ -99,6 +99,51 @@
     ok: { bg: '#DDF0E4', fg: '#146C2E' },
     'new': { bg: '#E6EEFB', fg: '#1E4FA8' }
   };
+  /* ---------------- Mémoire sur l'appareil (ouverture instantanée) ---------------- */
+  // Les dernières pages reçues (tableau de bord, commandes, file d'appels, expéditions, suivi) sont gardées
+  // sur cet appareil, pour ce compte seulement (clé tirée de l'adresse, jamais l'adresse elle-même), 24 h au plus.
+  var DEVICE = window.DZ_DEVICE || {};
+  var MEM_KEY = DEVICE.key ? 'dz-smart-shop:memoire:' + DEVICE.key : '';
+  var MEM_MAX_AGE = 24 * 3600000;
+  function memClear() {
+    try { if (MEM_KEY) window.localStorage.removeItem(MEM_KEY); } catch (e) { /* sans importance */ }
+  }
+  function memRead() {
+    if (!MEM_KEY) return null;
+    try {
+      var m = JSON.parse(window.localStorage.getItem(MEM_KEY) || 'null');
+      if (!m) return null;
+      if (m.v !== DEVICE.v || !m.boot || !m.boot.user || Date.now() - m.at > MEM_MAX_AGE) { memClear(); return null; }
+      return m;
+    } catch (e) { return null; }
+  }
+  var memTimer = null;
+  /** Garde l'état des pages (un peu après chaque mise à jour, pour ne pas ralentir l'écran). */
+  function memSave(now) {
+    if (!MEM_KEY || !S.boot || S.fromMemory) return;
+    clearTimeout(memTimer);
+    var write = function () {
+      try {
+        var boot = {};
+        Object.keys(S.boot).forEach(function (k) { if (k !== 'preload') boot[k] = S.boot[k]; });
+        var dk = periodKey(S.dashP);
+        var m = {
+          v: DEVICE.v, at: Date.now(), boot: boot,
+          dash: S.dash[dk] ? { key: dk, data: S.dash[dk] } : null,
+          list: S.list && S.listKey ? { key: S.listKey, data: S.list } : null,
+          queue: S.queue || null,
+          ship: S.ship.data || null,
+          track: S.track.data || null
+        };
+        var text = JSON.stringify(m);
+        if (text.length > 3000000) { m.list = null; m.track = null; text = JSON.stringify(m); }
+        window.localStorage.setItem(MEM_KEY, text);
+      } catch (e) { /* mémoire pleine ou interdite (navigation privée) : l'application marche quand même */ }
+    };
+    if (now) write(); else memTimer = setTimeout(write, 2000);
+  }
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') memSave(true); });
+
   var view = document.getElementById('view');
   S.sel = { orders: {}, trash: {}, expenses: {} }; // sélection en plusieurs, par liste
   /** Boutons de la barre d'actions de chaque liste (sélection en plusieurs) : fonction(n) → html. */
@@ -109,7 +154,10 @@
   /* Petite barre en haut de l'écran pendant qu'une page se met à jour en arrière-plan. */
   var syncing = 0;
   function syncStart() { syncing++; document.body.classList.add('syncing'); }
-  function syncEnd() { syncing = Math.max(0, syncing - 1); if (!syncing) document.body.classList.remove('syncing'); }
+  function syncEnd() {
+    syncing = Math.max(0, syncing - 1);
+    if (!syncing) { document.body.classList.remove('syncing'); if (typeof memSave === 'function') memSave(); }
+  }
 
   /** Temps entre le clic sur la page et ses données à jour, gardé sur cet appareil (page Administration). */
   var PERF_KEY = 'dz-smart-shop:temps-pages';
@@ -139,10 +187,16 @@
       return Promise.resolve(ready);
     }
     return new Promise(function (resolve, reject) {
-      var runner = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject);
+      var done = function (res) {
+        // Une action qui modifie quelque chose : les fiches gardées pour l'affichage instantané sont oubliées.
+        if (!READ_ONLY.test(fn) && S.orderCache) S.orderCache = {};
+        resolve(res);
+      };
+      var runner = google.script.run.withSuccessHandler(done).withFailureHandler(reject);
       runner[fn].apply(runner, args);
     });
   }
+  var READ_ONLY = /^api_(get|list|queue|dashboard|counts|tracking|shipping|parcel|profit|stats|bootstrap|page|preload|import|health|admin|settingsGet|stock$|stockPage|team|clients|sms)/;
 
   function $(sel, root) { return (root || document).querySelector(sel); }
   function $all(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
@@ -794,11 +848,47 @@
       '<datalist id="product-list">' + b.products.map(function (p) { return '<option value="' + h(p.name) + '">'; }).join('') + '</datalist>';
   }
 
+  /* Fiche d'une commande : affichée tout de suite (dernière fiche reçue, ou la ligne de la liste), puis mise à jour. */
+  S.orderCache = {}; // n° → { data, at } : fiches déjà reçues (10 minutes)
+  function listRow(id) {
+    var rows = S.list && S.list.rows ? S.list.rows : [];
+    for (var i = 0; i < rows.length; i++) if (rows[i].id === id) return rows[i];
+    return null;
+  }
+  /** Aperçu en lecture seule, le temps que la fiche complète arrive. */
+  function orderPreview(o) {
+    return modalHead('Commande ' + h(o.id), '<p style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' + pill(o.status) + alertPill(o.alert, o.alertLevel) + '</p>') +
+      '<span hidden data-order-modal="' + h(o.id) + '"></span>' +
+      '<div class="money-lines" style="max-width:none">' +
+      '<div><span>Client</span><span>' + h(o.client || '—') + ' · ' + h(fmtPhone(o.phone)) + '</span></div>' +
+      '<div><span>Livraison</span><span>' + h(wilayaName(o.wilaya)) + (o.commune ? ' · ' + h(o.commune) : '') + ' · ' + h(o.mode || '') + '</span></div>' +
+      '<div><span>Produit</span><span>' + h(o.product || '—') + (o.qty > 1 ? ' ×' + o.qty : '') + '</span></div>' +
+      '<div class="total"><span>Total</span><span>' + money(o.total) + '</span></div></div>' +
+      '<p class="loading" style="padding:14px 0">Chargement de la fiche…</p>';
+  }
+  function orderModalShown(id) { return !!$('#modal-root [data-order-modal="' + String(id).replace(/"/g, '') + '"]'); }
+
   function openOrder(id) {
     S.unlockId = null;
-    showModal(modalHead('Commande ' + h(id)) + '<p class="loading">Chargement…</p>');
-    call('api_getOrder', id).then(renderOrderModal).catch(function (e) {
-      showModal(modalHead('Commande ' + h(id)) + errorBox(e));
+    S.orderDirty = false;
+    var c = S.orderCache[id];
+    var fresh = c && Date.now() - c.at < 10 * 60000;
+    if (fresh) renderOrderModal(c.data);
+    else {
+      var row = listRow(id);
+      showModal(row ? orderPreview(row) : modalHead('Commande ' + h(id)) + '<span hidden data-order-modal="' + h(id) + '"></span><p class="loading">Chargement…</p>');
+    }
+    syncStart();
+    call('api_getOrder', id).then(function (data) {
+      syncEnd();
+      S.orderCache[id] = { data: data, at: Date.now() };
+      if (!orderModalShown(id)) return; // fenêtre fermée ou remplacée entre-temps
+      // Déjà affichée et rien n'a changé, ou saisie en cours : on ne redessine pas (rien n'est effacé).
+      if (fresh && (S.orderDirty || JSON.stringify(c.data) === JSON.stringify(data))) { S.order = data; return; }
+      renderOrderModal(data);
+    }).catch(function (e) {
+      syncEnd();
+      if (!fresh && orderModalShown(id)) showModal(modalHead('Commande ' + h(id)) + errorBox(e));
     });
   }
 
@@ -846,6 +936,7 @@
         '<div id="parcel-history"></div>' : '') +
       stockNote(data.stock) +
       lockBox(o, r, unlocked) +
+      '<span hidden data-order-modal="' + h(o.id) + '"></span>' +
       '<div id="order-form" data-id="' + h(o.id) + '" data-locked="' + (locked ? '1' : '') + '" data-force="' + (unlocked ? '1' : '') + '">' +
         '<div class="form-grid">' +
           field('Statut', '<select name="status" data-role="status"' + (statuses.length < 2 ? ' disabled' : '') + '>' + options(statuses, o.status) + '</select>') +
@@ -1049,12 +1140,33 @@
       data.forceReason = ($('[data-role="force-reason"]') || {}).value || '';
       if (!String(data.forceReason).trim()) { toast('Indiquez le motif du déverrouillage.', true); return; }
     }
-    btn.disabled = true;
+    // La fenêtre se ferme tout de suite ; si le serveur refuse, elle revient avec ce qui avait été saisi.
+    var before = S.order;
+    var unlockId = S.unlockId;
+    delete S.orderCache[id];
+    closeModal();
+    toast('Enregistrement de la commande ' + id + '…');
     call('api_updateOrder', id, data).then(function (o) {
-      closeModal();
       toast('Commande ' + o.id + ' enregistrée');
       afterOrderSaved(o);
-    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+    }).catch(function (e) {
+      toast('Commande ' + id + ' non enregistrée : ' + errText(e), true);
+      if (!before || modalOpen()) return;
+      S.unlockId = unlockId;
+      renderOrderModal(before);
+      restoreForm($('#order-form'), data);
+      if (data.forceReason && $('[data-role="force-reason"]')) $('[data-role="force-reason"]').value = data.forceReason;
+    });
+  }
+
+  /** Remet dans un formulaire les valeurs saisies (après un refus du serveur). */
+  function restoreForm(form, data) {
+    if (!form || !data) return;
+    Object.keys(data).forEach(function (k) {
+      var el = form.querySelector('[name="' + k + '"]');
+      if (el && !el.disabled && typeof data[k] !== 'boolean') el.value = data[k];
+    });
+    if (typeof toggleCancelField === 'function') toggleCancelField();
   }
 
   function createOrder(btn) {
@@ -1092,6 +1204,9 @@
         '<section class="detail" id="detail"></section>' +
       '</div>';
     S.prefetch = null;
+    // Fiche de la première commande déjà reçue (mémoire sur l'appareil) : affichée sans attendre.
+    if (S.queue && S.queue.firstDetail && S.queue.due && S.queue.due.length && S.queue.firstDetail.order.id === S.queue.due[0].id &&
+        !(S.current && S.current.order && S.current.order.id === S.queue.due[0].id)) S.current = S.queue.firstDetail;
     var cached = S.queue && S.queue.due && S.queue.due.length && S.current && S.current.order && S.current.order.id === S.queue.due[0].id;
     if (S.queue) {
       renderQueue();
@@ -1269,11 +1384,17 @@
           field('Téléphone', input('phone', o.phone, ' inputmode="tel"')) +
           field('Wilaya', '<select name="wilaya">' + options(b.wilayas, o.wilaya, 'Choisir…') + '</select>') +
           field('Commune', input('commune', o.commune)) +
-          field('Livraison', '<select name="mode">' + options(b.modes, o.mode || b.modes[0]) + '</select>') +
-          field('Quantité', input('qty', o.qty, ' type="number" min="1" step="1"')) +
           field('Adresse', input('address', o.address), 'full') +
+          field('Produit', input('product', o.product, ' list="d-product-list"'), 'full') +
+          field('Quantité', input('qty', o.qty, ' type="number" min="1" step="1"')) +
+          field('Prix des produits (DA)', input('price', o.price || '', ' type="number" min="0" step="10" inputmode="numeric"')) +
+          field('Livraison', '<select name="mode">' + options(b.modes, o.mode || b.modes[0]) + '</select>') +
+          field('Société', '<select name="carrier">' + options(b.carriers, o.carrier, 'Par défaut (' + b.defaultCarrier + ')') + '</select>') +
+          field('Frais de livraison (DA)', input('shipping', o.shipping === null || o.shipping === undefined ? '' : o.shipping, ' type="number" min="0" step="10" inputmode="numeric" placeholder="Calcul automatique"')) +
           field('Notes', '<textarea name="notes">' + h(o.notes) + '</textarea>', 'full') +
         '</div>' +
+        '<datalist id="d-product-list">' + (b.products || []).map(function (p) { return '<option value="' + h(p.name) + '">'; }).join('') + '</datalist>' +
+        '<p class="small" style="margin-top:6px">Prix et frais se recalculent seuls (quantité, produit, wilaya, livraison, société) ; si vous les tapez à la main, votre montant est gardé.</p>' +
         '<div class="sum" id="d-sum"></div>' +
       '</div>' +
       '<div class="card"><h3>Résultat de l’appel</h3>' +
@@ -1322,29 +1443,73 @@
     });
   }
 
+  /** Prix catalogue d'un produit (liste « Produits » du démarrage), ou null. */
+  function catalogPrice(name) {
+    var key = String(name || '').trim().toLowerCase();
+    var list = S.boot.products || [];
+    for (var i = 0; i < list.length; i++) if (String(list[i].name).trim().toLowerCase() === key) return Number(list[i].price) || null;
+    return null;
+  }
+
+  /**
+   * Prix et frais de la fiche de Confirmation : recalculés tant que la confirmatrice ne les a pas
+   * tapés elle-même (data-touched) ; tapés, ils sont gardés et envoyés tels quels.
+   */
+  function confirmAmounts() {
+    var o = S.current.order;
+    var form = $('#d-form');
+    var f = readForm(form);
+    var qty = Math.max(1, parseInt(f.qty, 10) || 1);
+    var priceEl = form.querySelector('[name="price"]');
+    var shipEl = form.querySelector('[name="shipping"]');
+    var price;
+    var productChanged = String(f.product || '').trim() !== String(o.product || '').trim();
+    if (priceEl && priceEl.hasAttribute('data-touched') && priceEl.value !== '') price = Math.max(0, Number(priceEl.value) || 0);
+    else {
+      var unit = productChanged && catalogPrice(f.product) !== null ? catalogPrice(f.product) : (o.qty ? o.price / o.qty : o.price);
+      price = !productChanged && qty === o.qty ? o.price : Math.round(unit * qty);
+      if (priceEl) priceEl.value = price || '';
+    }
+    var carrier = f.carrier || S.boot.defaultCarrier;
+    var fee = feeFor(f.wilaya, carrier, f.mode);
+    var shipping;
+    if (shipEl && shipEl.hasAttribute('data-touched') && shipEl.value !== '') shipping = Math.max(0, Number(shipEl.value) || 0);
+    else {
+      var changed = f.wilaya !== o.wilaya || f.mode !== o.mode || (f.carrier || '') !== (o.carrier || '');
+      shipping = (changed || o.shipping === null) && fee !== null ? fee : (o.shipping || 0);
+      if (shipEl) shipEl.value = shipping;
+    }
+    var total = (price !== o.price || shipping !== (o.shipping || 0)) ? price + shipping : o.total;
+    return { f: f, qty: qty, price: price, shipping: shipping, fee: fee, carrier: carrier, total: total,
+      priceFromCatalog: productChanged && catalogPrice(f.product) !== null,
+      priceTouched: !!(priceEl && priceEl.hasAttribute('data-touched')), shipTouched: !!(shipEl && shipEl.hasAttribute('data-touched')) };
+  }
+
   /** Recalcule prix, frais, total et message quand la confirmatrice modifie la commande. */
   function updateSummary() {
     if (!S.current || !$('#d-form')) return;
     var o = S.current.order;
-    var f = readForm($('#d-form'));
-    var qty = Math.max(1, parseInt(f.qty, 10) || 1);
-    var unit = o.qty ? o.price / o.qty : o.price;
-    var price = qty === o.qty ? o.price : Math.round(unit * qty);
-    var changed = f.wilaya !== o.wilaya || f.mode !== o.mode;
-    var fee = feeFor(f.wilaya, o.carrier, f.mode);
-    var shipping = (changed || o.shipping === null) && fee !== null ? fee : (o.shipping || 0);
-    var total = (price !== o.price || shipping !== (o.shipping || 0)) ? price + shipping : o.total;
-    var carrier = o.carrier || S.boot.defaultCarrier;
+    var a = confirmAmounts();
+    var f = a.f;
     $('#d-sum').innerHTML =
-      '<div><span>' + h(f.product || o.product || 'Produits') + ' ×' + qty + '</span><span>' + money(price) + '</span></div>' +
-      '<div class="muted"><span>Livraison ' + h(f.mode) + ' · ' + h(carrier) + (fee === null ? ' (tarif non renseigné)' : '') + '</span><span>' + money(shipping) + '</span></div>' +
-      '<div class="total"><span>Total à encaisser</span><span>' + money(total) + '</span></div>';
+      '<div><span>' + h(f.product || o.product || 'Produits') + ' ×' + a.qty + '</span><span>' + money(a.price) + '</span></div>' +
+      '<div class="muted"><span>Livraison ' + h(f.mode) + ' · ' + h(a.carrier) + (a.fee === null && !a.shipTouched ? ' (tarif non renseigné)' : '') + '</span><span>' + money(a.shipping) + '</span></div>' +
+      '<div class="total"><span>Total à encaisser</span><span>' + money(a.total) + '</span></div>';
     var msg = fillTemplate(S.boot.waTemplate, {
-      client: f.client, id: o.id, product: o.product, qty: qty, total: total, commune: f.commune, wilaya: f.wilaya
+      client: f.client, id: o.id, product: f.product || o.product, qty: a.qty, total: a.total, commune: f.commune, wilaya: f.wilaya
     });
     $('#d-msg').textContent = msg;
     var wa = $('#d-wa');
     if (wa) wa.href = 'https://wa.me/' + S.current.intlPhone + '?text=' + encodeURIComponent(msg);
+  }
+
+  /** Ce que la fiche envoie : prix et frais seulement s'ils ont été tapés (sinon le serveur les recalcule). */
+  function confirmFields() {
+    var a = confirmAmounts();
+    var f = a.f;
+    if (a.priceTouched || a.priceFromCatalog) f.price = a.price; else delete f.price; // nouveau produit : prix du catalogue
+    if (!a.shipTouched) delete f.shipping;
+    return f;
   }
 
   function fillTemplate(tpl, x) {
@@ -1385,7 +1550,7 @@
   function submit(outcome, extra) {
     if (S.busy || !S.currentId || Date.now() < S.cooldown) return;
     var id = S.currentId;
-    var payload = { fields: readForm($('#d-form')) };
+    var payload = { fields: confirmFields() };
     Object.keys(extra || {}).forEach(function (k) { payload[k] = extra[k]; });
     var blacklist = outcome === 'cancel' && $('#cancel-black') && $('#cancel-black').checked;
     var phone = S.current.order.phone;
@@ -2565,7 +2730,10 @@
       clearTimeout(searchTimer);
       searchTimer = setTimeout(function () { S.filter.q = e.target.value; S.filter.limit = 100; loadOrders(); }, 350);
     } else if (e.target.closest('#d-form')) {
+      if (e.target.name === 'price' || e.target.name === 'shipping') e.target.setAttribute('data-touched', '1');
       updateSummary();
+    } else if (e.target.closest('#order-form')) {
+      S.orderDirty = true;
     }
   });
   document.addEventListener('change', function (e) {
@@ -2670,10 +2838,8 @@
   /* Démarrage                                                        */
   /* ================================================================ */
 
-  var firstSpec = preloadSpec(currentRoute());
-  call('api_bootstrap', firstSpec).then(function (b) {
-    S.boot = b;
-    if (b.preload && firstSpec && b.preload.key === firstSpec.key) S.preloaded[firstSpec.key] = b.preload.data;
+  /** Le démarrage reçu : nom de la boutique, rôle (menus visibles), compteurs, état de l'outil. */
+  function applyBoot(b) {
     applyCounts(b.counts);
     $all('[data-shop]').forEach(function (el) { el.textContent = b.shop; });
     $all('[data-user-name]').forEach(function (el) { el.textContent = b.user.name; });
@@ -2682,14 +2848,60 @@
     $all('[data-stockrole]').forEach(function (el) { el.hidden = !b.user.stock; });
     $all('[data-more]').forEach(function (el) { el.hidden = !(b.user.admin || b.user.stock); });
     showHealth(b.health);
-    window.addEventListener('hashchange', go);
-    go();
+  }
+
+  function started() {
     setTimeout(preloadPages, 1500);
-    if (!b.counts) refreshCount();
     setInterval(tick, 30000);
-  }).catch(function (e) {
+  }
+
+  function bootFailed(e) {
     view.innerHTML = errorBox(e) +
       '<p class="sub" style="margin-top:12px">Vérifiez que le classeur est partagé avec votre adresse Google (en Éditeur), puis rechargez la page.</p>';
-  });
+  }
+
+  var mem = memRead();
+  if (mem) {
+    // Ouverture instantanée : la dernière version des pages, gardée sur cet appareil, s'affiche tout de suite ;
+    // le serveur est appelé en même temps et chaque page se met à jour dès qu'il répond (barre en haut).
+    S.boot = mem.boot;
+    S.fromMemory = true;
+    if (mem.dash) S.dash[mem.dash.key] = mem.dash.data;
+    if (mem.list) { S.list = mem.list.data; S.listKey = mem.list.key; }
+    if (mem.queue) setQueue(mem.queue);
+    if (mem.ship) S.ship.data = mem.ship;
+    if (mem.track) S.track.data = mem.track;
+    applyBoot(S.boot);
+    window.addEventListener('hashchange', go);
+    go();
+    syncStart();
+    call('api_bootstrap', null).then(function (b) {
+      syncEnd();
+      var old = S.boot.user;
+      S.boot = b;
+      S.fromMemory = false;
+      applyBoot(b);
+      // Rôle changé entre-temps (administrateur, magasinier) : la page est redessinée avec les bons droits.
+      if (old.admin !== b.user.admin || old.stock !== b.user.stock || old.name !== b.user.name) go();
+      memSave();
+      started();
+    }).catch(function (e) {
+      syncEnd();
+      memClear();
+      bootFailed(e);
+    });
+  } else {
+    var firstSpec = preloadSpec(currentRoute());
+    call('api_bootstrap', firstSpec).then(function (b) {
+      S.boot = b;
+      if (b.preload && firstSpec && b.preload.key === firstSpec.key) S.preloaded[firstSpec.key] = b.preload.data;
+      applyBoot(b);
+      window.addEventListener('hashchange', go);
+      go();
+      if (!b.counts) refreshCount();
+      memSave();
+      started();
+    }).catch(bootFailed);
+  }
 })();
 </script>

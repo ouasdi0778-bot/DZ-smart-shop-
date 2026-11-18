@@ -2822,20 +2822,53 @@ function locksDuring(fn) {
   return n;
 }
 
-test('Vitesse : une confirmation écrit la commande en 2 blocs, sans case par case', function () {
+test('Vitesse : une confirmation écrit la commande en un seul bloc, sans case par case', function () {
   baseSetup();
   addRaw({ 'N°': '#S1', 'Client': 'Rapide', 'Téléphone': '0550000071', 'Wilaya': 'Alger', 'Prix': 1000 });
   processNewRows();
+  var journal = sheet('Journal').getLastRow();
   var calls = countSheetCalls(function () { api_recordCall('#S1', 'confirm', {}); });
   assert.strictEqual(calls['Commandes:setValue'] || 0, 0, 'aucune écriture case par case');
-  assert.ok((calls['Commandes:setValues'] || 0) <= 2, JSON.stringify(calls));
-  assert.strictEqual(calls['Journal:setValues'], 1, 'une ligne de Journal, écrite en une fois');
+  assert.strictEqual(calls['Commandes:setValues'], 1, 'toute la ligne en une écriture : ' + JSON.stringify(calls));
+  assert.strictEqual(calls['Journal:setValues'] || 0, 0, 'une seule ligne de Journal : ajoutée en un appel (appendRow)');
+  assert.strictEqual(sheet('Journal').getLastRow(), journal + 1);
   var o = order('#S1');
   assert.deepStrictEqual([o.status, o.attempts, o.agent], ['Confirmée', 1, 'Admin']);
   // processNewRows : le Journal de plusieurs commandes est écrit en une seule fois.
   for (var i = 0; i < 5; i++) addRaw({ 'N°': '#S' + (10 + i), 'Client': 'Lot', 'Téléphone': '055000008' + i, 'Wilaya': 'Alger', 'Prix': 500 });
   var batch = countSheetCalls(function () { assert.strictEqual(processNewRows(), 5); });
   assert.strictEqual(batch['Journal:setValues'], 1);
+});
+
+test('Vitesse : écriture d’une ligne en un bloc seulement sous le verrou, jamais par-dessus une colonne ajoutée à la main', function () {
+  baseSetup();
+  addRaw({ 'N°': '#S2', 'Client': 'Bloc', 'Téléphone': '0550000072', 'Wilaya': 'Alger', 'Prix': 1000 });
+  processNewRows();
+  // Pas de réponse : statut, appels, rappel, appels du jour, historique, date : un seul bloc.
+  var calls = countSheetCalls(function () { api_recordCall('#S2', 'no_answer', {}); });
+  assert.strictEqual(calls['Commandes:setValues'], 1, JSON.stringify(calls));
+  var o = order('#S2');
+  assert.deepStrictEqual([o.status, o.attempts, o.client, o.phone], ['Pas de réponse', 1, 'Bloc', '0550000072'], 'les cases entre deux sont réécrites à l’identique');
+  // Hors verrou : pas de bloc élargi (la ligne en mémoire peut être ancienne).
+  var ctx = readOrders_();
+  var outside = countSheetCalls(function () { writeFields_(ctx, findOrder_(ctx, '#S2'), { status: 'Rappeler', updated: new Date() }); });
+  assert.ok(outside['Commandes:setValues'] >= 2, JSON.stringify(outside));
+  // Une colonne ajoutée à la main au milieu n'est jamais réécrite.
+  var sh = sheet('Commandes');
+  var header = headerOf('Commandes');
+  var col = header.indexOf('Mis à jour') + 1;
+  sh.insertColumnsAfter(col - 1, 1);
+  sh.getRange(1, col).setValue('Ma colonne');
+  withLock_(function () {
+    var c2 = readOrders_();
+    var row = findOrder_(c2, '#S2')._row;
+    sh.getRange(row, col).setValue('à moi');
+    var n = countSheetCalls(function () { writeFields_(c2, findOrder_(c2, '#S2'), { status: 'Pas de réponse', callLog: 'x', updated: new Date() }); });
+    assert.strictEqual(n['Commandes:setValues'], 2, 'arrêt avant la colonne ajoutée à la main : ' + JSON.stringify(n));
+  });
+  var after = readOrders_();
+  var r2 = findOrder_(after, '#S2')._row;
+  assert.strictEqual(sh.getRange(r2, col).getValue(), 'à moi', 'colonne ajoutée à la main intacte');
 });
 
 test('Vitesse : réglages, tarifs, équipe et liste noire gardés en mémoire, vidés dès qu’on les modifie', function () {
@@ -3817,6 +3850,60 @@ test('Ecotrack : « dernier mouvement » = date réelle donnée par Ecotrack, r�
   assert.strictEqual(api_trackingOverview(30).every, 120);
 });
 
+test('Vitesse : clé de la mémoire sur l’appareil (par compte, sans l’adresse), réglages lus en un seul appel', function () {
+  setup();
+  var a = JSON.parse(deviceInfo_());
+  assert.ok(/^[0-9a-f]{16}$/.test(a.key), a.key);
+  assert.strictEqual(a.v, APP_VERSION);
+  assert.ok(deviceInfo_().indexOf('example.com') < 0, 'l’adresse n’apparaît pas dans la page');
+  __mock.setUser('imane@example.com');
+  assert.notStrictEqual(JSON.parse(deviceInfo_()).key, a.key, 'un autre compte, une autre mémoire');
+  __mock.setUser('');
+  assert.strictEqual(JSON.parse(deviceInfo_()).key, '', 'compte inconnu : pas de mémoire sur l’appareil');
+  __mock.setUser('admin@example.com');
+
+  // Une action lit tous les réglages en un seul appel à la mémoire, puis plus du tout.
+  getSettings_(); getWilayaList_(); readRates_(getWilayaList_()); readClients_(); readTeam_(); readCatalog_();
+  CFG_MEMO_ = {}; CFG_PREFETCHED_ = false;
+  var cache = CacheService.getScriptCache();
+  var proto = Object.getPrototypeOf(cache) === Object.prototype ? null : Object.getPrototypeOf(cache);
+  var realGet = CacheService.getScriptCache;
+  var n = { get: 0, getAll: 0 };
+  CacheService.getScriptCache = function () {
+    var c = realGet.apply(CacheService, arguments);
+    var g = c.get, ga = c.getAll;
+    c.get = function () { n.get++; return g.apply(c, arguments); };
+    c.getAll = function () { n.getAll++; return ga.apply(c, arguments); };
+    return c;
+  };
+  try {
+    for (var i = 0; i < 20; i++) { getSettings_(); readRates_(getWilayaList_()); readClients_(); readTeam_(); readCatalog_(); }
+  } finally { CacheService.getScriptCache = realGet; }
+  assert.deepStrictEqual(n, { get: 0, getAll: 1 }, JSON.stringify(n));
+  // Un réglage modifié dans l'application est relu tout de suite (mémoire vidée).
+  setSetting('ATTENTE_MAX_HEURES', 36);
+  assert.strictEqual(getSettings_().ATTENTE_MAX_HEURES, 36);
+  var copy = getSettings_();
+  copy.ATTENTE_MAX_HEURES = 999;
+  assert.strictEqual(getSettings_().ATTENTE_MAX_HEURES, 36, 'chaque lecture reçoit sa propre copie');
+});
+
+test('Confirmation : toutes les informations modifiables (produit, prix, société, frais tapés à la main)', function () {
+  baseSetup();
+  addRaw({ 'N°': '#F1', 'Client': 'Avant', 'Téléphone': '0550000091', 'Wilaya': 'Alger', 'Produit': 'Sac', 'Quantité': 1, 'Prix': 1000 });
+  processNewRows();
+  var o = api_recordCall('#F1', 'confirm', { fields: {
+    client: 'Après', phone: '0661 00 00 92', wilaya: '31 - Oran', commune: 'Es Senia', address: 'Rue 1', product: 'Montre', qty: '2',
+    price: '4000', mode: 'Stop desk', carrier: 'Ecotrack', shipping: '250', notes: 'Livrer après 17 h' } });
+  assert.deepStrictEqual([o.status, o.client, o.phone, o.wilaya, o.commune, o.address, o.product, o.qty, o.price, o.mode, o.carrier, o.shipping, o.total, o.notes],
+    ['Confirmée', 'Après', '0661000092', '31 - Oran', 'Es Senia', 'Rue 1', 'Montre', 2, 4000, 'Stop desk', 'Ecotrack', 250, 4250, 'Livrer après 17 h']);
+  // Sans frais tapés : ils sont recalculés selon la wilaya, la livraison et la société.
+  addRaw({ 'N°': '#F2', 'Client': 'Auto', 'Téléphone': '0550000093', 'Wilaya': 'Alger', 'Produit': 'Sac', 'Quantité': 1, 'Prix': 1000 });
+  processNewRows();
+  var o2 = api_recordCall('#F2', 'confirm', { fields: { wilaya: '31 - Oran', mode: 'Domicile', carrier: 'Ecotrack' } });
+  assert.deepStrictEqual([o2.shipping, o2.total], [700, 1700], 'tarif Ecotrack d’Oran à domicile');
+});
+
 test('fichier unique dist/Code.gs : à jour et fonctionnel', function () {
   var bundle = require('./build-bundle.js');
   var expected = bundle.build();
@@ -3847,6 +3934,9 @@ test('fichier unique dist/Code.gs : à jour et fonctionnel', function () {
 var failed = 0;
 tests.forEach(function (t) {
   __mock.reset();
+  // Chaque appel réel est une nouvelle exécution : la mémoire des réglages repart de zéro.
+  CFG_MEMO_ = {};
+  CFG_PREFETCHED_ = false;
   try {
     t[1]();
     console.log('  ok  ' + t[0]);

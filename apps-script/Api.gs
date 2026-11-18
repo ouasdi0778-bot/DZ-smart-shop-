@@ -22,9 +22,32 @@ function doGet() {
   var template = hasBundledHtml_()
     ? HtmlService.createTemplate(HTML_FILES_.Index)
     : HtmlService.createTemplateFromFile('Index');
+  template.device = deviceInfo_();
   return template.evaluate()
     .setTitle(APP_NAME + ' · Commandes COD')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
+}
+
+/**
+ * Ce que la page sait avant tout appel au serveur : une clé propre à l'utilisateur (pas son adresse)
+ * pour la mémoire sur l'appareil, et la version. Texte JSON inséré dans la page.
+ */
+function deviceInfo_() {
+  var email = '';
+  try { email = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase(); } catch (e) { email = ''; }
+  return JSON.stringify({ key: email ? shortHash_('dz-smart-shop|' + email) : '', v: APP_VERSION });
+}
+
+/** Empreinte courte (16 caractères) d'un texte : sert à distinguer deux comptes sur un même appareil. */
+function shortHash_(text) {
+  var h1 = 0x811c9dc5;
+  var h2 = 0x01000193 ^ 0x5bd1e995;
+  for (var i = 0; i < text.length; i++) {
+    var c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 16777619) >>> 0;
+    h2 = Math.imul(h2 ^ c, 2246822519) >>> 0;
+  }
+  return ('0000000' + h1.toString(16)).slice(-8) + ('0000000' + h2.toString(16)).slice(-8);
 }
 
 /** Insère un fichier HTML dans un autre (Styles, App). */
@@ -176,6 +199,7 @@ function dashboardApi_(period, from, to) {
 
 function dashboardData_(ctx, period, from, to) {
   var now = new Date();
+  var settings = getSettings_();
   var range = periodRange_(String(period || '7'), from, to);
   var inPeriod = ctx.orders.filter(function (o) { return inDayRange_(o.date, range.from, range.to); });
   // Sur « Tout », les commandes archivées comptent aussi (elles sont toutes terminées).
@@ -243,9 +267,9 @@ function dashboardData_(ctx, period, from, to) {
       callbacksToday: callbacksToday,
       toShip: ctx.orders.filter(has([STATUS.CONFIRMED])).length,
       unreachable: ctx.orders.filter(has([STATUS.UNREACHABLE])).length,
-      waitingLong: ctx.orders.filter(function (o) { return neverCalledLong_(o, now, getSettings_().ATTENTE_MAX_HEURES); }).length,
-      parcelAlerts: trackingAlerts_(ctx.orders, getSettings_(), now).filter(function (a) { return a.level !== 'info'; }).length,
-      stockLow: canSeeStock_(currentUser_()) ? stockData_(ctx, getSettings_()).low : 0
+      waitingLong: ctx.orders.filter(function (o) { return neverCalledLong_(o, now, settings.ATTENTE_MAX_HEURES); }).length,
+      parcelAlerts: trackingAlerts_(ctx.orders, settings, now).filter(function (a) { return a.level !== 'info'; }).length,
+      stockLow: canSeeStock_(currentUser_()) ? stockData_(ctx, settings).low : 0
     },
     byWilaya: group(function (o) { return o.wilaya; }, has(SHIPPED_STATUSES)).slice(0, 10),
     byAgent: group(function (o) { return o.agent; }, function (o) {
@@ -511,7 +535,8 @@ function orderDetail_(ctx, env, o, user) {
 /**
  * Enregistre le résultat d'un appel.
  * outcome : 'confirm' | 'no_answer' | 'callback' | 'cancel'
- * payload : { fields: {client, wilaya, commune, address, mode, qty, notes}, callback: date ISO, reason: motif }
+ * payload : { fields: {client, phone, wilaya, commune, address, product, qty, price, mode, carrier, shipping, notes},
+ *             callback: date ISO, reason: motif } ; price et shipping seulement s'ils ont été tapés à la main
  */
 function api_recordCall(id, outcome, payload, opts) {
   payload = payload || {};
@@ -526,7 +551,8 @@ function api_recordCall(id, outcome, payload, opts) {
     }
     var env = makeEnv_(ctx);
     var user = currentUser_();
-    var f = applyEdits_(o, payload.fields, env, false);
+    // Toutes les informations de la commande sont modifiables ; des frais de livraison tapés à la main sont gardés.
+    var f = applyEdits_(o, payload.fields, env, true);
     var attempts = toNumber_(o.attempts);
     var detail = '';
     var logText = '';
