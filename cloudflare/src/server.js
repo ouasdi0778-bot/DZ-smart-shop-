@@ -17,6 +17,7 @@ const F = APP.fns;
 const K = APP.consts;
 
 const TOKEN_DAYS = 30;
+const TAB_PART = 250; // lignes par paquet d'onglet (même valeur que TAB_PART_ dans gas-shim.js)
 const TODO = K.TODO_STATUSES_;
 const QUEUE = K.QUEUE_STATUSES;
 const S = K.STATUS;
@@ -141,6 +142,7 @@ const ROW_COLS = ['stage', 'status', 'day', 'date', 'phone', 'wilaya', 'agent', 
 function toOrder(row) {
   const o = JSON.parse(row.data);
   Object.defineProperty(o, '__rev', { value: row.rev, writable: true, enumerable: false });
+  Object.defineProperty(o, '__day', { value: row.day || '', writable: true, enumerable: false }); // jour avant modification (résumés par jour)
   return o;
 }
 
@@ -168,46 +170,112 @@ async function loadBase(env) {
       try { const c = JSON.parse(r.value); if (c.exp > now) cache[r.key.slice(6)] = c.v; } catch (e) { /* ignorée */ }
     } else props[r.key] = r.value;
   });
-  return { config, props, secret, cache };
+  return { config, props, secret, cache, full: !!secret['cf:full'] };
 }
 
 function newReq(base, user) {
   return {
-    now: new Date(), user: user, config: base.config, props: Object.assign({}, base.props), propWrites: {},
+    now: new Date(), user: user, config: Object.assign({}, base.config), props: Object.assign({}, base.props), propWrites: {},
     cache: Object.assign({}, base.cache || {}), cacheWrites: {},
-    orders: [], byId: {}, dirty: {}, inserts: [], journal: [], configWrites: {}, extra: [], notes: [],
+    orders: [], byId: {}, raw: {}, dirty: {}, inserts: [], journal: [], configWrites: {}, configDrop: {}, extra: [], notes: [],
     trashIds: null, archived: [], manualMax: 0,
-    fetched: {}, fetchUsed: {}, needFetch: null, base: base
+    fetched: {}, fetchUsed: {}, needFetch: null, needTabs: null, base: base,
+    // Étape 3 : onglets gardés dans D1 (lus à la demande), mouvements de stock, résumés par jour.
+    full: !!base.full, tabStore: base.full ? {} : null, tabs: {}, moveRows: [], moves: [], days: {}, labelRows: null,
+    editors: parseList(base.secret && base.secret['cf:editors']), cfInfo: cfInfo(base), healthSummary: null, rebuildDays: false
   };
+}
+function parseList(text) { try { const v = JSON.parse(text || 'null'); return Array.isArray(v) ? v : null; } catch (e) { return null; } }
+/** Ce que la version Cloudflare sait du lien avec le classeur (page Administration). */
+function cfInfo(base) {
+  const s = base.secret || {};
+  const gw = s['cf:gateway'] || '';
+  return { live: s['cf:live'] || '', full: s['cf:full'] || '', bridgeAt: s['cf:bridgeAt'] || '', lastIngest: s['cf:lastIngest'] || '',
+    google: gw ? gw + (gw.indexOf('?') >= 0 ? '&' : '?') + 'google=1' : '' };
+}
+
+/* ---------------- Rejeu : appels extérieurs et onglets lus à la demande ---------------- */
+
+/** État de la requête avant une action (pour la rejouer à l'identique). */
+function snapshot(R) {
+  return {
+    orders: R.orders.map((o) => {
+      const id = String(o.id);
+      const changed = !!R.dirty[id] || !!o.__new;
+      return { id: id, rev: o.__rev, day: o.__day, data: !changed && R.raw[id] ? R.raw[id] : JSON.stringify(o), isNew: !!o.__new, dirty: !!R.dirty[id] };
+    }),
+    props: Object.assign({}, R.props), propWrites: Object.assign({}, R.propWrites),
+    cache: Object.assign({}, R.cache), cacheWrites: Object.assign({}, R.cacheWrites),
+    config: Object.assign({}, R.config), configWrites: Object.assign({}, R.configWrites), configDrop: Object.assign({}, R.configDrop),
+    journal: R.journal.slice(), extra: R.extra.slice(), notes: R.notes.slice(), moveRows: R.moveRows.slice(),
+    tabs: cloneTabs(R.tabs)
+  };
+}
+function cloneTabs(tabs) {
+  const out = {};
+  Object.keys(tabs).forEach((n) => {
+    const t = tabs[n];
+    out[n] = Object.assign({}, t, { rows: t.own ? t.rows.map((r) => r.slice()) : t.rows, dirty: Object.assign({}, t.dirty) });
+  });
+  return out;
+}
+function restore(R, s) {
+  R.orders = []; R.byId = {}; R.dirty = {}; R.inserts = [];
+  s.orders.forEach((x) => {
+    const o = toOrder({ rev: x.rev, day: x.day, data: x.data });
+    if (x.isNew) { Object.defineProperty(o, '__new', { value: true, enumerable: false, writable: true }); R.inserts.push(o); }
+    R.byId[x.id] = o;
+    R.orders.push(o);
+    if (x.dirty) R.dirty[x.id] = o;
+  });
+  R.props = Object.assign({}, s.props); R.propWrites = Object.assign({}, s.propWrites);
+  R.cache = Object.assign({}, s.cache); R.cacheWrites = Object.assign({}, s.cacheWrites);
+  R.config = Object.assign({}, s.config); R.configWrites = Object.assign({}, s.configWrites); R.configDrop = Object.assign({}, s.configDrop);
+  R.journal = s.journal.slice(); R.extra = s.extra.slice(); R.notes = s.notes.slice(); R.moveRows = s.moveRows.slice();
+  R.tabs = cloneTabs(s.tabs);
 }
 
 /**
- * Exécute une action qui appelle Ecotrack ou httpSMS (voir UrlFetchApp dans gas-shim.js) : jouée,
- * l'appel manquant est fait, puis rejouée depuis le début avec les commandes telles qu'elles étaient,
- * jusqu'à ce qu'elle aille au bout. Seul le dernier passage compte (et sera enregistré).
+ * Exécute une fonction de l'outil. Si elle a besoin d'un appel extérieur (Ecotrack, httpSMS) ou d'un
+ * onglet pas encore lu (étape 3), elle s'arrête : l'appel est fait (ou l'onglet lu dans D1), puis
+ * l'action est rejouée depuis le début, avec tout tel que c'était. Seul le dernier passage compte.
+ * Après l'action, les réglages touchés (onglets Paramètres, Produits…) sont recalculés.
  */
-async function runFetch(R, fn) {
-  const snap = R.orders.map((o) => ({ rev: o.__rev, data: JSON.stringify(o) }));
-  const props = Object.assign({}, R.props);
-  const cache = Object.assign({}, R.cache);
-  const config = Object.assign({}, R.config);
-  for (let attempt = 0; attempt < 30; attempt++) {
-    R.orders = []; R.byId = {};
-    addOrders(R, snap.map((x) => toOrder({ rev: x.rev, data: x.data })));
-    R.dirty = {}; R.inserts = []; R.journal = []; R.extra = []; R.notes = []; R.configWrites = {};
-    R.props = Object.assign({}, props); R.propWrites = {};
-    R.cache = Object.assign({}, cache); R.cacheWrites = {};
-    R.config = Object.assign({}, config);
-    R.fetchUsed = {}; R.needFetch = null;
+async function exec(env, R, fn) {
+  const before = snapshot(R);
+  for (let attempt = 0; attempt < 40; attempt++) {
+    if (attempt) restore(R, before);
+    R.fetchUsed = {}; R.needFetch = null; R.needTabs = null;
     let result;
     let error = null;
     APP.begin(R);
-    try { result = fn(); } catch (e) { error = e; } finally { APP.end(); }
+    try {
+      result = fn();
+      if (R.full) F.cfRefreshConfig_();
+    } catch (e) { error = e; } finally { APP.end(); }
+    if (R.needTabs) { await loadTabs(env, R, R.needTabs); continue; }
     if (R.needFetch) { await doFetches(R.needFetch, R.fetched); continue; }
     if (error) throw error;
     return result;
   }
   throw new Error('Trop d’appels extérieurs pour une seule action : réessayez.');
+}
+
+/** Lit des onglets dans D1 (étape 3) ; un onglet absent est noté comme tel. */
+async function loadTabs(env, R, names) {
+  const want = names.filter((n) => !R.tabStore[n]);
+  if (!want.length) return;
+  const r = await env.DB.prepare('SELECT name, part, rev, rows FROM tabs WHERE name IN (' + placeholders(want.length) + ') ORDER BY name, part').bind(...want).all();
+  want.forEach((n) => { R.tabStore[n] = { exists: false, rows: [], revs: {}, parts: 0 }; });
+  (r.results || []).forEach((x) => {
+    const t = R.tabStore[x.name];
+    t.exists = true;
+    t.revs[x.part] = x.rev;
+    t.parts = Math.max(t.parts, x.part + 1);
+    const rows = JSON.parse(x.rows).map((line) => line.map(F.cfCellIn_));
+    for (let i = 0; i < rows.length; i++) t.rows[x.part * TAB_PART + i] = rows[i];
+  });
+  want.forEach((n) => { const t = R.tabStore[n]; for (let i = 0; i < t.rows.length; i++) if (!t.rows[i]) t.rows[i] = []; });
 }
 
 /** Fait les appels demandés (en parallèle) et garde les réponses pour le passage suivant. */
@@ -247,16 +315,24 @@ function addOrders(R, list) {
   });
 }
 
+function addRows(R, rows) {
+  (rows || []).forEach((row) => {
+    if (R.byId[String(row.id)]) return;
+    R.raw[String(row.id)] = row.data;
+    addOrders(R, [toOrder(row)]);
+  });
+}
+
 async function loadWhere(env, R, where, binds) {
-  const r = await env.DB.prepare('SELECT id, rev, data FROM orders WHERE ' + where).bind(...(binds || [])).all();
-  addOrders(R, (r.results || []).map(toOrder));
+  const r = await env.DB.prepare('SELECT id, rev, day, data FROM orders WHERE ' + where).bind(...(binds || [])).all();
+  addRows(R, r.results);
 }
 
 /** Plusieurs lectures en un seul aller-retour. */
 async function loadMany(env, R, queries) {
   if (!queries.length) return;
-  const res = await env.DB.batch(queries.map((q) => env.DB.prepare('SELECT id, rev, data FROM orders WHERE ' + q[0]).bind(...(q[1] || []))));
-  res.forEach((r) => addOrders(R, (r.results || []).map(toOrder)));
+  const res = await env.DB.batch(queries.map((q) => env.DB.prepare('SELECT id, rev, day, data FROM orders WHERE ' + q[0]).bind(...(q[1] || []))));
+  res.forEach((r) => addRows(R, r.results));
 }
 
 function phonesOf(values) {
@@ -271,10 +347,16 @@ function phoneQuery(phones) {
   return phones.length ? ['archived = 0 AND phone IN (' + placeholders(phones.length) + ')', phones] : null;
 }
 
-/** Exécute une fonction de l'outil (synchrone) sur les commandes chargées. */
+/** Exécute une fonction de l'outil (synchrone) sur les commandes chargées, sans appel extérieur ni onglet à lire. */
 function run(R, fn) {
+  R.needTabs = null; R.needFetch = null;
   APP.begin(R);
-  try { return fn(); } finally { APP.end(); }
+  try {
+    return fn();
+  } catch (e) {
+    if (R.needTabs || R.needFetch) throw new Error('Action à rejouer (onglet ou appel extérieur) : ' + (R.needTabs || []).join(', '));
+    throw e;
+  } finally { APP.end(); }
 }
 
 /** Enregistre dans D1 tout ce que la requête a modifié, en une transaction. */
@@ -321,16 +403,85 @@ async function flush(env, R) {
     st.push(db.prepare('INSERT INTO config (key, value, updated) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated = excluded.updated')
       .bind(k, R.configWrites[k], now));
   });
+  if (tabStatements(db, R, st, now)) guarded = true;
+  // Mouvements de stock (étape 3) : ajoutés à la table moves, recopiés dans l'onglet « Mouvements stock ».
+  if (R.moveRows.length) {
+    const rows = R.moveRows.map((r) => r.map(F.cfCellOut_));
+    st.push(db.prepare("INSERT INTO moves (at, row) SELECT ?, value FROM json_each(?)").bind(now, JSON.stringify(rows)));
+    st.push(db.prepare("INSERT INTO changes(order_id, kind, at, info) VALUES ('Mouvements stock', 'moves', ?, ?)").bind(now, JSON.stringify(rows)));
+  }
+  // Résumés par jour (Statistiques, Bénéfices) : les jours des commandes modifiées sont à recalculer.
+  const days = {};
+  Object.keys(R.dirty).forEach((id) => { const o = R.dirty[id]; if (o.__day) days[o.__day] = true; const d = rowOf(o).day; if (d) days[d] = true; });
+  R.inserts.forEach((o) => { const d = rowOf(o).day; if (d) days[d] = true; });
+  Object.keys(days).forEach((d) => st.push(db.prepare('INSERT INTO days (day, stale) VALUES (?, 1) ON CONFLICT(day) DO UPDATE SET stale = stale + 1').bind(d)));
+  if (R.full && (R.rebuildDays || statsInputsChanged(R))) {
+    st.push(db.prepare("INSERT OR IGNORE INTO days (day, stale) SELECT DISTINCT day, 1 FROM orders WHERE day != ''"));
+    st.push(db.prepare('UPDATE days SET stale = stale + 1'));
+  }
+  if (R.full && R.editors && JSON.stringify(R.editors) !== JSON.stringify(parseList(R.base.secret['cf:editors']))) {
+    st.push(db.prepare("INSERT INTO kv (key, value) VALUES ('cf:editors', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(JSON.stringify(R.editors)));
+  }
   if (!st.length) return;
   if (guarded) st.push(db.prepare('DELETE FROM guard'));
   try {
     await db.batch(st);
   } catch (e) {
     if (/CHECK constraint/i.test(String(e && e.message))) {
-      throw new HttpError(409, 'Cette commande vient d’être modifiée par quelqu’un d’autre. Rechargez-la, puis recommencez.', 'conflict');
+      const err = new HttpError(409, 'Cette commande vient d’être modifiée par quelqu’un d’autre. Rechargez-la, puis recommencez.', 'conflict');
+      // Seul un onglet a changé entre-temps (pas une commande) : l'action peut être rejouée telle quelle.
+      err.retry = !Object.keys(R.dirty).length;
+      throw err;
     }
     throw e;
   }
+}
+
+/**
+ * Onglets modifiés (étape 3) : seuls les paquets de lignes touchés sont réécrits, chacun avec son
+ * n° de version (deux personnes en même temps : la deuxième est rejouée sur l'onglet à jour).
+ * Le changement est noté pour être recopié dans le classeur Google.
+ */
+function tabStatements(db, R, st, now) {
+  let guarded = false;
+  Object.keys(R.tabs || {}).forEach((name) => {
+    const t = R.tabs[name];
+    const stored = R.tabStore[name];
+    if (!t.own && !Object.keys(t.dirty).length) return;
+    // Lignes vides en fin d'onglet : pas gardées.
+    const rows = t.rows.slice(0, F.tabLastRow_(t));
+    const parts = Math.max(Math.ceil(rows.length / TAB_PART), t.exists ? 1 : 0);
+    const write = {};
+    Object.keys(t.dirty).forEach((p) => { if (Number(p) < parts) write[p] = true; });
+    if (t.cut >= 0) for (let p = Math.floor(t.cut / TAB_PART); p < parts; p++) write[p] = true;
+    if (t.exists && !stored.exists) write[0] = true;
+    const list = Object.keys(write).map(Number).sort((a, b) => a - b);
+    list.forEach((p) => {
+      const chunk = rows.slice(p * TAB_PART, (p + 1) * TAB_PART).map((r) => r.map(F.cfCellOut_));
+      st.push(db.prepare('INSERT INTO tabs (name, part, rev, rows) VALUES (?, ?, 1, ?) ON CONFLICT(name, part) DO UPDATE SET rows = excluded.rows, rev = tabs.rev + 1 WHERE tabs.rev = ?')
+        .bind(name, p, JSON.stringify(chunk), stored.revs[p] || 0));
+      st.push(db.prepare('INSERT INTO guard(ok) VALUES (changes())'));
+      guarded = true;
+    });
+    if (stored.parts > parts) st.push(db.prepare('DELETE FROM tabs WHERE name = ? AND part >= ?').bind(name, parts));
+    if (list.length || stored.parts > parts) {
+      st.push(db.prepare("INSERT INTO changes(order_id, kind, at, info) VALUES (?, 'tab', ?, ?)").bind(name, now, JSON.stringify({ parts: list, n: rows.length })));
+    }
+  });
+  return guarded;
+}
+
+/** Réglages qui changent les résumés par jour (coûts, frais, tarifs) : tous les jours sont à recalculer. */
+function statsInputsChanged(R) {
+  const sig = (key, src) => {
+    let v = null;
+    try { v = JSON.parse(src[key] || 'null'); } catch (e) { v = null; }
+    if (!v) return '';
+    if (key === 'cfg:products') return JSON.stringify((v.rows || []).map((r) => [r.key, r.product, r.model, r.cost, r.aliases]));
+    if (key === 'cfg:settings') return JSON.stringify([v.FRAIS_RETOUR, v.COUT_EMBALLAGE, v.SOCIETE_PAR_DEFAUT, v.REMARQUES_MOTS]);
+    return JSON.stringify(v);
+  };
+  return ['cfg:products', 'cfg:settings', 'cfg:rates'].some((k) => R.configWrites[k] !== undefined && sig(k, R.configWrites) !== sig(k, R.base.config));
 }
 
 /**
@@ -407,10 +558,10 @@ function userName(R) { return run(R, () => F.currentUser_().name); }
 const PAGES = {
   async api_bootstrap(env, R, args) {
     const preload = args[0] || null;
+    if (R.full) R.healthSummary = workerHealth(R).summary;
     const boot = run(R, () => F.bootstrapApi_(null));
     boot.counts = await fastCounts(env);
-    const gw = (R.base && R.base.secret && R.base.secret['cf:gateway']) || '';
-    boot.cloud = { version: K.APP_VERSION, step: isLive(R) ? 2 : 1, google: gw ? gw + (gw.indexOf('?') >= 0 ? '&' : '?') + 'google=1' : '' };
+    boot.cloud = { version: K.APP_VERSION, step: R.full ? 3 : isLive(R) ? 2 : 1, google: R.cfInfo.google };
     if (preload && preload.fn && PAGES[preload.fn] && ['api_dashboard', 'api_listOrders', 'api_queue'].indexOf(preload.fn) >= 0) {
       const R2 = newReq(R.base, R.user);
       R2.userName = R.userName;
@@ -460,7 +611,7 @@ const PAGES = {
     const phones = phonesOf([o.phone, payload.fields && payload.fields.phone, next && R.byId[next] ? R.byId[next].phone : '']);
     const pq = phoneQuery(phones);
     if (pq) await loadWhere(env, R, pq[0], pq[1]);
-    const res = run(R, () => F.api_recordCall.apply(null, args));
+    const res = await exec(env, R, () => F.api_recordCall.apply(null, args));
     await flush(env, R);
     return withCounts(env, res);
   },
@@ -473,7 +624,7 @@ const PAGES = {
     if (!o) throw new HttpError(404, 'Commande ' + id + ' introuvable.');
     const pq = phoneQuery(phonesOf([o.phone, input.phone]));
     if (pq) await loadWhere(env, R, pq[0], pq[1]);
-    const res = run(R, () => F.api_updateOrder.apply(null, args));
+    const res = await exec(env, R, () => F.api_updateOrder.apply(null, args));
     await flush(env, R);
     return withCounts(env, res);
   },
@@ -483,7 +634,7 @@ const PAGES = {
     const pq = phoneQuery(phonesOf([input.phone]));
     if (pq) await loadWhere(env, R, pq[0], pq[1]);
     R.manualMax = await manualMax(env);
-    const res = run(R, () => F.api_createOrder.apply(null, args));
+    const res = await exec(env, R, () => F.api_createOrder.apply(null, args));
     await flush(env, R);
     return withCounts(env, res);
   },
@@ -494,6 +645,11 @@ const PAGES = {
     const on = !!args[1];
     const note = String(args[2] || '');
     await loadWhere(env, R, 'archived = 0 AND phone = ?', [p.phone]);
+    if (R.full) { // étape 3 : onglet Clients dans la base
+      const r3 = await exec(env, R, () => F.api_setBlacklist.apply(null, args));
+      await flush(env, R);
+      return r3;
+    }
     const res = run(R, () => {
       const user = F.currentUser_();
       const clients = F.readClients_();
@@ -685,7 +841,7 @@ function needLive(R) {
 /** Action qui touche Ecotrack ou httpSMS : jouée avec les appels, enregistrée, compteurs à jour. */
 async function external(env, R, fn, opts) {
   needLive(R);
-  const res = await runFetch(R, fn);
+  const res = await exec(env, R, fn);
   if (opts && opts.alerts) R.extra.push(alertStatement(env, R));
   await flush(env, R);
   return withCounts(env, res);
@@ -695,7 +851,7 @@ Object.assign(PAGES, {
   async api_shippingList(env, R) {
     await loadWhere(env, R, "archived = 0 AND stage = 'confirmed'", []);
     if (!isLive(R)) return run(R, () => F.api_shippingList());
-    return runFetch(R, () => F.api_shippingList());
+    return exec(env, R, () => F.api_shippingList());
   },
   async api_shipEcotrack(env, R, args) {
     await loadIds(env, R, idsOf(args[0]));
@@ -707,7 +863,7 @@ Object.assign(PAGES, {
   },
   async api_markLabelsPrinted(env, R, args) {
     await loadIds(env, R, idsOf(args[0]));
-    const res = run(R, () => F.api_markLabelsPrinted(args[0]));
+    const res = await exec(env, R, () => F.api_markLabelsPrinted(args[0]));
     await flush(env, R);
     return res;
   },
@@ -751,14 +907,14 @@ Object.assign(PAGES, {
   async api_markFollowUp(env, R, args) {
     await loadWhere(env, R, 'archived = 0 AND track = 1', []);
     await loadIds(env, R, idsOf([args[0]]));
-    const res = run(R, () => F.api_markFollowUp(args[0]));
+    const res = await exec(env, R, () => F.api_markFollowUp(args[0]));
     R.extra.push(alertStatement(env, R));
     await flush(env, R);
     return res;
   },
   async api_markReturnDamaged(env, R, args) {
     await loadIds(env, R, idsOf([args[0]]));
-    const res = run(R, () => F.api_markReturnDamaged(args[0]));
+    const res = await exec(env, R, () => F.api_markReturnDamaged(args[0]));
     await flush(env, R);
     return res;
   },
@@ -780,6 +936,29 @@ async function loadSmsOrders(env, R) {
 
 /* ---------------- Tâches automatiques (chaque minute) ---------------- */
 
+/** Note le résultat d'une tâche (page Administration › État de l'outil). */
+async function noteTask(env, base, key, fn) {
+  const t0 = Date.now();
+  let prev = null;
+  try { prev = JSON.parse(base.secret['cf:task:' + key] || 'null'); } catch (e) { prev = null; }
+  let res;
+  let err = '';
+  try { res = await fn(); if (res && res.error) err = String(res.error); } catch (e) { err = String(e && e.message ? e.message : e); }
+  const at = new Date().toISOString();
+  const ok = !err;
+  const t = { at: at, ok: ok, ms: Date.now() - t0, err: err.slice(0, 300), fails: ok ? 0 : ((prev && prev.fails) || 0) + 1, lastOk: ok ? at : (prev && prev.lastOk) || '' };
+  await env.DB.prepare('INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').bind('cf:task:' + key, JSON.stringify(t)).run();
+  return ok ? res : { error: err };
+}
+
+function due(base, key, minutes) {
+  const last = Date.parse(base.secret[key] || '') || 0;
+  return Date.now() - last >= minutes * 60000 - 30000;
+}
+function kvSet(env, key, value) {
+  return env.DB.prepare('INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').bind(key, value);
+}
+
 async function cron(env) {
   const base = await loadBase(env);
   if (!base.secret['cf:live']) return { live: false };
@@ -787,47 +966,423 @@ async function cron(env) {
   const out = {};
   const settings = (() => { try { return JSON.parse(base.config['cfg:settings'] || '{}'); } catch (e) { return {}; } })();
   // 1. SMS en attente.
-  try {
+  out.sms = await noteTask(env, base, 'sms', async () => {
     const R = newReq(base, robot);
-    if (await loadSmsOrders(env, R)) {
-      out.sms = await runFetch(R, () => F.sendSmsQueue_({}));
-      await flush(env, R);
-    }
-  } catch (e) { out.smsError = String(e && e.message ? e.message : e); }
-  // 2. Statuts Ecotrack (toutes les SUIVI_ECOTRACK_MINUTES minutes).
-  const every = Number(settings.SUIVI_ECOTRACK_MINUTES) || 60;
-  const last = Date.parse(base.secret['cf:ecoLast'] || '') || 0;
-  if (Date.now() - last >= every * 60000 - 30000) {
-    const R = newReq(base, robot);
-    try {
-      await loadWhere(env, R, 'archived = 0 AND track = 1', []);
-      out.ecotrack = await runFetch(R, () => F.syncEcotrackStatuses_());
-      R.extra.push(alertStatement(env, R));
-    } catch (e) { out.ecotrackError = String(e && e.message ? e.message : e); }
-    R.extra.push(env.DB.prepare("INSERT INTO kv (key, value) VALUES ('cf:ecoLast', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(new Date().toISOString()));
+    if (!(await loadSmsOrders(env, R))) return { sent: 0 };
+    const r = await exec(env, R, () => F.sendSmsQueue_({}));
     await flush(env, R);
+    return r;
+  });
+  if (out.sms && out.sms.error) out.smsError = out.sms.error;
+  // 2. Statuts Ecotrack (toutes les SUIVI_ECOTRACK_MINUTES minutes).
+  if (due(base, 'cf:ecoLast', Number(settings.SUIVI_ECOTRACK_MINUTES) || 60)) {
+    await kvSet(env, 'cf:ecoLast', new Date().toISOString()).run();
+    out.ecotrack = await noteTask(env, base, 'ecotrack', async () => {
+      const R = newReq(base, robot);
+      await loadWhere(env, R, 'archived = 0 AND track = 1', []);
+      const r = await exec(env, R, () => F.syncEcotrackStatuses_());
+      R.extra.push(alertStatement(env, R));
+      await flush(env, R);
+      return r;
+    });
+    if (out.ecotrack && out.ecotrack.error) out.ecotrackError = out.ecotrack.error;
   }
-  // 3. Entretien de nuit (vers 3 h, heure d'Algérie) : appels sans réponse, corbeille, Journal.
+  if (base.full) {
+    // 3. Shopify (toutes les 5 minutes), lu par Cloudflare à l'étape 3.
+    if (base.props.SHOPIFY_SHOP && due(base, 'cf:shopLast', 5)) {
+      await kvSet(env, 'cf:shopLast', new Date().toISOString()).run();
+      out.shopify = await noteTask(env, base, 'shopify', () => shopifyImport(env, newReq(base, robot)));
+    }
+    // 4. Résumés par jour (Statistiques, Bénéfices) : quelques jours à refaire par minute.
+    out.days = await noteTask(env, base, 'days', async () => {
+      const r = await env.DB.prepare('SELECT day, stale FROM days WHERE stale > 0 ORDER BY day DESC LIMIT 6').all();
+      const list = r.results || [];
+      if (list.length) await refreshDays(env, newReq(base, robot), list);
+      return { refreshed: list.length };
+    });
+  }
+  // 5. Entretien de nuit (vers 3 h, heure d'Algérie).
   const today = F.ymd_(new Date());
   const hour = new Date(Date.now() + 3600000).getUTCHours(); // heure d'Algérie (UTC+1)
   if (hour >= 3 && base.secret['cf:nightDay'] !== today) {
-    const R = newReq(base, robot);
-    await loadWhere(env, R, 'archived = 0 AND status IN (?, ?)', [S.NO_ANSWER, S.UNREACHABLE]);
-    out.autoCancelled = run(R, () => F.autoCancelUnreachable_());
-    const now = Date.now();
-    const trashDays = Number(settings.CORBEILLE_JOURS) || 0;
-    if (trashDays > 0) {
-      const cut = new Date(now - trashDays * 86400000).toISOString();
-      R.extra.push(env.DB.prepare("INSERT OR REPLACE INTO blocked (id, at, by) SELECT id, ?, 'Automatique' FROM trash WHERE deleted_at < ?").bind(new Date().toISOString(), cut));
-      R.extra.push(env.DB.prepare('DELETE FROM trash WHERE deleted_at < ?').bind(cut));
+    await kvSet(env, 'cf:nightDay', today).run();
+    out.night = await noteTask(env, base, 'nightly', () => nightly(env, base));
+    if (out.night && !out.night.error) Object.assign(out, out.night);
+  }
+  let runs = { day: today, n: 0 };
+  try { const c = JSON.parse(base.secret['cf:runs'] || 'null'); if (c && c.day === today) runs = c; } catch (e) { /* nouveau jour */ }
+  runs.n++;
+  await env.DB.batch([kvSet(env, 'cf:cronAt', new Date().toISOString()), kvSet(env, 'cf:runs', JSON.stringify(runs))]);
+  return out;
+}
+
+/**
+ * Entretien de nuit : appels sans réponse annulés, corbeille et Journal raccourcis ; à l'étape 3 aussi :
+ * mouvements de stock oubliés, archivage des commandes terminées (recopié dans le classeur).
+ */
+async function nightly(env, base) {
+  const robot = { email: '' };
+  const out = {};
+  const settings = (() => { try { return JSON.parse(base.config['cfg:settings'] || '{}'); } catch (e) { return {}; } })();
+  const R = newReq(base, robot);
+  await loadWhere(env, R, 'archived = 0 AND status IN (?, ?)', [S.NO_ANSWER, S.UNREACHABLE]);
+  out.autoCancelled = await exec(env, R, () => F.autoCancelUnreachable_());
+  const now = Date.now();
+  const trashDays = Number(settings.CORBEILLE_JOURS) || 0;
+  if (trashDays > 0) {
+    const cut = new Date(now - trashDays * 86400000).toISOString();
+    const old = await env.DB.prepare('SELECT id FROM trash WHERE deleted_at < ?').bind(cut).all();
+    (old.results || []).forEach((x) => R.notes.push({ id: x.id, kind: 'purge', info: 'Automatique' }));
+    R.extra.push(env.DB.prepare("INSERT OR REPLACE INTO blocked (id, at, by) SELECT id, ?, 'Automatique' FROM trash WHERE deleted_at < ?").bind(new Date().toISOString(), cut));
+    R.extra.push(env.DB.prepare('DELETE FROM trash WHERE deleted_at < ?').bind(cut));
+  }
+  const journalDays = Number(settings.JOURNAL_JOURS) || 0;
+  if (journalDays > 0) R.extra.push(env.DB.prepare('DELETE FROM journal WHERE at < ?').bind(new Date(now - journalDays * 86400000).toISOString()));
+  R.extra.push(env.DB.prepare('DELETE FROM changes WHERE at < ?').bind(new Date(now - 30 * 86400000).toISOString()));
+  await flush(env, R);
+  if (base.full) {
+    // Stock : colis partis ou revenus dont le mouvement n'a pas encore été fait.
+    const R2 = newReq(base, robot);
+    await loadWhere(env, R2, "archived = 0 AND ((IFNULL(json_extract(data, '$.stockMove'), '') = '' AND stage IN ('transit', 'delivered', 'returned')) " +
+      "OR (json_extract(data, '$.stockMove') = ? AND stage IN ('returned', 'cancelled')))", [K.STOCK_OUT_]);
+    if (R2.orders.length) {
+      const r = await exec(env, R2, () => F.applyStockMoves_(F.readOrders_()));
+      out.stock = (r.out || 0) + (r.back || 0);
+      await flush(env, R2);
     }
-    const journalDays = Number(settings.JOURNAL_JOURS) || 0;
-    if (journalDays > 0) R.extra.push(env.DB.prepare('DELETE FROM journal WHERE at < ?').bind(new Date(now - journalDays * 86400000).toISOString()));
-    R.extra.push(env.DB.prepare('DELETE FROM changes WHERE at < ?').bind(new Date(now - 30 * 86400000).toISOString()));
-    R.extra.push(env.DB.prepare("INSERT INTO kv (key, value) VALUES ('cf:nightDay', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(today));
-    await flush(env, R);
+    // Archivage : commandes terminées depuis plus de ARCHIVE_JOURS jours (déplacées dans l'onglet Archive du classeur).
+    const days = Number(settings.ARCHIVE_JOURS) || 0;
+    if (days) {
+      const R3 = newReq(base, robot);
+      const limit = new Date(now - days * 86400000);
+      await loadWhere(env, R3, "archived = 0 AND stage IN ('delivered', 'returned', 'cancelled') AND (updated = '' OR updated < ?) LIMIT 400", [limit.toISOString()]);
+      const list = await exec(env, R3, () => {
+        const picked = R3.orders.filter((o) => F.isArchivable_(o, limit));
+        if (picked.length) F.addArchivedCounts_(picked);
+        return picked.map((o) => String(o.id));
+      });
+      const at = new Date().toISOString();
+      list.forEach((id) => {
+        R3.extra.push(env.DB.prepare('UPDATE orders SET archived = 1, rev = rev + 1 WHERE id = ?').bind(id));
+        R3.extra.push(env.DB.prepare("INSERT INTO changes(order_id, kind, at) VALUES (?, 'archive', ?)").bind(id, at));
+      });
+      if (list.length) run(R3, () => F.log_({ name: 'Automatique' }, '', 'Archivage', list.length + ' commande(s) terminée(s) depuis plus de ' + days + ' jours archivée(s)'));
+      await flush(env, R3);
+      out.archived = list.length;
+    }
   }
   return out;
+}
+
+/* ================================================================ */
+/* Étape 3 : Stock, Bénéfices, Statistiques, Administration          */
+/* ================================================================ */
+
+function needFull(R) {
+  if (!R.full) throw new HttpError(400, 'Cette page est encore dans l’application Google (étape 3 pas encore faite).', 'later');
+}
+
+/** Onglets lus d'avance par chaque action (sinon lus à la demande, l'action étant alors rejouée). */
+const FN_TABS = {
+  api_stockEntry: ['Produits'], api_stockInventory: ['Produits'], api_addProduct: ['Produits'], api_updateCatalogRow: ['Produits'], api_addCatalogItems: ['Produits'],
+  api_markReturnDamaged: ['Produits'], api_validateParcels: ['Produits'], api_ecotrackSyncStatuses: ['Produits'], api_updateOrder: [], api_recordCall: [],
+  api_addExpense: ['Dépenses'], api_updateExpense: ['Dépenses'], api_deleteExpenses: ['Dépenses'], api_profit: ['Dépenses'], api_stats: ['Dépenses'],
+  api_settingsGet: ['Paramètres'], api_settingsSave: ['Paramètres'], api_setPrime: ['Paramètres'],
+  api_teamList: ['Équipe'], api_teamSave: ['Équipe'], api_teamRemove: ['Équipe'], api_clientsAdmin: ['Clients'], api_clearFlag: ['Clients'], api_setBlacklist: ['Clients']
+};
+async function preloadTabs(env, R, fn) {
+  if (R.full && FN_TABS[fn] && FN_TABS[fn].length) await loadTabs(env, R, FN_TABS[fn]);
+}
+
+/** Une fonction de l'outil, telle quelle (onglets lus à la demande), puis enregistrement. */
+function gasPage(fnName, before) {
+  return async function (env, R, args) {
+    needFull(R);
+    await preloadTabs(env, R, fnName);
+    if (before) await before(env, R, args);
+    const res = await exec(env, R, () => F[fnName].apply(null, args));
+    await flush(env, R);
+    return withCounts(env, res);
+  };
+}
+
+/** Stock : commandes confirmées (stock réservé), libellés des 60 derniers jours (regroupés), derniers mouvements. */
+async function loadStockSet(env, R) {
+  await loadWhere(env, R, "archived = 0 AND stage = 'confirmed'", []);
+  const since = F.ymd_(new Date(Date.now() - 60 * 86400000));
+  const r = await env.DB.batch([
+    env.DB.prepare("SELECT json_extract(data, '$.product') AS product, json_extract(data, '$.qty') AS qty, json_extract(data, '$.price') AS price, " +
+      "MAX(date) AS date, COUNT(*) AS n FROM orders WHERE archived = 0 AND day >= ? GROUP BY 1, 2, 3").bind(since),
+    env.DB.prepare('SELECT row FROM moves ORDER BY seq DESC LIMIT 300')
+  ]);
+  R.labelRows = (r[0].results || []).map((x) => ({ product: x.product || '', qty: x.qty, price: x.price, date: x.date, __n: x.n }));
+  R.moves = (r[1].results || []).map((x) => JSON.parse(x.row).map(F.cfCellIn_));
+}
+
+/** Résumés par jour d'une période (table days) ; les jours à refaire le sont d'abord, au plus `cap` (les plus récents). */
+async function loadDays(env, R, from, to, cap) {
+  const db = env.DB;
+  const r = from ? await db.prepare('SELECT day, data, stale FROM days WHERE day >= ? AND day <= ?').bind(from, to).all()
+    : await db.prepare('SELECT day, data, stale FROM days WHERE day <= ?').bind(to).all();
+  const rows = r.results || [];
+  const stale = rows.filter((x) => x.stale > 0).sort((a, b) => (a.day < b.day ? 1 : -1));
+  const fresh = await refreshDays(env, R, stale.slice(0, cap));
+  R.daysPending = Math.max(stale.length - cap, 0);
+  rows.forEach((x) => {
+    if (Object.prototype.hasOwnProperty.call(fresh, x.day)) { if (fresh[x.day]) R.days[x.day] = fresh[x.day]; return; }
+    if (x.data) { try { R.days[x.day] = JSON.parse(x.data); } catch (e) { /* ignoré */ } }
+  });
+  return R.days;
+}
+
+/** Recalcule des jours à partir de leurs commandes (archivées comprises) et les enregistre. */
+async function refreshDays(env, R, list) {
+  const out = {};
+  if (!list.length) return out;
+  const days = list.map((x) => x.day);
+  const r = await env.DB.prepare('SELECT data FROM orders WHERE day IN (' + placeholders(days.length) + ')').bind(...days).all();
+  const orders = (r.results || []).map((x) => JSON.parse(x.data));
+  const sums = run(R, () => F.daySummaries_(orders, F.makeEnv_({ orders: [] }), F.readCatalog_()));
+  const st = list.map((x) => {
+    const v = sums[x.day] || null;
+    out[x.day] = v;
+    // Seulement si personne ne l'a touché entre-temps (sinon il reste à refaire).
+    return env.DB.prepare('UPDATE days SET data = ?, stale = 0 WHERE day = ? AND stale = ?').bind(v ? JSON.stringify(v) : '', x.day, x.stale);
+  });
+  await env.DB.batch(st);
+  return out;
+}
+
+/* ---------------- État de l'outil (tâches de Cloudflare) ---------------- */
+
+const CF_TASKS = [
+  { key: 'sheet', label: 'Lien avec le classeur Google (commandes Releasit, recopie)', every: 1, staleMin: 30 },
+  { key: 'sms', label: 'SMS automatiques', every: 1, staleMin: 60 },
+  { key: 'shopify', label: 'Importation Shopify', every: 5, staleMin: 90 },
+  { key: 'ecotrack', label: 'Statuts des colis Ecotrack', every: 60, staleMin: 180 },
+  { key: 'days', label: 'Résumés par jour (Statistiques, Bénéfices)', every: 1, staleMin: 60 },
+  { key: 'nightly', label: 'Entretien de nuit (appels, archivage, stock, corbeille)', every: 1440, staleMin: 27 * 60 }
+];
+
+function workerHealth(R) {
+  const s = R.base.secret || {};
+  const settings = (() => { try { return JSON.parse(R.base.config['cfg:settings'] || '{}'); } catch (e) { return {}; } })();
+  const props = R.base.props || {};
+  const now = Date.now();
+  const problems = [];
+  const tasks = CF_TASKS.map((base) => {
+    const info = Object.assign({}, base);
+    if (info.key === 'ecotrack') { info.every = Number(settings.SUIVI_ECOTRACK_MINUTES) || 60; info.staleMin = Math.max(180, info.every * 3); }
+    let t = null;
+    try { t = JSON.parse(s['cf:task:' + info.key] || 'null'); } catch (e) { t = null; }
+    if (info.key === 'sheet') t = s['cf:bridgeAt'] ? { at: s['cf:bridgeAt'], ok: true, ms: 0, lastOk: s['cf:bridgeAt'] } : null;
+    const enabled = info.key === 'shopify' ? !!props.SHOPIFY_SHOP : info.key === 'ecotrack' ? !!props.ECOTRACK_TOKEN : info.key === 'sms' ? !!props.SMS_API_KEY : true;
+    const late = t && t.lastOk ? now - Date.parse(t.lastOk) > info.staleMin * 60000 : !!t;
+    const state = !enabled ? 'off' : !t ? 'wait' : (t.fails >= 3 || late) ? 'bad' : t.ok ? 'ok' : 'warn';
+    if (enabled && state === 'bad') problems.push({ key: info.key, text: info.label + (t && t.err ? ' : ' + t.err : ' : pas de passage réussi depuis ' + Math.round((now - Date.parse(t.lastOk || t.at)) / 60000) + ' min') });
+    return { key: info.key, label: info.label, every: info.every, state: state, at: t ? t.at : '', lastOk: t ? t.lastOk || '' : '', ms: t ? t.ms || 0 : 0, err: t ? t.err || '' : '', fails: t ? t.fails || 0 : 0,
+      note: !enabled ? 'Pas configuré' : info.key === 'sheet' ? 'Fait par Apps Script, chaque minute' : '' };
+  });
+  const minute = s['cf:cronAt'] || '';
+  const running = !!minute && now - Date.parse(minute) <= 10 * 60000;
+  if (!running) problems.unshift({ key: 'cron', text: minute ? 'Les tâches de chaque minute ne tournent plus.' : 'Les tâches de chaque minute n’ont pas encore tourné.' });
+  let runs = 0;
+  try { const c = JSON.parse(s['cf:runs'] || 'null'); if (c && c.day === F.ymd_(new Date())) runs = c.n; } catch (e) { runs = 0; }
+  return {
+    data: { cloud: true, running: running, minute: minute, tasks: tasks, today: { minutes: 0, limit: 0, runs: runs }, problems: problems,
+      owner: String(props.OWNER_EMAIL || ''), isOwner: true, triggers: { checked: false }, errors: [] },
+    summary: { installed: true, late: !running, problems: problems.length }
+  };
+}
+
+Object.assign(PAGES, {
+  /* Stock */
+  api_stockPage: gasPage('api_stockPage', loadStockSet),
+  api_stock: gasPage('api_stockPage', loadStockSet),
+  api_addCatalogItems: gasPage('api_addCatalogItems'),
+  api_addProduct: gasPage('api_addProduct'),
+  api_updateCatalogRow: gasPage('api_updateCatalogRow'),
+  api_stockEntry: gasPage('api_stockEntry'),
+  api_stockInventory: gasPage('api_stockInventory'),
+
+  /* Bénéfices : résumés par jour additionnés (période et période d'avant), dépenses de l'onglet Dépenses. */
+  async api_profit(env, R, args) {
+    needFull(R);
+    requireAdmin(R, 'voir les bénéfices');
+    const period = String(args[0] || '30');
+    const range = run(R, () => F.periodRange_(period, args[1], args[2]));
+    range.period = args[1] && args[2] ? 'custom' : period;
+    await loadDays(env, R, range.all ? null : (range.prevFrom || range.from), range.to, 6);
+    const camp = await env.DB.prepare("SELECT DISTINCT json_extract(data, '$.campaign') AS c FROM orders WHERE archived = 0 AND day >= ?")
+      .bind(F.ymd_(new Date(Date.now() - 365 * 86400000))).all();
+    const known = (camp.results || []).map((x) => String(x.c || '').trim()).filter(Boolean);
+    const res = await exec(env, R, () => {
+      const settings = F.getSettings_();
+      if (F.expensesNeedRate_(settings)) F.fillExpenseRates_(settings);
+      const cur = F.profitAcc_();
+      const prev = range.all ? null : F.profitAcc_();
+      Object.keys(R.days).forEach((k) => {
+        const d = R.days[k];
+        if (!d || !d.pr) return;
+        if (range.all ? k <= range.to : (k >= range.from && k <= range.to)) F.profitMerge_(cur, d.pr);
+        else if (prev && k >= range.prevFrom && k <= range.prevTo) F.profitMerge_(prev, d.pr);
+      });
+      return F.profitReport_(cur, prev, range, settings, F.readExpenses_(settings), known);
+    });
+    await flush(env, R);
+    res.pending = R.daysPending;
+    return res;
+  },
+  api_addExpense: gasPage('api_addExpense'),
+  api_updateExpense: gasPage('api_updateExpense'),
+  api_deleteExpenses: gasPage('api_deleteExpenses'),
+
+  /* Statistiques : résumés par jour ; la journée en cours, les colis en route et les versements en direct. */
+  async api_stats(env, R, args) {
+    needFull(R);
+    requireAdmin(R, 'voir les statistiques');
+    const range = run(R, () => F.statsRange_(String(args[0] || '30'), args[1], args[2]));
+    const len = run(R, () => F.dayCount_(range.from, range.to));
+    const prevFrom = run(R, () => F.addDayDays_(range.from, -len));
+    await loadDays(env, R, prevFrom, range.to, 6);
+    const today = F.ymd_(new Date());
+    const back = Math.min(Math.max(run(R, () => F.dayCount_(range.from, today)), 1), 120);
+    const since = new Date(Date.now() - back * 86400000).toISOString();
+    await loadMany(env, R, [['archived = 0 AND track = 1', []], ['archived = 0 AND day = ?', [today]]]);
+    // Colis terminés (payés…) de la période : regroupés par la base (versement, statut), pas lus un par un.
+    const moved = "COALESCE(NULLIF(json_extract(data, '$.carrierMoved'), ''), NULLIF(updated, ''), date)";
+    const paid = await env.DB.prepare("SELECT json_extract(data, '$.carrierStatus') AS cs, json_extract(data, '$.paymentId') AS pid, status, " +
+      'SUM(total) AS amount, COUNT(*) AS n, MAX(' + moved + ') AS moved FROM orders WHERE archived = 0 AND track = 0 AND carrier = ? AND tracking != \'\' ' +
+      'AND day != ? AND ' + moved + ' >= ? GROUP BY 1, 2, 3').bind(K.ECO.NAME, today, since).all();
+    R.moneyRows = (paid.results || []).map((x) => ({ carrier: K.ECO.NAME, tracking: '-', carrierStatus: x.cs || '', paymentId: x.pid || '', status: x.status,
+      total: x.amount, __n: x.n, carrierMoved: x.moved, updated: x.moved, date: x.moved }));
+    R.props.STATS_BUILT = new Date().toISOString(); // résumés à jour : seule la journée en cours est calculée en direct
+    const res = await exec(env, R, () => F.api_stats.apply(null, args));
+    await flush(env, R);
+    res.pending = R.daysPending;
+    return res;
+  },
+  api_setPrime: gasPage('api_setPrime'),
+  async api_rebuildStats(env, R) {
+    needFull(R);
+    requireAdmin(R, 'recalculer les statistiques');
+    const n = await env.DB.prepare("SELECT COUNT(DISTINCT day) AS n FROM orders WHERE day != ''").first();
+    R.rebuildDays = true;
+    await flush(env, R);
+    return { message: F.plural_(n.n || 0, 'jour sera recalculé', 'jours seront recalculés') + ' dans les minutes qui viennent (quelques jours par minute).' };
+  },
+
+  /* Administration */
+  async api_pageScript(env, R, args) {
+    needFull(R);
+    const name = String(args[0] || '');
+    const spec = args[1] || null;
+    const page = K.LAZY_PAGES_[name];
+    if (!page) throw new HttpError(404, 'Page inconnue.');
+    run(R, () => { if (page.access === 'admin') F.requireAdmin_(); else F.requireStockAccess_(); });
+    const out = { code: run(R, () => F.include(page.file)), preload: null };
+    if (spec && spec.fn === page.fn && PAGES[spec.fn]) {
+      try {
+        const R2 = newReq(R.base, R.user);
+        R2.userName = R.userName;
+        const a = Array.isArray(spec.args) ? spec.args : [];
+        out.preload = { key: spec.fn + '|' + JSON.stringify(a), data: await PAGES[spec.fn](env, R2, a) };
+      } catch (e) { out.preload = null; }
+    }
+    return out;
+  },
+  async api_adminOverview(env, R) {
+    needFull(R);
+    requireAdmin(R, 'voir l’administration');
+    const res = await exec(env, R, () => ({ connections: F.connectionsData_(), perf: F.readPerf_() }));
+    // Releasit : les commandes arrivent par le classeur Google (onglet RELEASIT), puis ici.
+    res.connections.releasit = { found: true, missing: [], lastRun: R.cfInfo.lastIngest || R.cfInfo.bridgeAt, lastError: '' };
+    res.health = workerHealth(R).data;
+    res.health.errors = await recentErrors(env);
+    res.version = K.APP_VERSION;
+    return res;
+  },
+  async api_health(env, R) {
+    needFull(R);
+    requireAdmin(R, 'voir l’état de l’outil');
+    const h = workerHealth(R).data;
+    h.errors = await recentErrors(env);
+    return h;
+  },
+  api_saveEcotrack: gasPage('api_saveEcotrack'),
+  api_saveSms: gasPage('api_saveSms'),
+  api_saveShopify: gasPage('api_saveShopify'),
+  api_settingsGet: gasPage('api_settingsGet'),
+  api_settingsSave: gasPage('api_settingsSave'),
+  api_smsPreview: gasPage('api_smsPreview'),
+  api_smsTest: gasPage('api_smsTest'),
+  api_teamList: gasPage('api_teamList'),
+  api_teamSave: gasPage('api_teamSave'),
+  api_teamRemove: gasPage('api_teamRemove'),
+  api_clientsAdmin: gasPage('api_clientsAdmin'),
+  api_clearFlag: gasPage('api_clearFlag', async (env, R, args) => {
+    const pq = phoneQuery(phonesOf([args[0]]));
+    if (pq) await loadWhere(env, R, pq[0], pq[1]);
+  }),
+  api_ecotrackTest: gasPage('api_ecotrackTest'),
+  api_ecotrackSyncFees: gasPage('api_ecotrackSyncFees'),
+  api_shopifyTest: gasPage('api_shopifyTest'),
+  api_shopifyStatus: gasPage('api_shopifyStatus'),
+  api_repair: gasPage('api_repair'),
+  api_reinstallTriggers: gasPage('api_reinstallTriggers'),
+  async api_shopifyImport(env, R) {
+    if (!R.full) return { imported: 0, message: 'Les commandes Shopify arrivent par le classeur Google, toutes les 5 minutes.' };
+    const s = await shopifyImport(env, R);
+    return Object.assign(s, { message: run(R, () => F.shopifyImportMessage_(s)) });
+  },
+  async api_archiveNow(env, R) {
+    needFull(R);
+    requireAdmin(R, 'lancer l’entretien');
+    const out = await nightly(env, await loadBase(env));
+    return { message: (out.autoCancelled || 0) + ' commande(s) sans réponse annulée(s), ' + (out.archived || 0) + ' archivée(s), ' +
+      (out.stock || 0) + ' mouvement(s) de stock, statistiques à jour dans les minutes qui viennent.' };
+  }
+});
+
+/** Dernières erreurs notées dans le Journal. */
+async function recentErrors(env) {
+  const r = await env.DB.prepare("SELECT at, who, action, detail FROM journal WHERE action LIKE 'Erreur%' ORDER BY at DESC LIMIT 8").all();
+  return (r.results || []).map((x) => ({ date: x.at, who: x.who, action: x.action, detail: x.detail }));
+}
+
+/**
+ * Shopify (étape 3) : lu par Cloudflare. 1. lecture chez Shopify (rejouée avec les réponses) ;
+ * 2. les n° déjà connus (commandes, corbeille, numéros effacés) sont écartés par la base ;
+ * 3. les nouvelles sont ajoutées et préparées comme avant (téléphone, wilaya, frais, alerte, SMS).
+ */
+async function shopifyImport(env, R) {
+  const f = await exec(env, R, () => F.shopifyFetch_());
+  if (!f.summary.configured) return f.summary;
+  const ids = f.rows.map((o) => String(o.id).trim());
+  const known = {};
+  for (let i = 0; i < ids.length; i += 90) {
+    const part = ids.slice(i, i + 90);
+    const ph = placeholders(part.length);
+    const r = await env.DB.batch([
+      env.DB.prepare('SELECT id FROM orders WHERE id IN (' + ph + ')').bind(...part),
+      env.DB.prepare('SELECT id FROM trash WHERE id IN (' + ph + ')').bind(...part),
+      env.DB.prepare('SELECT id FROM blocked WHERE id IN (' + ph + ')').bind(...part)
+    ]);
+    r.forEach((x) => (x.results || []).forEach((y) => { known[y.id] = true; }));
+  }
+  const fresh = f.rows.filter((o) => !known[String(o.id).trim()]);
+  f.summary.skipped += f.rows.length - fresh.length;
+  const pq = phoneQuery(phonesOf(fresh.map((o) => o.phone)));
+  if (pq) await loadWhere(env, R, pq[0], pq[1]); // doublons et historique du client (alerte)
+  R.trashIds = Object.assign({}, known);
+  await exec(env, R, () => {
+    const ctx = F.readOrders_();
+    f.summary.imported = fresh.length ? F.shopifyAddRows_(ctx, fresh, f.summary) : 0;
+    F.shopifyDone_(f.newest);
+    if (f.summary.imported) F.processNewRowsNow_();
+  });
+  await flush(env, R);
+  return f.summary;
 }
 
 /* ---------------- Tableau de bord (comptes faits par la base) ---------------- */
@@ -1009,7 +1564,7 @@ async function bridge(request, env, path) {
       db.prepare('SELECT COUNT(*) AS n FROM trash'),
       db.prepare("SELECT value FROM kv WHERE key = 'cf:imported'")
     ]);
-    return { orders: r[0].results[0].n, archived: r[1].results[0].n, trash: r[2].results[0].n, importedAt: r[3].results[0] ? r[3].results[0].value : '', live: !!cf['cf:live'] };
+    return { orders: r[0].results[0].n, archived: r[1].results[0].n, trash: r[2].results[0].n, importedAt: r[3].results[0] ? r[3].results[0].value : '', live: !!cf['cf:live'], full: !!cf['cf:full'] };
   }
 
   /* ---------------- Étape 2 : pont continu (après le basculement) ---------------- */
@@ -1030,7 +1585,8 @@ async function bridge(request, env, path) {
 
   // Réglages et clés (Ecotrack, SMS) envoyés par Apps Script quand ils changent.
   if (path === '/bridge/config') {
-    const allowed = ['ECOTRACK_URL', 'ECOTRACK_TOKEN', 'SMS_API_KEY', 'SMS_FROM', 'OWNER_EMAIL'];
+    const allowed = ['ECOTRACK_URL', 'ECOTRACK_TOKEN', 'SMS_API_KEY', 'SMS_FROM', 'OWNER_EMAIL',
+      'SHOPIFY_SHOP', 'SHOPIFY_TOKEN', 'SHOPIFY_CLIENT_ID', 'SHOPIFY_CLIENT_SECRET', 'SHOPIFY_LAST_IMPORT'];
     const st = [];
     Object.keys(body.config || {}).forEach((k) => {
       if (k.indexOf('cfg:') !== 0) return;
@@ -1044,8 +1600,60 @@ async function bridge(request, env, path) {
         : db.prepare('INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').bind(k, String(v)));
     });
     if (body.dropCache) st.push(db.prepare("DELETE FROM kv WHERE key LIKE 'cache:%'"));
+    // Personnes qui ont accès au classeur (page Équipe de la version Cloudflare).
+    if (Array.isArray(body.editors)) st.push(db.prepare("INSERT INTO kv (key, value) VALUES ('cf:editors', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(JSON.stringify(body.editors.map((e) => String(e).toLowerCase()))));
     if (st.length) await db.batch(st);
     return { ok: true, written: st.length };
+  }
+
+  // Étape 3 : tout dans Cloudflare (stock, Bénéfices, Statistiques, Administration ; Shopify lu d'ici).
+  if (path === '/bridge/full') {
+    const st = [];
+    if (body.full === false) st.push(db.prepare("DELETE FROM kv WHERE key = 'cf:full'"));
+    else {
+      st.push(db.prepare("INSERT INTO kv (key, value) VALUES ('cf:full', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(new Date().toISOString()));
+      // Résumés par jour : tous calculés une première fois (quelques jours par minute).
+      st.push(db.prepare("INSERT OR IGNORE INTO days (day, stale) SELECT DISTINCT day, 1 FROM orders WHERE day != ''"));
+      st.push(db.prepare('UPDATE days SET stale = stale + 1'));
+    }
+    await db.batch(st);
+    const m = await db.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM changes').first();
+    return { full: body.full !== false, seq: m.m };
+  }
+
+  /*
+   * Onglets envoyés par Apps Script (étape 3) : au passage à l'étape 3 (tous), puis quand un onglet est
+   * modifié à la main dans le classeur. base[nom] = dernier changement de cet onglet recopié dans le
+   * classeur : si la version Cloudflare l'a modifié depuis, la modification à la main est refusée
+   * (la version Cloudflare l'emporte et sera recopiée).
+   */
+  if (path === '/bridge/tabs') {
+    const tabs = body.tabs || {};
+    const names = Object.keys(tabs).filter((n) => F.isCfTab_(n));
+    const out = { saved: [], refused: [] };
+    for (const name of names) {
+      if (body.base && body.base[name] !== undefined) {
+        const last = await db.prepare("SELECT MAX(seq) AS m FROM changes WHERE kind = 'tab' AND order_id = ?").bind(name).first();
+        if (last && last.m !== null && last.m > Number(body.base[name])) { out.refused.push(name); continue; }
+      }
+      const rows = (tabs[name] || []).map((r) => (Array.isArray(r) ? r : []));
+      const st = [db.prepare('DELETE FROM tabs WHERE name = ?').bind(name)];
+      const parts = Math.max(Math.ceil(rows.length / TAB_PART), 1);
+      for (let p = 0; p < parts; p++) st.push(db.prepare('INSERT INTO tabs (name, part, rev, rows) VALUES (?, ?, 1, ?)').bind(name, p, JSON.stringify(rows.slice(p * TAB_PART, (p + 1) * TAB_PART))));
+      await db.batch(st);
+      out.saved.push(name);
+    }
+    // Réglages recalculés depuis les onglets reçus (et résumés par jour à refaire si les coûts ou frais changent).
+    if (out.saved.length) {
+      const base = await loadBase(env);
+      const R = newReq(base, { email: '' });
+      R.full = true; R.tabStore = R.tabStore || {};
+      const keys = [];
+      out.saved.forEach((n) => run(R, () => F.configKeysFor_(n)).forEach((k) => { if (keys.indexOf(k) < 0) keys.push(k); }));
+      await exec(env, R, () => F.clearConfigCache_(keys));
+      await flush(env, R);
+    }
+    return out;
   }
 
   // Nouvelles commandes (Releasit, Shopify) déjà préparées par Apps Script : ajoutées si elles n'existent pas.
@@ -1074,12 +1682,26 @@ async function bridge(request, env, path) {
         cols.map((c) => "json_extract(value, '$." + c + "')").join(', ') + ' FROM json_each(?)').bind(JSON.stringify(rows)));
     }
     st.push(db.prepare("INSERT INTO kv (key, value) VALUES ('cf:lastIngest', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(now));
+    const freshDays = {};
+    fresh.forEach((o) => { const d = rowOf(o).day; if (d) freshDays[d] = true; });
+    Object.keys(freshDays).forEach((d) => st.push(db.prepare('INSERT INTO days (day, stale) VALUES (?, 1) ON CONFLICT(day) DO UPDATE SET stale = stale + 1').bind(d)));
     await db.batch(st);
+    // Étape 3 : le SMS « commande reçue » part d'ici (plus du classeur).
+    if (cf['cf:full'] && fresh.length) {
+      const base = await loadBase(env);
+      const R = newReq(base, { email: '' });
+      run(R, () => {
+        fresh.forEach((o) => { if (o.status) F.noteStatusChange_(o, o.status); });
+        F.flushSmsPending_();
+      });
+      await flush(env, R);
+    }
     return { added: fresh.map((o) => String(o.id).trim()), skipped: list.length - fresh.length };
   }
 
   // Changements à recopier dans le classeur, dans l'ordre (seq).
   if (path === '/bridge/changes') {
+    await db.prepare("INSERT INTO kv (key, value) VALUES ('cf:bridgeAt', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(new Date().toISOString()).run();
     const after = Number(body.after) || 0;
     const limit = Math.min(Math.max(Number(body.limit) || 300, 1), 500);
     const ch = await db.prepare('SELECT seq, order_id, kind, info FROM changes WHERE seq > ? ORDER BY seq LIMIT ?').bind(after, limit).all();
@@ -1093,15 +1715,35 @@ async function bridge(request, env, path) {
       (r.results || []).forEach((x) => { data[x.id] = JSON.parse(x.data); });
     }
     // Une commande changée plusieurs fois n'est envoyée qu'une fois (son état actuel).
+    // Un onglet changé plusieurs fois : ses paquets de lignes touchés, tels qu'ils sont maintenant.
     const seen = {};
     const out = [];
+    const tabs = {};
     for (let i = rows.length - 1; i >= 0; i--) {
       const r = rows[i];
       const k = r.kind + '|' + r.order_id;
+      if (r.kind === 'tab') {
+        let info = {};
+        try { info = JSON.parse(r.info || '{}'); } catch (e) { info = {}; }
+        const t = tabs[r.order_id] || (tabs[r.order_id] = { seq: r.seq, n: info.n, parts: {} });
+        (info.parts || []).forEach((p) => { t.parts[p] = true; });
+        continue;
+      }
+      if (r.kind === 'moves') { out.unshift({ seq: r.seq, id: r.order_id, kind: r.kind, info: r.info || '' }); continue; }
       if (/^(insert|update)$/.test(r.kind)) { if (seen['o|' + r.order_id]) continue; seen['o|' + r.order_id] = true; }
       else if (seen[k]) continue;
       seen[k] = true;
       out.unshift({ seq: r.seq, id: r.order_id, kind: r.kind, info: r.info || '', order: data[r.order_id] || null });
+    }
+    for (const name of Object.keys(tabs)) {
+      const t = tabs[name];
+      const want = Object.keys(t.parts).map(Number).filter((p) => p * TAB_PART < t.n);
+      const parts = {};
+      if (want.length) {
+        const r = await db.prepare('SELECT part, rows FROM tabs WHERE name = ? AND part IN (' + placeholders(want.length) + ')').bind(name, ...want).all();
+        (r.results || []).forEach((x) => { parts[x.part] = JSON.parse(x.rows); });
+      }
+      out.push({ seq: t.seq, id: name, kind: 'tab', info: '', tab: { n: t.n, size: TAB_PART, parts: parts } });
     }
     return { changes: out, last: rows.length ? rows[rows.length - 1].seq : after, more: rows.length === limit };
   }
@@ -1119,7 +1761,7 @@ async function bridge(request, env, path) {
     // Après le basculement, la base est la vraie : une recopie depuis le classeur l'écraserait.
     if (body.reset && cf['cf:live'] && !body.goLive) throw new HttpError(409, 'La version Cloudflare est la vraie application : la recopie depuis le classeur est désactivée.');
     if (body.reset) {
-      ['orders', 'trash', 'blocked', 'changes', 'journal', 'guard'].forEach((t) => st.push(db.prepare('DELETE FROM ' + t)));
+      ['orders', 'trash', 'blocked', 'changes', 'journal', 'guard', 'tabs', 'moves', 'days'].forEach((t) => st.push(db.prepare('DELETE FROM ' + t)));
       st.push(db.prepare("DELETE FROM kv WHERE key NOT LIKE 'cf:%'"));
     }
     Object.keys(body.config || {}).forEach((k) => {
@@ -1177,6 +1819,7 @@ async function api(request, env, fn) {
   R.userName = userName(R);
   const handler = PAGES[fn];
   if (!handler) throw new HttpError(404, 'Cette page n’est pas encore dans la version Cloudflare (étape 2).', 'later');
+  if (fn !== 'api_stockPage') await preloadTabs(env, R, fn);
   let args = [];
   try { args = await request.json(); } catch (e) { args = []; }
   if (!Array.isArray(args)) args = [];

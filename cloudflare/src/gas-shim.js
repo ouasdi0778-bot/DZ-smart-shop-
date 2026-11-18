@@ -122,12 +122,182 @@ function notOnCloudflare_(what) {
   return function () { throw new Error('« ' + what + ' » n’est pas encore disponible dans la version Cloudflare.'); };
 }
 
+/*
+ * Étape 3 : les onglets de réglages, de produits et de dépenses sont gardés dans D1 (table tabs, par
+ * paquets de TAB_PART_ lignes) et lus par le code de l'outil comme des onglets du classeur.
+ * Un onglet pas encore chargé arrête l'action (REQ.needTabs) : server.js le lit dans D1, puis rejoue
+ * l'action depuis le début (comme pour les appels extérieurs). Les lignes modifiées sont notées par
+ * paquet (dirty) et enregistrées à la fin de la requête, puis recopiées dans le classeur Google.
+ */
+var CF_TABS_ = ['Clients', 'Produits', 'Tarifs', 'Équipe', 'Paramètres', 'Dépenses'];
+var TAB_PART_ = 250;
+
+function isCfTab_(name) { return CF_TABS_.indexOf(String(name)) >= 0; }
+
+/** Une case enregistrée : les dates gardent leur type (« $d »). */
+function cfCellOut_(v) {
+  if (v instanceof Date) return isNaN(v.getTime()) ? '' : { $d: v.toISOString() };
+  return v === undefined || v === null ? '' : v;
+}
+function cfCellIn_(v) { return v && typeof v === 'object' && v.$d ? new Date(v.$d) : v; }
+
+function tabMiss_(name) {
+  if (REQ && !REQ.needTabs) REQ.needTabs = [name];
+  var e = new Error('Onglet « ' + name + ' » en cours de lecture.');
+  e.dzTabMiss = true;
+  return e;
+}
+
+/** État d'un onglet pendant la requête (copie faite à la première écriture). */
+function tabState_(name) {
+  if (CF_TABS_.indexOf(name) < 0) throw new Error('Onglet « ' + name + ' » : pas dans la version Cloudflare.');
+  if (!REQ || !REQ.tabStore) throw new Error('Onglets indisponibles ici.');
+  var t = REQ.tabs[name];
+  if (t) return t;
+  var stored = REQ.tabStore[name];
+  if (!stored) throw tabMiss_(name);
+  t = REQ.tabs[name] = { name: name, exists: stored.exists, rows: stored.rows, own: false, dirty: {}, cut: -1, maxRows: stored.rows.length + 1000, lastCol: -1 };
+  return t;
+}
+function tabMut_(t) {
+  if (!t.own) { t.rows = t.rows.map(function (r) { return r.slice(); }); t.own = true; }
+  return t.rows;
+}
+function tabTouch_(t, rowIndex) { t.dirty[Math.floor(rowIndex / TAB_PART_)] = true; }
+function tabLastRow_(t) {
+  for (var i = t.rows.length - 1; i >= 0; i--) {
+    var r = t.rows[i];
+    for (var j = 0; j < r.length; j++) if (r[j] !== '' && r[j] !== null && r[j] !== undefined) return i + 1;
+  }
+  return 0;
+}
+function tabLastCol_(t) {
+  if (t.lastCol >= 0) return t.lastCol;
+  var m = 0;
+  t.rows.forEach(function (r) { for (var j = r.length - 1; j >= m; j--) if (r[j] !== '' && r[j] !== null && r[j] !== undefined) { m = j + 1; break; } });
+  t.lastCol = m;
+  return m;
+}
+
+function VRange_(sheet, row, col, nr, nc) {
+  this.sheet = sheet; this.r = row; this.c = col; this.nr = nr || 1; this.nc = nc || 1;
+}
+VRange_.prototype.getValues = function () {
+  var rows = this.sheet.t.rows;
+  var out = [];
+  for (var i = 0; i < this.nr; i++) {
+    var src = rows[this.r - 1 + i] || [];
+    var line = [];
+    for (var j = 0; j < this.nc; j++) { var v = src[this.c - 1 + j]; line.push(v === undefined || v === null ? '' : v); }
+    out.push(line);
+  }
+  return out;
+};
+VRange_.prototype.getDisplayValues = function () { return this.getValues().map(function (r) { return r.map(function (v) { return v instanceof Date ? v.toISOString() : String(v); }); }); };
+VRange_.prototype.getValue = function () { return this.getValues()[0][0]; };
+VRange_.prototype.setValues = function (values) {
+  var t = this.sheet.t;
+  var rows = tabMut_(t);
+  for (var i = 0; i < values.length; i++) {
+    var ri = this.r - 1 + i;
+    while (rows.length <= ri) rows.push([]);
+    var line = rows[ri];
+    for (var j = 0; j < values[i].length; j++) {
+      var ci = this.c - 1 + j;
+      while (line.length < ci) line.push('');
+      var v = values[i][j];
+      line[ci] = v === undefined || v === null ? '' : v;
+      if (t.lastCol >= 0 && ci + 1 > t.lastCol && line[ci] !== '') t.lastCol = ci + 1;
+    }
+    tabTouch_(t, ri);
+  }
+  if (t.lastCol >= 0) t.lastCol = -1; // recalculé à la demande
+  return this;
+};
+VRange_.prototype.setValue = function (v) { return this.setValues([[v]]); };
+VRange_.prototype.clearContent = function () {
+  var blank = [];
+  for (var i = 0; i < this.nr; i++) { var l = []; for (var j = 0; j < this.nc; j++) l.push(''); blank.push(l); }
+  return this.setValues(blank);
+};
+VRange_.prototype.getRow = function () { return this.r; };
+VRange_.prototype.getColumn = function () { return this.c; };
+VRange_.prototype.getNumRows = function () { return this.nr; };
+VRange_.prototype.getNumColumns = function () { return this.nc; };
+VRange_.prototype.getSheet = function () { return this.sheet; };
+['setNumberFormat', 'setNumberFormats', 'setFontWeight', 'setFontColor', 'setBackground', 'setBackgrounds', 'setDataValidation', 'setDataValidations',
+  'clearDataValidations', 'setWrap', 'setHorizontalAlignment', 'setVerticalAlignment', 'setNote', 'setFontSize', 'clearFormat', 'setBorder'].forEach(function (m) {
+  VRange_.prototype[m] = function () { return this; };
+});
+
+function VSheet_(name) { this.name = name; this.t = tabState_(name); }
+VSheet_.prototype.getName = function () { return this.name; };
+VSheet_.prototype.getLastRow = function () { return tabLastRow_(this.t); };
+VSheet_.prototype.getLastColumn = function () { return tabLastCol_(this.t); };
+VSheet_.prototype.getMaxRows = function () { return Math.max(this.t.maxRows, this.t.rows.length); };
+VSheet_.prototype.getMaxColumns = function () { return Math.max(tabLastCol_(this.t), 26); };
+VSheet_.prototype.getRange = function (row, col, nr, nc) {
+  if (typeof row !== 'number' || row < 1 || col < 1) throw new Error('Plage invalide dans l’onglet « ' + this.name + ' ».');
+  return new VRange_(this, row, col, nr, nc);
+};
+VSheet_.prototype.getDataRange = function () { return this.getRange(1, 1, Math.max(this.getLastRow(), 1), Math.max(this.getLastColumn(), 1)); };
+VSheet_.prototype.appendRow = function (values) {
+  var r = this.getLastRow() + 1;
+  this.getRange(r, 1, 1, values.length).setValues([values]);
+  return this;
+};
+VSheet_.prototype.deleteRows = function (row, n) {
+  var t = this.t;
+  var rows = tabMut_(t);
+  if (row - 1 < rows.length) rows.splice(row - 1, n);
+  t.cut = t.cut < 0 ? row - 1 : Math.min(t.cut, row - 1);
+  t.lastCol = -1;
+  return this;
+};
+VSheet_.prototype.deleteRow = function (row) { return this.deleteRows(row, 1); };
+VSheet_.prototype.insertRowsAfter = function (after, n) { this.t.maxRows = Math.max(this.t.maxRows, after) + n; return this; };
+['insertColumnsAfter', 'setFrozenRows', 'hideSheet', 'showSheet', 'setColumnWidth', 'setColumnWidths', 'setConditionalFormatRules', 'setTabColor', 'activate', 'autoResizeColumns', 'setRowHeight'].forEach(function (m) {
+  VSheet_.prototype[m] = function () { return this; };
+});
+VSheet_.prototype.getFrozenRows = function () { return 1; };
+VSheet_.prototype.getConditionalFormatRules = function () { return []; };
+
+var CF_SPREADSHEET_ = {
+  getSheetByName: function (name) {
+    var t = tabState_(name);
+    return t.exists ? new VSheet_(name) : null;
+  },
+  insertSheet: function (name) {
+    var t = tabState_(name);
+    t.exists = true;
+    tabMut_(t);
+    t.dirty[0] = true;
+    return new VSheet_(name);
+  },
+  getSheets: function () {
+    return CF_TABS_.filter(function (n) { return REQ.tabs[n] && REQ.tabs[n].exists; }).map(function (n) { return new VSheet_(n); });
+  },
+  getId: function () { return ''; },
+  getUrl: function () { return ''; },
+  getName: function () { return 'DZ Smart Shop'; },
+  toast: function () {},
+  getSpreadsheetTimeZone: function () { return 'Africa/Algiers'; }
+};
+
+function cfValidation_() {
+  var b = {};
+  ['requireValueInList', 'requireNumberGreaterThanOrEqualTo', 'requireNumberBetween', 'requireDate', 'requireCheckbox', 'setAllowInvalid', 'setHelpText', 'requireTextIsEmail'].forEach(function (m) { b[m] = function () { return b; }; });
+  b.build = function () { return {}; };
+  return b;
+}
+
 var SpreadsheetApp = {
-  getActiveSpreadsheet: function () { return null; },
+  getActiveSpreadsheet: function () { return REQ && REQ.tabStore ? CF_SPREADSHEET_ : null; },
   openById: notOnCloudflare_('Classeur Google'),
   getUi: notOnCloudflare_('Menu du classeur'),
-  newDataValidation: notOnCloudflare_('Classeur Google'),
-  newConditionalFormatRule: notOnCloudflare_('Classeur Google')
+  newDataValidation: cfValidation_,
+  newConditionalFormatRule: notOnCloudflare_('Classeur Google'),
+  flush: function () {}
 };
 /*
  * Appels extérieurs (Ecotrack, httpSMS…) : Cloudflare ne sait faire que des appels « asynchrones »,

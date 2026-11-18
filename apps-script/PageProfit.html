@@ -107,7 +107,8 @@
     var tabs = [['resume', 'Résumé'], ['produits', 'Produits'], ['campagnes', 'Publicité'], ['depenses', 'Dépenses et gains']];
     var r = d.range || {};
     var html = '<div class="page-head"><div><h1>Bénéfices</h1><p class="sub">' + h(rangeText(r)) +
-      (d.prev ? ' · comparé au ' + dayText(r.prevFrom) + '–' + dayText(r.prevTo) : '') + ' · commandes comptées à leur date de commande</p></div></div>' +
+      (d.prev ? ' · comparé au ' + dayText(r.prevFrom) + '–' + dayText(r.prevTo) : '') + ' · commandes comptées à leur date de commande' +
+      (d.pending ? ' · ' + plural(d.pending, 'jour encore en calcul', 'jours encore en calcul') + ' (quelques minutes)' : '') + '</p></div></div>' +
       '<div id="profit-period">' + DZ.periodPicker(P.p, 'profit-period') + '</div>' +
       '<div class="tabs chips" role="group" aria-label="Rubrique" style="margin-top:12px">' + tabs.map(function (x) {
         return '<button type="button" class="chip" data-act="profit-tab" data-tab="' + x[0] + '" aria-pressed="' + (P.tab === x[0]) + '">' + x[1] + '</button>';

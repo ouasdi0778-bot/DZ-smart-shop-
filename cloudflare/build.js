@@ -28,6 +28,16 @@ function buildWorker(page) {
   var shim = read(path.join(HERE, 'src', 'gas-shim.js'));
   var over = read(path.join(HERE, 'src', 'overrides.js'));
   var gs = bundle.ORDER.map(function (f) { return '/* ---- ' + f + ' ---- */\n' + read(path.join(SRC, f)); }).join('\n');
+  // « @wrap nom_ » dans overrides.js : la fonction d'origine reste disponible sous le nom gas_nom_.
+  var wrapped = [];
+  (over.match(/@wrap\s+([^*]+)\*\//g) || []).forEach(function (m) {
+    m.replace(/@wrap\s+/, '').replace(/\*\/$/, '').split(/\s+/).filter(Boolean).forEach(function (n) { wrapped.push(n); });
+  });
+  wrapped.forEach(function (n) {
+    var re = new RegExp('^function ' + n.replace(/\$/g, '\\$') + '\\(', 'm');
+    if (!re.test(gs)) throw new Error('@wrap : fonction ' + n + ' introuvable dans apps-script/.');
+    gs = gs.replace(re, 'function gas_' + n + '(');
+  });
   var all = shim + '\n' + gs + '\n' + over;
   var fns = names(all, /^function\s+([A-Za-z0-9_$]+)\s*\(/gm);
   var consts = names(gs, /^var\s+([A-Z][A-Z0-9_]*)\s*=/gm);
@@ -40,6 +50,8 @@ function buildWorker(page) {
     shim,
     gs,
     over,
+    // Pages chargées à la demande (Stock, Bénéfices, Statistiques, Administration) : envoyées par api_pageScript.
+    'var HTML_FILES_ = ' + JSON.stringify(lazyPages()) + ';',
     'return {',
     '  fns: {' + fns.map(function (n) { return n + ': ' + n; }).join(', ') + '},',
     '  consts: {' + consts.map(function (n) { return n + ': ' + n; }).join(', ') + '},',
@@ -55,6 +67,12 @@ function buildWorker(page) {
     read(path.join(HERE, 'src', 'server.js'))
   ];
   return parts.join('\n');
+}
+
+function lazyPages() {
+  var out = {};
+  ['PageStock', 'PageProfit', 'PageStats', 'PageAdmin'].forEach(function (n) { out[n] = bundle.minify(read(path.join(SRC, n + '.html'))); });
+  return out;
 }
 
 function buildPage() {

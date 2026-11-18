@@ -4,6 +4,7 @@
  *
  *   node cloudflare/test/serve.js [port] [--latence=80] [--etape2]
  *   --etape2 : après le basculement (Expédier, Suivi, Ecotrack et SMS avec de faux serveurs).
+ *   --etape3 : tout dans Cloudflare (Stock, Bénéfices, Statistiques, Administration).
  *   puis ouvrir l'adresse affichée (connexion déjà faite comme administrateur).
  */
 'use strict';
@@ -22,7 +23,8 @@ const SRC = path.join(ROOT, 'apps-script');
 const args = process.argv.slice(2);
 const PORT = Number(args.filter((a) => /^\d+$/.test(a))[0]) || 8787;
 const LATENCY = Number((args.filter((a) => /^--latence=/.test(a))[0] || '').split('=')[1]) || 0;
-const STEP2 = args.indexOf('--etape2') >= 0;
+const STEP3 = args.indexOf('--etape3') >= 0;
+const STEP2 = STEP3 || args.indexOf('--etape2') >= 0;
 process.env.TZ = 'Africa/Algiers';
 
 globalThis.require = require;
@@ -85,6 +87,15 @@ ORDERS_CACHE_ON_ = false;
     await send('/bridge/live', { live: true });
     const p = PropertiesService.getScriptProperties();
     await send('/bridge/config', { props: { ECOTRACK_URL: p.getProperty('ECOTRACK_URL'), ECOTRACK_TOKEN: p.getProperty('ECOTRACK_TOKEN'), SMS_API_KEY: p.getProperty('SMS_API_KEY'), SMS_FROM: p.getProperty('SMS_FROM') } });
+  }
+  if (STEP3) {
+    const tabs = {};
+    ['Clients', 'Produits', 'Tarifs', 'Équipe', 'Paramètres', 'Dépenses'].forEach((n) => { if (__mock.ss().getSheetByName(n)) tabs[n] = cloudTabValues_(n); });
+    await send('/bridge/tabs', { tabs: tabs });
+    await send('/bridge/full', { full: true });
+    await send('/bridge/config', { editors: ['admin@example.com'] });
+    const mod = await import(pathToFileURL(tmp).href);
+    for (let i = 0; i < 20; i++) await mod.cron(env); // résumés par jour
   }
 
   http.createServer(async (req, res) => {

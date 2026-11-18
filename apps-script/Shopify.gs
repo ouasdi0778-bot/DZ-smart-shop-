@@ -414,16 +414,25 @@ function hasTag_(node, tag) {
 
 /** Importe les nouvelles commandes Shopify. Renvoie un résumé. */
 function importShopifyOrders_() {
+  var f = shopifyFetch_();
+  if (!f.summary.configured) return f.summary;
+  if (f.rows.length) f.summary.imported = withLock_(function () { return shopifyAddRows_(readOrders_(), f.rows, f.summary); });
+  shopifyDone_(f.newest);
+  // Préparation des nouvelles lignes (téléphone, wilaya, alertes, statut « À confirmer »).
+  if (f.summary.imported) processNewRowsNow_();
+  return f.summary;
+}
+
+/** 1. Lecture chez Shopify (de la plus ancienne à la plus récente), sans rien écrire. */
+function shopifyFetch_() {
   var summary = { configured: true, fetched: 0, imported: 0, skipped: 0, more: false };
-  if (!shopifyConfig_().configured) { summary.configured = false; return summary; }
+  if (!shopifyConfig_().configured) { summary.configured = false; return { summary: summary, rows: [], newest: null }; }
   var settings = getSettings_();
   var props = PropertiesService.getScriptProperties();
   var last = toDate_(props.getProperty(SHOP.PROP_LAST_IMPORT));
   var since = last ? new Date(last.getTime() - SHOP.OVERLAP_MS) : new Date(Date.now() - settings.SHOPIFY_JOURS_INITIAL * 86400000);
   var search = 'created_at:>=' + since.toISOString().replace(/\.\d{3}Z$/, 'Z');
   if (settings.SHOPIFY_TAG) search += ' tag:' + settings.SHOPIFY_TAG;
-
-  // 1. Lecture chez Shopify (de la plus ancienne à la plus récente), sans bloquer le classeur.
   var nodes = [];
   var after = null;
   for (var page = 0; page < SHOP.MAX_PAGES; page++) {
@@ -435,43 +444,40 @@ function importShopifyOrders_() {
     if (page === SHOP.MAX_PAGES - 1) summary.more = true;
   }
   summary.fetched = nodes.length;
-
-  // 2. Ajout des commandes absentes du classeur.
   var wanted = nodes.filter(function (n) { return !settings.SHOPIFY_TAG || hasTag_(n, settings.SHOPIFY_TAG); });
   var rows = [];
   wanted.forEach(function (n) {
     var o = shopifyNodeToOrder_(n);
     if (o && o.id) rows.push(o); else summary.skipped++;
   });
-  if (rows.length) {
-    summary.imported = withLock_(function () {
-      var ctx = readOrders_();
-      var known = trashIds_(); // une commande mise à la corbeille ne revient pas
-      ctx.orders.forEach(function (o) { known[String(o.id).trim()] = true; });
-      var added = 0;
-      rows.forEach(function (o) {
-        if (known[o.id]) { summary.skipped++; return; }
-        known[o.id] = true;
-        appendOrder_(ctx, o);
-        added++;
-      });
-      if (added) log_({ name: 'Shopify' }, '', 'Importation Shopify', added + ' nouvelle(s) commande(s)');
-      return added;
-    });
-  }
-
-  // 3. Mémoire du point d'arrêt : la plus récente des commandes lues.
   var newest = nodes.reduce(function (max, n) {
     var d = toDate_(n.createdAt);
     return d && (!max || d > max) ? d : max;
   }, null);
-  if (newest) props.setProperty(SHOP.PROP_LAST_IMPORT, newest.toISOString());
+  return { summary: summary, rows: rows, newest: newest };
+}
+
+/** 2. Ajout des commandes absentes (ni dans Commandes, ni à la corbeille). À appeler sous verrou. */
+function shopifyAddRows_(ctx, rows, summary) {
+  var known = trashIds_(); // une commande mise à la corbeille ne revient pas
+  ctx.orders.forEach(function (o) { known[String(o.id).trim()] = true; });
+  var added = 0;
+  rows.forEach(function (o) {
+    if (known[o.id]) { summary.skipped++; return; }
+    known[o.id] = true;
+    appendOrder_(ctx, o);
+    added++;
+  });
+  if (added) log_({ name: 'Shopify' }, '', 'Importation Shopify', added + ' nouvelle(s) commande(s)');
+  return added;
+}
+
+/** 3. Point d'arrêt : la plus récente des commandes lues. */
+function shopifyDone_(newest) {
+  var props = PropertiesService.getScriptProperties();
+  if (newest) props.setProperty(SHOP.PROP_LAST_IMPORT, (newest instanceof Date ? newest : new Date(newest)).toISOString());
   props.setProperty(SHOP.PROP_LAST_RUN, new Date().toISOString());
   if (props.getProperty(SHOP.PROP_LAST_ERROR) !== null) props.deleteProperty(SHOP.PROP_LAST_ERROR);
-
-  // 4. Préparation des nouvelles lignes (téléphone, wilaya, alertes, statut « À confirmer »).
-  if (summary.imported) processNewRowsNow_();
-  return summary;
 }
 
 /** Point d'entrée du déclencheur automatique (toutes les 5 minutes). */
@@ -512,6 +518,7 @@ function shopifyImportMessage_(s) {
 }
 
 function api_shopifyImport() {
+  cloudGuardAll_();
   var s = importShopifyOrders_();
   return { summary: s, message: shopifyImportMessage_(s) };
 }

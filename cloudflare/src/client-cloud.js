@@ -107,18 +107,21 @@
       try { window.localStorage.setItem(STEP_KEY, JSON.stringify(step)); } catch (e) { /* sans importance */ }
     }
     root.classList.toggle('cf-step1', step.n < 2);
-    root.classList.toggle('cf-step2', step.n >= 2);
+    root.classList.toggle('cf-step2', step.n === 2);
+    root.classList.toggle('cf-step3', step.n >= 3);
   }
   applyStep(null);
   window.DZ_CLOUD = { applyStep: applyStep };
   function googleLink(route) { return step.google ? step.google + '&page=' + route : ''; }
   // Une page de l'application Google demandée ici (lien, menu « Plus ») : ouverte dans l'application Google.
+  // Étape 3 : toutes les pages sont ici.
+  function external(route) { return step.n === 2 && EXTERNAL.indexOf(route) >= 0; }
   var startRoute = String(location.hash || '').replace(/^#\/?/, '');
-  if (EXTERNAL.indexOf(startRoute) >= 0) history.replaceState(null, '', location.pathname + location.search + '#/tableau');
+  if (step.n < 3 && EXTERNAL.indexOf(startRoute) >= 0) history.replaceState(null, '', location.pathname + location.search + '#/tableau');
   document.addEventListener('click', function (ev) {
     var a = ev.target && ev.target.closest ? ev.target.closest('[data-route], a[href^="#/"]') : null;
     var route = a ? (a.getAttribute('data-route') || String(a.getAttribute('href') || '').replace(/^#\/?/, '')) : '';
-    if (EXTERNAL.indexOf(route) < 0 || step.n < 2) return;
+    if (!external(route)) return;
     var link = googleLink(route);
     if (!link) return;
     ev.preventDefault();
@@ -127,9 +130,9 @@
   }, true);
   window.addEventListener('hashchange', function () {
     var r = String(location.hash || '').replace(/^#\/?/, '');
-    if (EXTERNAL.indexOf(r) >= 0) {
+    if (step.n < 3 && EXTERNAL.indexOf(r) >= 0) {
       history.replaceState(null, '', location.pathname + location.search + '#/tableau');
-      if (step.n >= 2 && googleLink(r)) window.open(googleLink(r), '_blank', 'noopener');
+      if (external(r) && googleLink(r)) window.open(googleLink(r), '_blank', 'noopener');
     }
   }, true);
   if (!session) document.addEventListener('DOMContentLoaded', function () { showLogin(); });

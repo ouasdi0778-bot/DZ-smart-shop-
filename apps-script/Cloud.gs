@@ -21,6 +21,13 @@
  *  - l'application des pages Bénéfices, Stock, Statistiques et Administration (lien « ?google=1 »).
  * Les réglages (onglets Paramètres, Équipe, Produits…) et les clés Ecotrack et SMS sont renvoyés à
  * Cloudflare quand ils changent.
+ *
+ * Étape 3 (« Passer à l'étape 3 ») : toute l'application est dans Cloudflare (Stock, Bénéfices,
+ * Statistiques, Administration, Shopify, SMS). Les onglets Paramètres, Tarifs, Produits, Équipe,
+ * Clients et Dépenses y sont gardés ; ce classeur en garde une copie à jour (recopiée chaque minute,
+ * comme les commandes, l'archive et les mouvements de stock). Une modification faite à la main dans
+ * un de ces onglets est renvoyée à Cloudflare (sauf si Cloudflare l'a modifié entre-temps : sa
+ * version l'emporte). Ce classeur reste la porte d'entrée de Releasit et la page de connexion.
  */
 
 var CLOUD = {
@@ -33,8 +40,13 @@ var CLOUD = {
   PROP_DIRTY: 'CF_CONFIG_DIRTY',  // réglages à renvoyer
   PROP_SYNC: 'CF_LAST_SYNC',
   PROP_ERROR: 'CF_LAST_ERROR',
-  SECRETS: ['ECOTRACK_URL', 'ECOTRACK_TOKEN', 'SMS_API_KEY', 'SMS_FROM', 'OWNER_EMAIL'],
+  SECRETS: ['ECOTRACK_URL', 'ECOTRACK_TOKEN', 'SMS_API_KEY', 'SMS_FROM', 'OWNER_EMAIL',
+    'SHOPIFY_SHOP', 'SHOPIFY_TOKEN', 'SHOPIFY_CLIENT_ID', 'SHOPIFY_CLIENT_SECRET', 'SHOPIFY_LAST_IMPORT'],
   PAGES: 4,                       // au plus 4 × 300 changements recopiés par minute
+  PROP_FULL: 'CF_FULL',           // date du passage à l'étape 3
+  PROP_TABSEQ: 'CF_TABSEQ',       // { onglet : dernier changement recopié }
+  PROP_TABS_DIRTY: 'CF_TABS_DIRTY', // onglets modifiés à la main, à renvoyer
+  TABS: ['Clients', 'Produits', 'Tarifs', 'Équipe', 'Paramètres', 'Dépenses'],
   CHUNK: 250,
   TOKEN_DAYS: 30
 };
@@ -175,7 +187,7 @@ function cloudStatus_() {
   var p = PropertiesService.getScriptProperties();
   return {
     url: cfg.url, linked: !!(cfg.url && cfg.secret), last: cfg.last,
-    live: String(p.getProperty(CLOUD.PROP_LIVE) || ''), sync: String(p.getProperty(CLOUD.PROP_SYNC) || ''),
+    live: String(p.getProperty(CLOUD.PROP_LIVE) || ''), full: String(p.getProperty(CLOUD.PROP_FULL) || ''), sync: String(p.getProperty(CLOUD.PROP_SYNC) || ''),
     error: String(p.getProperty(CLOUD.PROP_ERROR) || ''), waiting: readJsonProp_(p.getProperty(CLOUD.PROP_OUTBOX), []).length
   };
 }
@@ -228,13 +240,24 @@ function cloudLive_() {
 /** Pour la page : après le basculement, les pages des commandes sont sur Cloudflare. */
 function cloudBootInfo_() {
   if (!cloudLive_()) return null;
-  return { live: true, url: cloudConfig_().url };
+  return { live: true, full: cloudFull_(), url: cloudConfig_().url };
 }
 
 /** Actions sur les commandes : refusées ici après le basculement (elles se font dans Cloudflare). */
 function cloudGuard_() {
   if (!cloudLive_()) return;
   throw new Error('Les commandes se gèrent maintenant dans la version Cloudflare : ' + cloudConfig_().url);
+}
+
+/** Étape 3 : toute l'application est dans Cloudflare. */
+function cloudFull_() {
+  return !!PropertiesService.getScriptProperties().getProperty(CLOUD.PROP_FULL);
+}
+
+/** Étape 3 : les pages Stock, Bénéfices, Statistiques, Administration ne modifient plus rien ici. */
+function cloudGuardAll_() {
+  if (!cloudFull_()) return;
+  throw new Error('Toute l’application est maintenant dans la version Cloudflare : faites-le là-bas (' + cloudConfig_().url + ').');
 }
 
 /** Un réglage a changé : il sera renvoyé à Cloudflare à la prochaine minute. */
@@ -285,8 +308,9 @@ function cloudOrderIn_(plain) {
  * La colonne « Mouvement stock » appartient au classeur : elle n'est jamais écrasée par Cloudflare.
  */
 function cloudApplyChanges_(changes) {
-  var out = { updated: 0, added: 0, removed: 0, purged: 0, notes: 0, marks: [] };
+  var out = { updated: 0, added: 0, removed: 0, purged: 0, notes: 0, marks: [], tabs: 0, moves: 0, archived: 0, shared: 0 };
   if (!changes || !changes.length) return out;
+  var full = cloudFull_(); // étape 3 : le stock et les onglets sont tenus par Cloudflare
   return withLock_(function () {
     var ctx = readOrders_();
     var byId = {};
@@ -296,6 +320,8 @@ function cloudApplyChanges_(changes) {
     var deletes = {};
     var purges = [];
     var notes = [];
+    var archive = [];
+    var tabSeq = full ? readJsonProp_(PropertiesService.getScriptProperties().getProperty(CLOUD.PROP_TABSEQ), {}) : null;
     changes.forEach(function (c) {
       var id = String(c.id || '').trim();
       if (!id) return;
@@ -304,17 +330,17 @@ function cloudApplyChanges_(changes) {
         var inc = cloudOrderIn_(c.order);
         var o = byId[id];
         if (!o) {
-          inc.stockMove = '';
+          if (!full) inc.stockMove = '';
           adds.push(inc);
           byId[id] = inc;
           return;
         }
         var fields = {};
         ORDER_COLUMNS.forEach(function (col) {
-          if (col.key === 'id' || col.key === 'stockMove') return;
+          if (col.key === 'id' || (col.key === 'stockMove' && !full)) return;
           if (cloudCell_(o[col.key]) !== cloudCell_(inc[col.key])) fields[col.key] = inc[col.key];
         });
-        if (String(c.order.stockMove || '').trim() === STOCK_DAMAGED_ && String(o.stockMove || '').trim() === STOCK_BACK_) damaged.push(o);
+        if (!full && String(c.order.stockMove || '').trim() === STOCK_DAMAGED_ && String(o.stockMove || '').trim() === STOCK_BACK_) damaged.push(o);
         if (Object.keys(fields).length) { writeFields_(ctx, o, fields); out.updated++; }
       } else if (c.kind === 'delete') {
         var info = readJsonProp_(c.info, {});
@@ -322,6 +348,17 @@ function cloudApplyChanges_(changes) {
         (deletes[k] = deletes[k] || []).push(id);
       } else if (c.kind === 'purge') {
         purges.push(id);
+      } else if (c.kind === 'archive') {
+        archive.push(id);
+      } else if (c.kind === 'tab') {
+        if (c.tab) { cloudWriteTab_(id, c.tab); out.tabs++; if (tabSeq) tabSeq[id] = c.seq; }
+      } else if (c.kind === 'moves') {
+        out.moves += cloudAppendMoves_(readJsonProp_(c.info, []));
+      } else if (c.kind === 'share:add' || c.kind === 'share:remove') {
+        try {
+          if (c.kind === 'share:add') ss_().addEditor(id); else ss_().removeEditor(id);
+          out.shared++;
+        } catch (e) { log_({ name: 'Cloudflare' }, '', 'Erreur partage du classeur', id + ' : ' + (e && e.message ? e.message : e)); }
       } else {
         notes.push(c);
       }
@@ -342,6 +379,7 @@ function cloudApplyChanges_(changes) {
     // 3. Liste noire et clients signalés (onglet Clients).
     notes.forEach(function (c) {
       var kind = String(c.kind);
+      if (full) return; // étape 3 : l'onglet Clients est recopié tel quel
       if (kind === 'blacklist:on' || kind === 'blacklist:off') {
         var p = normalizePhone(c.id);
         if (p.valid) { writeBlacklist_(p, kind === 'blacklist:on', String(c.info || '')); out.notes++; }
@@ -350,17 +388,26 @@ function cloudApplyChanges_(changes) {
         if (flagClient_(ctx, { phone: c.id, client: f.name || '' }, String(f.text || ''))) out.notes++;
       }
     });
-    // 4. Stock : colis partis, retours reçus (comme avant, avec l'onglet Commandes à jour).
-    var before = {};
-    ctx.orders.forEach(function (o) { before[String(o.id).trim()] = String(o.stockMove == null ? '' : o.stockMove); });
-    applyStockMoves_(ctx);
-    ctx.orders.forEach(function (o) {
-      var id = String(o.id).trim();
-      var now = String(o.stockMove == null ? '' : o.stockMove);
-      if (now !== before[id]) out.marks.push({ id: id, stockMove: now });
-    });
-    damaged.forEach(function (o) { out.marks.push({ id: String(o.id).trim(), stockMove: STOCK_DAMAGED_ }); });
-    // 5. Corbeille (en dernier : supprimer des lignes décale les suivantes).
+    // 4. Stock : colis partis, retours reçus (comme avant, avec l'onglet Commandes à jour). Étape 3 : fait par Cloudflare.
+    if (!full) {
+      var before = {};
+      ctx.orders.forEach(function (o) { before[String(o.id).trim()] = String(o.stockMove == null ? '' : o.stockMove); });
+      applyStockMoves_(ctx);
+      ctx.orders.forEach(function (o) {
+        var id = String(o.id).trim();
+        var now = String(o.stockMove == null ? '' : o.stockMove);
+        if (now !== before[id]) out.marks.push({ id: id, stockMove: now });
+      });
+      damaged.forEach(function (o) { out.marks.push({ id: String(o.id).trim(), stockMove: STOCK_DAMAGED_ }); });
+    }
+    if (tabSeq) PropertiesService.getScriptProperties().setProperty(CLOUD.PROP_TABSEQ, JSON.stringify(tabSeq));
+    // 5. Archive, puis corbeille (en dernier : supprimer des lignes décale les suivantes).
+    if (archive.length) {
+      var toArchive = ctx.orders.filter(function (o) { return archive.indexOf(String(o.id).trim()) >= 0; });
+      moveToArchive_(ctx, toArchive);
+      out.archived = toArchive.length;
+      ctx = readOrders_();
+    }
     Object.keys(deletes).forEach(function (k) {
       var parts = k.split('\n');
       out.removed += trashOrders_(ctx, deletes[k], parts[1], { name: parts[0] || 'Cloudflare' }, true).deleted.length;
@@ -407,12 +454,18 @@ function cloudSync_() {
       var data = cloudFetch_('/bridge/changes', { after: after, limit: 300 });
       var r = cloudApplyChanges_(data.changes || []);
       out.updated += r.updated; out.added += r.added; out.removed += r.removed;
+      out.shared = (out.shared || 0) + r.shared;
       if (r.marks.length) { cloudFetch_('/bridge/marks', { marks: r.marks }); out.marks += r.marks.length; }
       after = Number(data.last) || after;
       p.setProperty(CLOUD.PROP_SEQ, String(after));
       if (!data.more) break;
     }
-    if (p.getProperty(CLOUD.PROP_DIRTY)) {
+    if (cloudFull_()) {
+      // Étape 3 : les réglages sont calculés par Cloudflare ; les onglets modifiés à la main lui sont renvoyés.
+      p.deleteProperty(CLOUD.PROP_DIRTY);
+      out.tabs = cloudPushEditedTabs_();
+      if (out.shared) cloudPushEditors_();
+    } else if (p.getProperty(CLOUD.PROP_DIRTY)) {
       p.deleteProperty(CLOUD.PROP_DIRTY); // effacé avant : un changement pendant l'envoi sera renvoyé
       cloudPushConfig_();
       out.config = true;
@@ -462,6 +515,7 @@ function api_cloudGoLive(opts) {
   p.setProperty(CLOUD.PROP_LIVE, new Date().toISOString());
   cloudPushConfig_();
   p.deleteProperty(CLOUD.PROP_DIRTY);
+  if (opts.step !== 2) cloudGoFull_(); // étape 3 directement : toute l'application dans Cloudflare
   adminLog_(user, 'Cloudflare', 'Basculement : la version Cloudflare est la vraie application' + (opts.clear ? ' · ' + cleared + ' commandes de test effacées' : ''));
   return {
     message: 'C’est fait : utilisez maintenant la version Cloudflare' + (opts.clear ? ' (' + plural_(cleared, 'commande de test effacée', 'commandes de test effacées') + ')' : ' (' + plural_(r.orders, 'commande copiée', 'commandes copiées') + ')') + '.',
@@ -475,9 +529,127 @@ function api_cloudStopLive() {
   if (!cloudLive_()) throw new Error('La version Cloudflare n’est pas la vraie application.');
   var s = cloudSync_();
   if (s && s.error) throw new Error('Dernière recopie impossible : ' + s.error + ' Réessayez dans une minute.');
+  cloudFetch_('/bridge/full', { full: false });
   cloudFetch_('/bridge/live', { live: false });
   var p = PropertiesService.getScriptProperties();
-  [CLOUD.PROP_LIVE, CLOUD.PROP_SEQ, CLOUD.PROP_OUTBOX, CLOUD.PROP_DIRTY].forEach(function (k) { p.deleteProperty(k); });
+  [CLOUD.PROP_LIVE, CLOUD.PROP_SEQ, CLOUD.PROP_OUTBOX, CLOUD.PROP_DIRTY, CLOUD.PROP_FULL, CLOUD.PROP_TABSEQ, CLOUD.PROP_TABS_DIRTY].forEach(function (k) { p.deleteProperty(k); });
+  clearConfigCache_(); // les onglets recopiés redeviennent la référence
   adminLog_(user, 'Cloudflare', 'Retour à l’application Google');
   return { message: 'L’application Google est de nouveau la vraie. La version Cloudflare repasse en essai.', connections: connectionsData_() };
+}
+
+/* ================================================================ */
+/* Étape 3 : toute l'application dans Cloudflare                    */
+/* ================================================================ */
+
+/** Une case envoyée à Cloudflare : les dates gardent leur type (« $d »). */
+function cloudCellOut_(v) {
+  if (v instanceof Date) return isNaN(v.getTime()) ? '' : { $d: v.toISOString() };
+  return v === undefined || v === null ? '' : v;
+}
+function cloudCellIn_(v) { return v && typeof v === 'object' && v.$d ? new Date(v.$d) : v; }
+
+/** Les lignes d'un onglet, telles qu'envoyées à Cloudflare. */
+function cloudTabValues_(name) {
+  var sh = ss_().getSheetByName(name);
+  if (!sh || sh.getLastRow() < 1) return [];
+  var values = sh.getRange(1, 1, sh.getLastRow(), Math.max(sh.getLastColumn(), 1)).getValues();
+  return values.map(function (r) {
+    var line = r.map(cloudCellOut_);
+    while (line.length && line[line.length - 1] === '') line.pop();
+    return line;
+  });
+}
+
+/**
+ * Recopie dans le classeur les paquets de lignes d'un onglet modifiés dans Cloudflare
+ * (tab : { n : nombre de lignes, size : lignes par paquet, parts : { n° : lignes } }).
+ */
+function cloudWriteTab_(name, tab) {
+  var ss = ss_();
+  var sh = ss.getSheetByName(name) || ss.insertSheet(name);
+  Object.keys(tab.parts || {}).forEach(function (p) {
+    var rows = (tab.parts[p] || []).map(function (r) { return r.map(cloudCellIn_); });
+    if (!rows.length) return;
+    var width = rows.reduce(function (m, r) { return Math.max(m, r.length); }, 1);
+    rows = rows.map(function (r) { var l = r.slice(); while (l.length < width) l.push(''); return l; });
+    var start = Number(p) * (tab.size || 250) + 1;
+    ensureRows_(sh, start + rows.length - 1);
+    // Numéros (téléphones) gardés en texte : sinon le classeur enlève le 0.
+    for (var c = 0; c < width; c++) {
+      if (rows.some(function (r) { return typeof r[c] === 'string' && /^[+0][0-9 ]{5,}$/.test(r[c]); })) sh.getRange(start, c + 1, rows.length, 1).setNumberFormat('@');
+    }
+    sh.getRange(start, 1, rows.length, width).setValues(rows);
+  });
+  var n = Number(tab.n) || 0;
+  var last = sh.getLastRow();
+  if (last > n && n >= 1) sh.deleteRows(n + 1, last - n);
+  clearConfigCache_(configKeysFor_(name));
+}
+
+/** Mouvements de stock faits dans Cloudflare : ajoutés à l'onglet « Mouvements stock ». */
+function cloudAppendMoves_(rows) {
+  if (!rows || !rows.length) return 0;
+  logStockMoves_(rows.map(function (r) { var l = r.map(cloudCellIn_); while (l.length < MOVE_TITLES_.length) l.push(''); return l.slice(0, MOVE_TITLES_.length); }));
+  return rows.length;
+}
+
+/** Onglet modifié à la main (onEdit) : il sera renvoyé à Cloudflare à la prochaine minute. */
+function cloudTabEdited_(name) {
+  if (CLOUD.TABS.indexOf(name) < 0) return;
+  var p = PropertiesService.getScriptProperties();
+  if (!p.getProperty(CLOUD.PROP_FULL)) return;
+  var list = readJsonProp_(p.getProperty(CLOUD.PROP_TABS_DIRTY), []);
+  if (list.indexOf(name) < 0) { list.push(name); p.setProperty(CLOUD.PROP_TABS_DIRTY, JSON.stringify(list)); }
+}
+
+/** Renvoie les onglets modifiés à la main ; si Cloudflare les a modifiés entre-temps, sa version l'emporte. */
+function cloudPushEditedTabs_() {
+  var p = PropertiesService.getScriptProperties();
+  var list = readJsonProp_(p.getProperty(CLOUD.PROP_TABS_DIRTY), []);
+  if (!list.length) return 0;
+  p.deleteProperty(CLOUD.PROP_TABS_DIRTY);
+  var seq = readJsonProp_(p.getProperty(CLOUD.PROP_TABSEQ), {});
+  var tabs = {};
+  var base = {};
+  list.forEach(function (n) { tabs[n] = cloudTabValues_(n); base[n] = seq[n] || 0; });
+  var r = cloudFetch_('/bridge/tabs', { tabs: tabs, base: base });
+  (r.refused || []).forEach(function (n) {
+    log_({ name: 'Cloudflare' }, '', 'Onglet modifié des deux côtés', 'Onglet « ' + n + ' » : la modification faite à la main est remplacée par celle de la version Cloudflare.');
+  });
+  return (r.saved || []).length;
+}
+
+/** Personnes qui ont accès au classeur (page Équipe de la version Cloudflare). */
+function cloudPushEditors_() {
+  var list = [];
+  try { list = ss_().getEditors().map(function (u) { return String(u.getEmail()).toLowerCase(); }); } catch (e) { return; }
+  cloudFetch_('/bridge/config', { editors: list });
+}
+
+/** Passage à l'étape 3 : onglets envoyés, puis Cloudflare tient tout (stock, Shopify, SMS, archivage). */
+function cloudGoFull_() {
+  var p = PropertiesService.getScriptProperties();
+  var tabs = {};
+  CLOUD.TABS.forEach(function (n) { if (ss_().getSheetByName(n)) tabs[n] = cloudTabValues_(n); });
+  cloudFetch_('/bridge/tabs', { tabs: tabs });
+  cloudPushConfig_(); // clés à jour (Shopify compris : lu par Cloudflare à l'étape 3)
+  var r = cloudFetch_('/bridge/full', { full: true });
+  p.setProperty(CLOUD.PROP_SEQ, String(Math.max(Number(p.getProperty(CLOUD.PROP_SEQ)) || 0, Number(r.seq) || 0)));
+  p.setProperty(CLOUD.PROP_TABSEQ, JSON.stringify({}));
+  p.deleteProperty(CLOUD.PROP_TABS_DIRTY);
+  p.setProperty(CLOUD.PROP_FULL, new Date().toISOString());
+  cloudPushEditors_();
+}
+
+/** « Passer à l'étape 3 » (administrateur, après le basculement). */
+function api_cloudGoFull() {
+  var user = requireAdmin_();
+  if (!cloudLive_()) throw new Error('Basculez d’abord vers Cloudflare.');
+  if (cloudFull_()) throw new Error('C’est déjà fait : toute l’application est dans Cloudflare.');
+  var s = cloudSync_(); // tout ce qui attend est recopié avant
+  if (s && s.error) throw new Error('Recopie impossible : ' + s.error + ' Réessayez dans une minute.');
+  cloudGoFull_();
+  adminLog_(user, 'Cloudflare', 'Étape 3 : toute l’application est dans Cloudflare');
+  return { message: 'C’est fait : Stock, Bénéfices, Statistiques et Administration sont maintenant dans la version Cloudflare.', connections: connectionsData_() };
 }

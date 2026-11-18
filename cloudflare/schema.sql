@@ -53,3 +53,14 @@ CREATE TABLE IF NOT EXISTS changes (seq INTEGER PRIMARY KEY AUTOINCREMENT, order
 
 -- Garde-fou : une écriture qui ne trouve pas la version attendue de la commande annule tout l'enregistrement.
 CREATE TABLE IF NOT EXISTS guard (ok INTEGER CHECK (ok > 0));
+
+-- Étape 3 : onglets de réglages, de stock et de dépenses (Produits, Dépenses, Paramètres, Tarifs, Équipe,
+-- Clients), par paquets de 250 lignes (JSON), chacun avec son n° de version.
+CREATE TABLE IF NOT EXISTS tabs (name TEXT NOT NULL, part INTEGER NOT NULL, rev INTEGER NOT NULL DEFAULT 0, rows TEXT NOT NULL DEFAULT '[]', PRIMARY KEY (name, part));
+
+-- Étape 3 : mouvements de stock (une ligne de l'onglet « Mouvements stock » par mouvement).
+CREATE TABLE IF NOT EXISTS moves (seq INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, row TEXT NOT NULL);
+
+-- Résumé de chaque jour (Statistiques, Bénéfices) ; stale > 0 : à recalculer (une commande de ce jour a changé).
+CREATE TABLE IF NOT EXISTS days (day TEXT PRIMARY KEY, data TEXT NOT NULL DEFAULT '', stale INTEGER NOT NULL DEFAULT 1);
+CREATE INDEX IF NOT EXISTS days_stale ON days(stale);

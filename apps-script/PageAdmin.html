@@ -93,6 +93,17 @@
           '<td data-label="Dernier passage">' + (t.at ? h(ago(t.at)) : '—') + '</td>' +
           '<td data-label="Durée" class="num">' + (t.at ? (t.ms < 1000 ? '< 1 s' : Math.round(t.ms / 1000) + ' s') : '—') + '</td></tr>';
       }).join('') + '</tbody></table></div></section>';
+    if (d.cloud) {
+      html += '<section class="card"><h2>Cloudflare</h2><p>' + plural(d.today.runs, 'passage', 'passages') + ' des tâches automatiques aujourd’hui (chaque minute). Rien à installer : elles tournent toutes seules.</p>' +
+        '<p class="small" style="margin-top:8px">Un problème s’affiche ici et sur la pastille du menu Administration.</p></section>';
+      html += perfSection();
+      if (d.errors.length) {
+        html += '<section class="card"><h2>Dernières erreurs (Journal)</h2>' + d.errors.map(function (e) {
+          return '<div class="result-row"><span class="grow"><strong>' + h(e.action) + '</strong> · ' + h(e.who) + ' · <span class="small">' + fmtDate(e.date) + '</span><br><span class="small">' + h(e.detail) + '</span></span></div>';
+        }).join('') + '</section>';
+      }
+      return html;
+    }
     html += '<section class="card"><h2>Consommation du jour</h2><p><strong>' + h(d.today.minutes) + ' min</strong> sur environ ' + h(d.today.limit) + ' permises par Google · ' +
       plural(d.today.runs, 'passage', 'passages') + '</p><div class="progress" style="height:10px"><span style="width:' + pctUsed.toFixed(1) + '%;background:' +
       (pctUsed >= 80 ? '#A12626' : pctUsed >= 50 ? '#8A5200' : '#146C2E') + '"></span></div>' +
@@ -186,13 +197,25 @@
       '<div class="quick" style="margin-top:10px"><button type="button" class="btn" data-act="admin-call" data-fn="api_releasitTransfer">Transférer maintenant</button></div></section>';
 
     var cf = c.cloud || {};
+    if (cf.inCloud) {
+      html += '<section class="card"><div class="detail-head"><div><h2>Classeur Google</h2><p class="muted">' + icon(cf.sync ? 'ok' : 'alert') +
+        (cf.sync ? 'Recopie dans le classeur ' + h(ago(cf.sync)) : 'Le classeur n’a pas encore contacté la version Cloudflare') +
+        (cf.lastIngest ? ' · dernière commande Releasit reçue ' + h(ago(cf.lastIngest)) : '') + '</p></div></div>' +
+        '<p class="small">Toute l’application est ici (étape 3). Le classeur Google reçoit les commandes Releasit et les envoie ici chaque minute, et garde une copie à jour de tout (commandes, stock, dépenses, réglages). Une modification faite à la main dans les onglets Paramètres, Tarifs, Produits, Équipe, Clients ou Dépenses est reprise ici dans la minute.</p>' +
+        (cf.google ? '<div class="quick" style="margin-top:10px"><a class="btn" href="' + h(cf.google + '&page=admin') + '" target="_blank" rel="noopener">Application Google (secours)</a></div>' : '') + '</section>';
+      return html;
+    }
     if (cf.live) {
-      html += '<section class="card"><div class="detail-head"><div><h2>Cloudflare (la vraie application)</h2><p class="muted">' + icon(cf.error ? 'alert' : 'ok') +
+      html += '<section class="card"><div class="detail-head"><div><h2>Cloudflare (la vraie application' + (cf.full ? ', étape 3' : '') + ')</h2><p class="muted">' + icon(cf.error ? 'alert' : 'ok') +
         'Depuis ' + h(fmtDate(cf.live)) + ' · recopie dans le classeur ' + (cf.sync ? h(ago(cf.sync)) : 'pas encore faite') +
         (cf.waiting ? ' · ' + plural(cf.waiting, 'commande à envoyer', 'commandes à envoyer') : '') + '</p></div></div>' +
         (cf.error ? '<p class="small" style="color:var(--danger)">Dernière erreur : ' + h(cf.error) + '</p>' : '') +
-        '<p class="small">Commandes, Confirmation, Expédier et Suivi (Ecotrack, SMS) se font dans la version Cloudflare. Ce classeur reçoit les commandes (Releasit, Shopify) et les lui envoie, garde une copie à jour (chaque minute) et le stock. Bénéfices, Stock, Statistiques et Administration restent ici.</p>' +
+        (cf.full
+          ? '<p class="small">Toute l’application est dans la version Cloudflare. Ce classeur reçoit les commandes Releasit et les lui envoie, et garde une copie à jour de tout, chaque minute (commandes, archive, stock, dépenses, réglages). Une modification faite à la main dans Paramètres, Tarifs, Produits, Équipe, Clients ou Dépenses est renvoyée à Cloudflare. Ici, tout est en lecture seule.</p>'
+          : '<p class="small">Commandes, Confirmation, Expédier et Suivi (Ecotrack, SMS) se font dans la version Cloudflare. Ce classeur reçoit les commandes (Releasit, Shopify) et les lui envoie, garde une copie à jour (chaque minute) et le stock. Bénéfices, Stock, Statistiques et Administration restent ici.</p>' +
+            '<p class="small" style="margin-top:8px"><strong>Étape 3 :</strong> Stock, Bénéfices, Statistiques, Administration et Shopify passent aussi dans la version Cloudflare (plus rapides). Ce classeur garde une copie à jour de tout.</p>') +
         '<div class="quick" style="margin-top:10px"><a class="btn primary" href="' + h(cf.url) + '" target="_blank" rel="noopener">Ouvrir la version Cloudflare</a>' +
+        (cf.full ? '' : '<button type="button" class="btn primary" data-act="admin-call" data-fn="api_cloudGoFull">Passer à l’étape 3</button>') +
         '<button type="button" class="btn" data-act="admin-cloud-stop">Revenir à l’application Google</button></div></section>';
       return html;
     }

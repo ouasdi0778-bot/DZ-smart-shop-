@@ -135,6 +135,7 @@ function flushSmsPending_() {
   var pending = SMS_PENDING_;
   SMS_PENDING_ = [];
   if (!pending.length) return 0;
+  if (cloudFull_()) return 0; // étape 3 : les SMS partent de la version Cloudflare
   try {
     if (!smsConfig_().configured) return 0;
     var settings = getSettings_();

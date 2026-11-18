@@ -74,6 +74,7 @@ function onEdit(e) {
     if (name === SHEET.ORDERS) invalidateOrdersCache_();
     var keys = configKeysFor_(name);
     if (keys.length) clearConfigCache_(keys);
+    cloudTabEdited_(name); // étape 3 : renvoyé à la version Cloudflare
   } catch (err) {
     // Ne doit jamais gêner la saisie.
   }

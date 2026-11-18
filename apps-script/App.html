@@ -2849,6 +2849,7 @@
     $all('[data-stockrole]').forEach(function (el) { el.hidden = !b.user.stock; });
     $all('[data-more]').forEach(function (el) { el.hidden = !(b.user.admin || b.user.stock); });
     document.documentElement.classList.toggle('cf-live', !!(b.cloud && b.cloud.live));
+    document.documentElement.classList.toggle('cf-full', !!(b.cloud && b.cloud.full));
     showHealth(b.health);
   }
 
@@ -2856,9 +2857,11 @@
   var CLOUD_ROUTES = ['commandes', 'confirmation', 'expeditions', 'suivi'];
   function cloudMoved(r) {
     var url = S.boot && S.boot.cloud && S.boot.cloud.live ? S.boot.cloud.url : '';
-    if (!url || CLOUD_ROUTES.indexOf(r) < 0) return false;
+    var full = !!(S.boot.cloud && S.boot.cloud.full);
+    if (!url || (full ? r === 'admin' : CLOUD_ROUTES.indexOf(r) < 0)) return false;
     view.innerHTML = '<section class="card"><h2>Cette page est dans la version Cloudflare</h2>' +
-      '<p class="sub">Commandes, Confirmation, Expédier et Suivi se font maintenant dans la version Cloudflare (plus rapide). Ici : Bénéfices, Stock, Statistiques et Administration.</p>' +
+      '<p class="sub">' + (full ? 'Toute l’application est maintenant dans la version Cloudflare (plus rapide). Ici : Administration (lien avec Cloudflare, retour en arrière).'
+        : 'Commandes, Confirmation, Expédier et Suivi se font maintenant dans la version Cloudflare (plus rapide). Ici : Bénéfices, Stock, Statistiques et Administration.') + '</p>' +
       '<div class="quick" style="margin-top:12px"><a class="btn primary" href="' + h(url) + '/#/' + h(r) + '" target="_top">Ouvrir la version Cloudflare</a></div></section>';
     return true;
   }

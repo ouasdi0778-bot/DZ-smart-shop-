@@ -7,10 +7,19 @@
  * ensuite les changements dans D1 en une seule fois.
  */
 
-/* ---------------- Classeur : jamais utilisé ---------------- */
+/*
+ * Fonctions d'origine gardées sous le nom gas_… (voir build.js) :
+ * @wrap applyStockMoves_ logStockMoves_ api_markReturnDamaged flagClient_ */
 
-function ss_() { throw new Error('Le classeur Google n’est pas utilisé par la version Cloudflare.'); }
-function sheet_(name) { throw new Error('Onglet « ' + name + ' » : pas dans la version Cloudflare.'); }
+/* ---------------- Classeur : seulement les onglets gardés dans D1 (étape 3) ---------------- */
+
+/** Étape 3 : les onglets de réglages, stock et dépenses sont dans D1 (voir gas-shim.js). */
+function cfFull_() { return !!(REQ && REQ.tabStore); }
+
+function ss_() {
+  if (cfFull_()) return CF_SPREADSHEET_;
+  throw new Error('Le classeur Google n’est pas utilisé par la version Cloudflare.');
+}
 
 /** Position de chaque champ (les fonctions de l'outil s'en servent pour savoir qu'une colonne existe). */
 var CF_ORDER_MAP_ = (function () { var m = {}; ORDER_COLUMNS.forEach(function (c, i) { m[c.key] = i; }); return m; })();
@@ -48,14 +57,36 @@ function appendOrders_(ctx, list) {
 
 function ensureOrderColumn_() {}
 
-/** Réglages, tarifs, équipe, clients, produits : copiés dans D1 (table config), lus une fois par requête. */
+/**
+ * Réglages, tarifs, équipe, clients, produits : tels que l'outil les calcule (table config de D1), lus
+ * une fois par requête. Étape 3 : recalculés depuis les onglets quand l'un d'eux change.
+ */
 function cached_(key, compute) {
   if (REQ && REQ.config && Object.prototype.hasOwnProperty.call(REQ.config, key)) return JSON.parse(REQ.config[key]);
   var value = compute();
-  if (REQ) REQ.config[key] = JSON.stringify(value);
+  if (REQ) {
+    REQ.config[key] = JSON.stringify(value);
+    if (cfFull_()) REQ.configWrites[key] = REQ.config[key];
+  }
   return value;
 }
-function clearConfigCache_() {}
+function clearConfigCache_(keys) {
+  if (!cfFull_()) return; // étapes 1 et 2 : réglages copiés depuis le classeur
+  (keys || allConfigKeys_()).forEach(function (k) { delete REQ.config[k]; REQ.configDrop[k] = true; });
+}
+/** Après une action (étape 3) : les réglages dont l'onglet a changé sont recalculés et enregistrés. */
+function cfRefreshConfig_() {
+  var drop = REQ.configDrop || {};
+  var keys = Object.keys(drop);
+  if (!keys.length) return;
+  var getters = {
+    'cfg:settings': getSettings_, 'cfg:wilayas': getWilayaList_, 'cfg:rates': function () { return readRates_(getWilayaList_()); },
+    'cfg:clients': readClients_, 'cfg:team': readTeam_, 'cfg:products': readCatalog_
+  };
+  keys.forEach(function (k) { delete REQ.config[k]; });
+  keys.forEach(function (k) { if (getters[k]) getters[k](); });
+  REQ.configDrop = {};
+}
 
 /** Journal : lignes ajoutées dans D1 à la fin de la requête. */
 function writeLogRows_(rows) {
@@ -87,11 +118,13 @@ function tomorrowAt_(now, hour) {
 /* ---------------- Pas encore dans la version Cloudflare (étape 2) ---------------- */
 
 function invalidateOrdersCache_() {}
-function applyStockMoves_() { return 0; }
+/** Mouvements de stock : faits ici à l'étape 3 (avant : par Apps Script, voir Cloud.gs). */
+function applyStockMoves_(ctx) { return cfFull_() ? gas_applyStockMoves_(ctx) : { out: 0, back: 0 }; }
 function releasitQuickSync_() { return 0; }
 function timed_(label, fn) { return fn(); }
 function notePerf_() {}
-function healthSummary_() { return null; }
+/** Pastille d'alerte du menu (administrateur) : calculée par server.js (tâches de Cloudflare). */
+function healthSummary_() { return REQ.healthSummary || null; }
 function api_importStatus() {
   return {
     releasit: { found: false, missing: [], lastRun: '', lastError: '' },
@@ -108,6 +141,7 @@ function countsData_() { return { __fast: true }; }
 
 /** Client « signalé » : gardé dans les réglages clients de D1, recopié dans l'onglet Clients par Apps Script. */
 function flagClient_(ctx, o, text) {
+  if (cfFull_()) return gas_flagClient_(ctx, o, text); // étape 3 : onglet Clients dans D1
   var p = normalizePhone(o.phone);
   if (!p.valid) return false;
   var clients = readClients_();
@@ -125,6 +159,7 @@ function flagClient_(ctx, o, text) {
  * par Apps Script quand il recopie ce changement (voir Cloud.gs).
  */
 function api_markReturnDamaged(id) {
+  if (cfFull_()) return gas_api_markReturnDamaged(id); // étape 3 : le stock est retiré ici
   var user = requireStockAccess_();
   var ctx = readOrders_();
   var o = findOrder_(ctx, id);
@@ -137,8 +172,21 @@ function api_markReturnDamaged(id) {
   return { order: serializeOrder_(o), message: 'Retour ' + o.id + ' marqué abîmé : retiré du stock.' };
 }
 
-/** Les mouvements de stock sont faits par Apps Script sur le classeur (voir Cloud.gs) : rien ici. */
-function logStockMoves_() {}
+/** Mouvements de stock : table moves de D1 (étape 3), recopiée dans l'onglet « Mouvements stock ». */
+function logStockMoves_(rows) {
+  if (!cfFull_()) return; // étape 2 : faits par Apps Script sur le classeur (voir Cloud.gs)
+  rows.forEach(function (r) { REQ.moveRows.push(r); });
+}
+/** Derniers mouvements de stock : lus dans D1 par server.js (REQ.moves, les plus récents d'abord). */
+function readStockMoves_(limit) {
+  return (REQ.moves || []).slice(0, limit || 300).map(function (r) {
+    return {
+      date: iso_(r[0]), product: String(r[1]), model: String(r[2]), key: catalogKey_(r[1], r[2]), type: String(r[3]),
+      qty: toNumber_(r[4]), after: isBlank_(r[5]) || r[5] === '' ? null : toNumber_(r[5]),
+      cost: isBlank_(r[6]) || r[6] === '' ? null : toNumber_(r[6]), order: String(r[7]), by: String(r[8]), note: String(r[9])
+    };
+  });
+}
 
 /* Lien avec la version Cloudflare (Cloud.gs) : ici, on EST la version Cloudflare. */
 function cloudLive_() { return false; }
@@ -146,3 +194,51 @@ function cloudGuard_() {}
 function cloudConfigChanged_() {}
 function cloudOutboxAdd_() {}
 function cloudBootInfo_() { return null; }
+function cloudFull_() { return false; }
+function cloudGuardAll_() {}
+function cloudTabEdited_() {}
+
+/* ---------------- Étape 3 : Stock, Statistiques, Bénéfices, Administration ---------------- */
+
+/** Argent et versements : colis suivis (chargés un par un) + colis payés regroupés par la base (server.js, __n). */
+function moneyOrders_(ctx) { return ctx.orders.concat(REQ.moneyRows || []); }
+
+/** Libellés des commandes récentes : regroupés par la base (server.js), avec leur nombre (__n). */
+function recentOrdersForLabels_(ctx) { return REQ.labelRows || ctx.orders; }
+
+/** Résumés par jour : lus (et recalculés si besoin) dans la table days par server.js. */
+function readStoredDays_(fromDay, toDay) {
+  var out = {};
+  Object.keys(REQ.days || {}).forEach(function (k) { if (k >= fromDay && k <= toDay && REQ.days[k] && REQ.days[k].st) out[k] = REQ.days[k].st; });
+  return out;
+}
+/** « Recalculer » : tous les jours sont à refaire (la tâche de chaque minute s'en charge, quelques jours à la fois). */
+function rebuildStats_() {
+  REQ.rebuildDays = true;
+  return { days: REQ.dayCount || 0 };
+}
+
+/** Accès au classeur Google (page Équipe) : liste envoyée par Apps Script ; le partage est fait par Apps Script. */
+CF_SPREADSHEET_.getEditors = function () {
+  if (!REQ.editors) throw new Error('Liste des accès au classeur pas encore reçue.');
+  return REQ.editors.map(function (e) { return { getEmail: function () { return e; } }; });
+};
+CF_SPREADSHEET_.addEditor = function (email) {
+  email = String(email).toLowerCase();
+  REQ.notes.push({ id: email, kind: 'share:add', info: '' });
+  if (REQ.editors && REQ.editors.indexOf(email) < 0) REQ.editors.push(email);
+};
+CF_SPREADSHEET_.removeEditor = function (email) {
+  email = String(email).toLowerCase();
+  REQ.notes.push({ id: email, kind: 'share:remove', info: '' });
+  if (REQ.editors) REQ.editors = REQ.editors.filter(function (e) { return e !== email; });
+};
+
+/** Connexions (Administration) : Releasit arrive par le classeur ; le lien avec le classeur est vu d'ici. */
+function releasitColumnsReport_() { return { found: !!(REQ.cfInfo && REQ.cfInfo.lastIngest), missing: [] }; }
+function cloudStatus_() {
+  var i = REQ.cfInfo || {};
+  return { inCloud: true, live: i.live || '', full: i.full || '', sync: i.bridgeAt || '', lastIngest: i.lastIngest || '', google: i.google || '' };
+}
+function api_repair() { throw new Error('La réparation du classeur se fait dans l’application Google (lien de secours, Administration › Classeur).'); }
+function api_reinstallTriggers() { throw new Error('Rien à installer : les tâches automatiques de Cloudflare tournent toutes seules (chaque minute).'); }

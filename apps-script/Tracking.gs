@@ -151,8 +151,9 @@ function trackingMoney_(orders, now, days) {
   var bucket = function () { return { count: 0, amount: 0 }; };
   var money = { enRoute: bucket(), delivered: bucket(), cashed: bucket(), ready: bucket(), paid: bucket() };
   var payments = {};
-  var add = function (b, amount) { b.count++; b.amount += amount; };
+  var add = function (b, amount, n) { b.count += n; b.amount += amount; };
   orders.forEach(function (o) {
+    var n = o.__n || 1; // __n : commandes déjà regroupées par la base (version Cloudflare), total = leur somme
     if (String(o.carrier) !== ECO.NAME || isBlank_(o.tracking)) return;
     var info = ecotrackStatusInfo_(o.carrierStatus);
     var group = info ? info.group : '';
@@ -160,16 +161,16 @@ function trackingMoney_(orders, now, days) {
     var moved = toDate_(o.carrierMoved) || toDate_(o.updated) || toDate_(o.date) || now;
     var shipped = o.status === STATUS.SHIPPED || o.status === STATUS.IN_DELIVERY;
     if (group === 'transit' || group === 'delivery' || group === 'suspended' || (!group && shipped)) {
-      if (shipped) add(money.enRoute, amount);
-    } else if (group === 'delivered') add(money.delivered, amount);
-    else if (group === 'cashed') add(money.cashed, amount);
-    else if (group === 'ready') add(money.ready, amount);
-    else if (group === 'paid' && moved.getTime() >= since.getTime()) add(money.paid, amount);
+      if (shipped) add(money.enRoute, amount, n);
+    } else if (group === 'delivered') add(money.delivered, amount, n);
+    else if (group === 'cashed') add(money.cashed, amount, n);
+    else if (group === 'ready') add(money.ready, amount, n);
+    else if (group === 'paid' && moved.getTime() >= since.getTime()) add(money.paid, amount, n);
 
     var pid = String(o.paymentId).trim();
     if (pid && moved.getTime() >= since.getTime()) {
       var p = payments[pid] = payments[pid] || { id: pid, count: 0, amount: 0, paid: true, last: moved };
-      p.count++;
+      p.count += n;
       p.amount += amount;
       if (group !== 'paid') p.paid = false;
       if (moved.getTime() > p.last.getTime()) p.last = moved;

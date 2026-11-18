@@ -245,18 +245,25 @@ function profitBuckets_(from, to) {
   return { unit: unit, list: out };
 }
 
-/** Totaux d'une liste de commandes (et des dépenses de la période). */
-function profitTotals_(orders, env, catalog, expenses, from, to, detail) {
-  var t = { orders: 0, confirmed: 0, delivered: 0, returned: 0, inTransit: 0, cancelled: 0, revenue: 0, productSales: 0, clientShipping: 0,
-    deliveryFees: 0, deliveryNet: 0, productCost: 0, returnFees: 0, packaging: 0, ordersProfit: 0, expenses: 0, adSpend: 0, gains: 0,
-    deliveredProfit: 0, returnLoss: 0 };
-  var warn = { missingCost: 0, missingFee: 0, missingCostLabels: {} };
-  var products = {};
-  var campaigns = {};
-  var platforms = {};
-  var group = function (map, key, name) { return map[key] || (map[key] = emptyGroup_(name)); };
-  var perOrder = [];
+/**
+ * Bénéfice des commandes, en deux temps (pour pouvoir additionner des résumés par jour, voir
+ * daySummaries_) : profitAccumulate_ additionne des commandes ; profitMerge_ ajoute un résumé déjà
+ * fait ; profitFinish_ ajoute les dépenses de la période, arrondit et calcule les taux.
+ */
+function profitAcc_() {
+  return {
+    t: { orders: 0, confirmed: 0, delivered: 0, returned: 0, inTransit: 0, cancelled: 0, revenue: 0, productSales: 0, clientShipping: 0,
+      deliveryFees: 0, deliveryNet: 0, productCost: 0, returnFees: 0, packaging: 0, ordersProfit: 0, expenses: 0, adSpend: 0, gains: 0,
+      deliveredProfit: 0, returnLoss: 0 },
+    warn: { missingCost: 0, missingFee: 0, missingCostLabels: {} },
+    products: {}, campaigns: {}, platforms: {}, perDay: {}
+  };
+}
 
+function profitAccumulate_(orders, env, catalog, acc, detail) {
+  acc = acc || profitAcc_();
+  var t = acc.t;
+  var group = function (map, key, name) { return map[key] || (map[key] = emptyGroup_(name)); };
   orders.forEach(function (o) {
     var p = orderProfit_(o, env, catalog);
     t.orders++;
@@ -277,11 +284,16 @@ function profitTotals_(orders, env, catalog, expenses, from, to, detail) {
       t.ordersProfit += p.profit;
       if (o.status === STATUS.DELIVERED) t.deliveredProfit += p.profit; else t.returnLoss -= p.profit;
       if (p.missingCost) {
-        warn.missingCost++;
-        p.items.forEach(function (it) { if (it.cost === null) warn.missingCostLabels[it.label] = true; });
+        acc.warn.missingCost++;
+        p.items.forEach(function (it) { if (it.cost === null) acc.warn.missingCostLabels[it.label] = true; });
       }
-      if (p.missingFee) warn.missingFee++;
-      if (detail) perOrder.push({ key: ymd_(toDate_(o.date)), revenue: p.revenue, profit: p.profit });
+      if (p.missingFee) acc.warn.missingFee++;
+      if (detail) {
+        var key = ymd_(toDate_(o.date));
+        var d = acc.perDay[key] || (acc.perDay[key] = { revenue: 0, profit: 0 });
+        d.revenue += p.revenue;
+        d.profit += p.profit;
+      }
     }
     if (!detail) return;
     // Par produit : une commande à plusieurs articles est partagée selon les quantités.
@@ -290,14 +302,47 @@ function profitTotals_(orders, env, catalog, expenses, from, to, detail) {
     items.forEach(function (it) {
       var row = matchCatalog_(catalog, it.label);
       var name = row ? row.product + (row.model ? ' — ' + row.model : '') : it.label;
-      addToGroup_(group(products, row ? row.key : normalizeLoose_(it.label), name), o, p, it.qty / totalQty);
+      addToGroup_(group(acc.products, row ? row.key : normalizeLoose_(it.label), name), o, p, it.qty / totalQty);
     });
     var campaign = String(o.campaign || '').trim();
-    addToGroup_(group(campaigns, normalizeLoose_(campaign) || '-', campaign || '(sans campagne)'), o, p, 1);
+    addToGroup_(group(acc.campaigns, normalizeLoose_(campaign) || '-', campaign || '(sans campagne)'), o, p, 1);
     var platform = adPlatform_(o.adSource) || (String(o.adSource || '').trim() ? String(o.adSource).trim() : 'Sans publicité suivie');
-    addToGroup_(group(platforms, normalizeLoose_(platform), platform), o, p, 1);
+    addToGroup_(group(acc.platforms, normalizeLoose_(platform), platform), o, p, 1);
   });
+  return acc;
+}
 
+/** Ajoute un résumé (d'un autre jour) à acc. */
+function profitMerge_(acc, other) {
+  if (!other) return acc;
+  Object.keys(other.t || {}).forEach(function (k) { acc.t[k] = (acc.t[k] || 0) + (other.t[k] || 0); });
+  var w = other.warn || {};
+  acc.warn.missingCost += w.missingCost || 0;
+  acc.warn.missingFee += w.missingFee || 0;
+  Object.keys(w.missingCostLabels || {}).forEach(function (l) { acc.warn.missingCostLabels[l] = true; });
+  ['products', 'campaigns', 'platforms'].forEach(function (m) {
+    Object.keys(other[m] || {}).forEach(function (k) {
+      var g = other[m][k];
+      var a = acc[m][k] || (acc[m][k] = emptyGroup_(g.name));
+      Object.keys(g).forEach(function (f) { if (f !== 'name') a[f] = (a[f] || 0) + (g[f] || 0); });
+    });
+  });
+  Object.keys(other.perDay || {}).forEach(function (k) {
+    var d = acc.perDay[k] || (acc.perDay[k] = { revenue: 0, profit: 0 });
+    d.revenue += other.perDay[k].revenue;
+    d.profit += other.perDay[k].profit;
+  });
+  return acc;
+}
+
+/** Totaux finaux : dépenses de la période, arrondis, taux. (acc n'est pas modifié.) */
+function profitFinish_(acc, expenses, from, to, detail) {
+  var t = {};
+  Object.keys(acc.t).forEach(function (k) { t[k] = acc.t[k]; });
+  var copy = function (map) { var out = {}; Object.keys(map).forEach(function (k) { out[k] = Object.assign({}, map[k]); }); return out; };
+  var campaigns = copy(acc.campaigns);
+  var platforms = copy(acc.platforms);
+  var group = function (map, key, name) { return map[key] || (map[key] = emptyGroup_(name)); };
   var byCategory = {};
   var gainsByCategory = {};
   var unassigned = 0;
@@ -328,7 +373,12 @@ function profitTotals_(orders, env, catalog, expenses, from, to, detail) {
   var sorted = function (map) {
     return Object.keys(map).map(function (k) { return { category: k, amount: Math.round(map[k]) }; }).sort(function (a, b) { return b.amount - a.amount; });
   };
-  return { t: t, warn: warn, products: products, campaigns: campaigns, platforms: platforms, byCategory: sorted(byCategory), gainsByCategory: sorted(gainsByCategory), unassigned: unassigned, perOrder: perOrder };
+  return { t: t, warn: acc.warn, products: copy(acc.products), campaigns: campaigns, platforms: platforms, byCategory: sorted(byCategory), gainsByCategory: sorted(gainsByCategory), unassigned: unassigned, perDay: acc.perDay };
+}
+
+/** Totaux d'une liste de commandes (et des dépenses de la période). */
+function profitTotals_(orders, env, catalog, expenses, from, to, detail) {
+  return profitFinish_(profitAccumulate_(orders, env, catalog, null, detail), expenses, from, to, detail);
 }
 
 /**
@@ -340,22 +390,34 @@ function profitData_(ctx, env, range) {
   var catalog = readCatalog_();
   var orders = ctx.orders.filter(function (o) { return inDayRange_(o.date, range.from, range.to); });
   if (range.all) orders = orders.concat(readArchivedOrders_());
-  var expenses = readExpenses_(env.settings);
-  var cur = profitTotals_(orders, env, catalog, expenses, range.from, range.to, true);
-  var t = cur.t;
-
+  var cur = profitAccumulate_(orders, env, catalog, null, true);
   // Période d'avant, de même durée (pas pour « Tout »).
   var prev = null;
   if (!range.all) {
     var before = ctx.orders.filter(function (o) { return inDayRange_(o.date, range.prevFrom, range.prevTo); });
-    prev = profitTotals_(before, env, catalog, expenses, range.prevFrom, range.prevTo, false).t;
+    prev = profitAccumulate_(before, env, catalog, null, false);
   }
+  var known = {};
+  ctx.orders.forEach(function (o) { var c = String(o.campaign || '').trim(); if (c) known[c] = true; });
+  return profitReport_(cur, prev, range, env.settings, readExpenses_(env.settings), Object.keys(known));
+}
+
+/**
+ * La page Bénéfices à partir des résumés de la période (cur) et de la période d'avant (prev) :
+ * le même calcul pour la version Google (résumés faits à la volée) et la version Cloudflare
+ * (résumés par jour gardés dans la base).
+ */
+function profitReport_(curAcc, prevAcc, range, settings, expenses, knownCampaigns) {
+  var env = { settings: settings };
+  var cur = profitFinish_(curAcc, expenses, range.from, range.to, true);
+  var t = cur.t;
+  var prev = prevAcc ? profitFinish_(prevAcc, expenses, range.prevFrom, range.prevTo, false).t : null;
 
   // Bénéfice par jour (ou semaine, ou mois) : commandes à leur date, dépenses et gains répartis par jour.
   var first = range.from;
   if (!first) {
     first = range.to;
-    cur.perOrder.forEach(function (x) { if (x.key && x.key < first) first = x.key; });
+    Object.keys(cur.perDay).forEach(function (k) { if (k && k < first) first = k; });
     expenses.forEach(function (e) { if (e.startKey && e.startKey < first) first = e.startKey; });
   }
   var buckets = profitBuckets_(first, range.to);
@@ -363,9 +425,9 @@ function profitData_(ctx, env, range) {
     for (var i = 0; i < buckets.list.length; i++) if (key >= buckets.list[i].from && key <= buckets.list[i].to) return buckets.list[i];
     return null;
   };
-  cur.perOrder.forEach(function (x) {
-    var b = x.key ? findBucket(x.key) : null;
-    if (b) { b.revenue += x.revenue; b.profit += x.profit; }
+  Object.keys(cur.perDay).forEach(function (key) {
+    var b = key ? findBucket(key) : null;
+    if (b) { b.revenue += cur.perDay[key].revenue; b.profit += cur.perDay[key].profit; }
   });
   buckets.list.forEach(function (b) {
     expenses.forEach(function (e) {
@@ -399,10 +461,10 @@ function profitData_(ctx, env, range) {
 
   var list = function (map) {
     return Object.keys(map).map(function (k) { return finishGroup_(map[k]); })
-      .sort(function (a, b) { return (b.orders - a.orders) || (b.spend - a.spend); });
+      .sort(function (a, b) { return (b.orders - a.orders) || (b.spend - a.spend) || String(a.name).localeCompare(String(b.name)); });
   };
   var known = {};
-  ctx.orders.forEach(function (o) { var c = String(o.campaign || '').trim(); if (c) known[c] = true; });
+  (knownCampaigns || []).forEach(function (c) { if (c) known[c] = true; });
   expenses.forEach(function (e) { if (e.campaign) known[e.campaign] = true; });
   var shown = expenses.filter(function (e) { return range.all || expenseShare_(e, range.from, range.to); });
   return {
@@ -497,6 +559,7 @@ function writeExpenseRow_(info, r, values) {
 
 /** Ajoute une dépense ou un gain depuis l'application (le taux du jour est écrit pour une dépense en dollars). */
 function api_addExpense(input) {
+  cloudGuardAll_();
   var user = requireAdmin_();
   var v = expenseValues_(input, getSettings_());
   return withLock_(function () {
@@ -528,6 +591,7 @@ function expenseAt_(row, sig, settings) {
 
 /** Corrige une dépense ou un gain (toutes les valeurs du formulaire). */
 function api_updateExpense(row, sig, input) {
+  cloudGuardAll_();
   var user = requireAdmin_();
   var settings = getSettings_();
   var v = expenseValues_(input, settings);
@@ -545,6 +609,7 @@ function api_updateExpense(row, sig, input) {
 
 /** Supprime des dépenses ou des gains : items = [{ id: n° de ligne, sig }]. */
 function api_deleteExpenses(items) {
+  cloudGuardAll_();
   var user = requireAdmin_();
   var list = (Array.isArray(items) ? items : [items]).filter(function (x) { return x && x.id; });
   if (!list.length) throw new Error('Cochez au moins une dépense.');

@@ -195,7 +195,7 @@
     if (!d || !box) return;
     var html = '<div class="page-head"><div><h1>Statistiques</h1><p class="sub">Du ' + dayText(d.range.from) + ' au ' + dayText(d.range.to) +
       ' · comparé au ' + dayText(d.range.prevFrom) + '–' + dayText(d.range.prevTo) +
-      (d.builtAt ? ' · calcul complet ' + h(DZ.ago(d.builtAt)) + ', aujourd’hui en direct' : '') + '</p></div>' +
+      (d.pending ? ' · ' + plural(d.pending, 'jour encore en calcul', 'jours encore en calcul') + ' (quelques minutes)' : d.builtAt ? ' · calcul complet ' + h(DZ.ago(d.builtAt)) + ', aujourd’hui en direct' : '') + '</p></div>' +
       '<button type="button" class="btn" data-act="stats-rebuild">Recalculer</button></div>';
     html += '<div class="chips" role="group" aria-label="Période">' + PERIODS.map(function (p) {
       return '<button type="button" class="chip" data-act="stats-period" data-period="' + p[0] + '" aria-pressed="' + (ST.period === p[0]) + '">' + p[1] + '</button>';

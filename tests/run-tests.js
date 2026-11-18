@@ -3968,7 +3968,7 @@ test('Cloudflare étape 2 : basculer, nouvelles commandes envoyées, changements
   // Basculer en effaçant les commandes de test.
   var before = readOrders_().orders.map(function (o) { return String(o.id); });
   CF.calls = [];
-  var r = api_cloudGoLive({ clear: true });
+  var r = api_cloudGoLive({ clear: true, step: 2 }); // étape 2 seulement (le stock reste tenu ici)
   assert.ok(/C’est fait/.test(r.message), r.message);
   assert.strictEqual(readOrders_().orders.length, 0, 'onglet Commandes vidé');
   assert.ok(before.every(function (id) { return trashIds_()[id]; }), 'n° de test bloqués (ils ne reviendront pas)');
@@ -4085,6 +4085,128 @@ test('Cloudflare étape 2 : basculer, nouvelles commandes envoyées, changements
   assert.strictEqual(cloudLive_(), false);
   assert.strictEqual(CF.live, false);
   assert.doesNotThrow(function () { api_updateOrder('9001', { notes: 'de retour' }); });
+});
+
+test('Cloudflare étape 3 : tout dans Cloudflare — onglets envoyés et recopiés, mouvements de stock, archive, partage, modifications à la main, lecture seule ici', function () {
+  seedDemo_();
+  __mock.setUser('admin@example.com');
+  transferReleasitOrders_();
+  var CF = globalThis.__fakeCloud;
+  saveEcotrackConfig_(FAKE.host, FAKE.token);
+  saveSmsConfig_(HTTPSMS.key, '0550 12 34 56');
+  api_addExpense({ date: '2026-11-01', category: 'Publicité', amount: 5000, campaign: 'Promo test' });
+  api_cloudConnect(CF.host);
+  var p = PropertiesService.getScriptProperties();
+  // Basculer = étape 3 directement.
+  var r = api_cloudGoLive({});
+  assert.ok(cloudLive_() && cloudFull_());
+  assert.strictEqual(CF.full, true);
+  assert.strictEqual(r.connections.cloud.full.length > 0, true);
+  ['Paramètres', 'Produits', 'Tarifs', 'Équipe', 'Clients', 'Dépenses'].forEach(function (n) { assert.ok(Array.isArray(CF.tabs[n]) && CF.tabs[n].length >= 1, 'onglet envoyé : ' + n); });
+  var dep = CF.tabs['Dépenses'];
+  assert.ok(dep.some(function (row) { return row.some(function (c) { return c && c.$d; }); }), 'dates gardées comme des dates');
+  assert.ok(CF.editors.indexOf('admin@example.com') >= 0 || CF.editors.length >= 0, 'accès au classeur envoyés');
+  assert.strictEqual(api_bootstrap(null).cloud.full, true);
+  // Lecture seule ici.
+  assert.throws(function () { api_addExpense({ date: '2026-11-02', category: 'Autre', amount: 100 }); }, /Cloudflare/);
+  assert.throws(function () { api_stockEntry({ items: [] }); }, /Cloudflare/);
+  assert.throws(function () { api_settingsSave({ NOM_BOUTIQUE: 'x' }); }, /Cloudflare/);
+  assert.throws(function () { api_teamSave({ email: 'x@example.com', name: 'X', role: 'Confirmatrice' }); }, /Cloudflare/);
+  // Une commande Releasit arrive : envoyée ; son SMS « reçue » part de Cloudflare (pas d'ici).
+  var smsBefore = readSmsQueue_(p).length;
+  releasitTab();
+  releasitAdd({ id: '9301', client: 'Client Trois', phone: '0550998855' });
+  transferReleasitOrders_();
+  assert.strictEqual(readSmsQueue_(p).length, smsBefore, 'pas de SMS mis en file ici');
+  assert.strictEqual(cloudSync_().sent, 1);
+  // Cloudflare l'expédie : la colonne Mouvement stock vient de Cloudflare ; le stock de l'onglet Produits ne bouge pas ici.
+  var o = JSON.parse(JSON.stringify(CF.orders['9301']));
+  o.status = STATUS.SHIPPED; o.tracking = 'ECO-3'; o.carrier = 'Ecotrack'; o.stockMove = STOCK_OUT_;
+  CF.change('update', '9301', o);
+  var produits = cloudTabValues_('Produits');
+  var stockCol = produits[0].map(normalizeText_).indexOf('stock');
+  assert.ok(stockCol >= 0);
+  var before = produits[1][stockCol];
+  produits[1][stockCol] = before - 1;
+  CF.changeTab('Produits', produits);
+  CF.change('moves', 'Mouvements stock', null, JSON.stringify([[{ $d: new Date().toISOString() }, produits[1][0], produits[1][1], 'Colis parti', -1, before - 1, '', '9301', 'Automatique', '']]));
+  var s1 = cloudSync_();
+  assert.ok(!s1.error, s1.error);
+  var row = findOrder_(readOrders_(), '9301');
+  assert.strictEqual(String(row.stockMove), STOCK_OUT_, 'marque recopiée depuis Cloudflare');
+  assert.strictEqual(readCatalogFromSheet_().rows[0].stock, before - 1, 'onglet Produits recopié (et réglages relus)');
+  assert.strictEqual(readCatalog_().rows[0].stock, before - 1);
+  var moves = sheet('Mouvements stock');
+  assert.strictEqual(String(moves.getRange(moves.getLastRow(), 8).getValue()), '9301', 'mouvement ajouté à l’onglet');
+  assert.ok(moves.getRange(moves.getLastRow(), 1).getValue() instanceof Date);
+  assert.ok(Number(JSON.parse(p.getProperty('CF_TABSEQ')).Produits) > 0);
+  // Onglet Clients recopié : un téléphone reste du texte (0 gardé).
+  var clients = cloudTabValues_('Clients');
+  clients.push(['0661223344', 'Client noir', true, 'Refus']);
+  CF.changeTab('Clients', clients);
+  cloudSync_();
+  assert.strictEqual(readClients_().blacklist['0661223344'], true);
+  // Archivage fait par Cloudflare : la commande passe dans l'onglet Archive.
+  var done = readOrders_().orders.filter(function (x) { return x.status === STATUS.DELIVERED; })[0];
+  CF.change('archive', String(done.id));
+  var nBefore = readOrders_().orders.length;
+  var s2 = cloudSync_();
+  assert.ok(!s2.error, s2.error);
+  assert.strictEqual(findOrder_(readOrders_(), done.id), null);
+  assert.strictEqual(readOrders_().orders.length, nBefore - 1);
+  assert.ok(readArchivedOrders_().some(function (x) { return String(x.id) === String(done.id); }), 'dans l’onglet Archive');
+  // Équipe : partage du classeur demandé par Cloudflare.
+  CF.change('share:add', 'nouvelle@example.com');
+  cloudSync_();
+  assert.ok(__mock.ss().editors.indexOf('nouvelle@example.com') >= 0, 'classeur partagé');
+  assert.ok(CF.editors.indexOf('nouvelle@example.com') >= 0, 'liste des accès renvoyée');
+  // Modification à la main dans le classeur : renvoyée à Cloudflare.
+  var param = sheet('Paramètres');
+  onEdit({ range: param.getRange(2, 2) });
+  assert.deepStrictEqual(JSON.parse(p.getProperty('CF_TABS_DIRTY')), ['Paramètres']);
+  CF.calls = [];
+  cloudSync_();
+  assert.strictEqual(CF.byPath('/bridge/tabs').length, 1);
+  assert.strictEqual(p.getProperty('CF_TABS_DIRTY'), null);
+  // Modifiée des deux côtés : la version Cloudflare l'emporte (noté dans le Journal).
+  CF.tabSeq['Tarifs'] = 999;
+  onEdit({ range: sheet('Tarifs').getRange(2, 2) });
+  cloudSync_();
+  assert.ok(logActions().indexOf('Onglet modifié des deux côtés') >= 0);
+  // Tâche de chaque minute : ni Shopify, ni statistiques, ni corbeille ici ; le lien tourne.
+  var h = everyMinute();
+  assert.ok(h.tasks.cloud && h.tasks.cloud.ok, JSON.stringify(h.tasks.cloud));
+  var night = nightlyMaintenance();
+  assert.strictEqual(night.stats, 0, 'statistiques calculées par Cloudflare');
+  assert.ok(healthData_().tasks.some(function (t) { return t.key === 'shopify' && t.state === 'off'; }));
+  // Retour en arrière : tout redevient modifiable ici.
+  api_cloudStopLive();
+  assert.ok(!cloudFull_() && !cloudLive_());
+  assert.strictEqual(CF.full, false);
+  assert.doesNotThrow(function () { api_addExpense({ date: '2026-11-03', category: 'Autre', amount: 100 }); });
+});
+
+test('Cloudflare : passer à l’étape 3 depuis l’étape 2 (bouton), recopie d’abord', function () {
+  seedDemo_();
+  __mock.setUser('admin@example.com');
+  transferReleasitOrders_();
+  var CF = globalThis.__fakeCloud;
+  api_cloudConnect(CF.host);
+  api_cloudGoLive({ step: 2 });
+  assert.ok(cloudLive_() && !cloudFull_());
+  assert.strictEqual(CF.full, false);
+  asAgent();
+  assert.throws(function () { api_cloudGoFull(); }, /Réservé/);
+  asAdmin();
+  CF.calls = [];
+  var r = api_cloudGoFull();
+  assert.ok(/C’est fait/.test(r.message));
+  assert.ok(cloudFull_());
+  assert.strictEqual(CF.full, true);
+  var paths = CF.calls.map(function (c) { return c.path; });
+  assert.ok(paths.indexOf('/bridge/changes') < paths.indexOf('/bridge/tabs'), 'recopie avant l’envoi des onglets');
+  assert.ok(paths.indexOf('/bridge/tabs') < paths.indexOf('/bridge/full'));
+  assert.throws(function () { api_cloudGoFull(); }, /déjà fait/);
 });
 
 test('fichier unique dist/Code.gs : à jour et fonctionnel', function () {

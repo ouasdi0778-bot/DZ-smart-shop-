@@ -43,7 +43,7 @@ let env;
 let SECRET;
 const HOST = 'https://dz-test.workers.dev';
 
-async function fresh(live) {
+async function fresh(live, full) {
   __mock.reset();
   __fakeEcotrack.reset();
   __fakeHttpsms.reset();
@@ -71,8 +71,28 @@ async function fresh(live) {
     ['ECOTRACK_URL', 'ECOTRACK_TOKEN', 'SMS_API_KEY', 'SMS_FROM', 'OWNER_EMAIL'].forEach((k) => { props[k] = String(PropertiesService.getScriptProperties().getProperty(k) || ''); });
     await bridge('/bridge/config', { props: props });
   }
+  if (full) {
+    // Étape 3, comme cloudGoFull_ : onglets envoyés, puis tout dans Cloudflare.
+    const tabs = {};
+    ['Clients', 'Produits', 'Tarifs', 'Équipe', 'Paramètres', 'Dépenses'].forEach((n) => { if (__mock.ss().getSheetByName(n)) tabs[n] = cloudTabValues_(n); });
+    await bridge('/bridge/tabs', { tabs: tabs });
+    await bridge('/bridge/full', { full: true });
+    await bridge('/bridge/config', { editors: ['admin@example.com'] });
+    await env.DB.prepare("INSERT INTO kv (key, value) VALUES ('cf:nightDay', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(ymd_(new Date())).run();
+  }
   return snap;
 }
+
+/** Tous les résumés par jour calculés (comme après quelques minutes de tâche automatique). */
+async function settleDays() {
+  for (let i = 0; i < 60; i++) {
+    const r = await env.DB.prepare('SELECT COUNT(*) AS n FROM days WHERE stale > 0').first();
+    if (!r.n) return i;
+    await cron(env);
+  }
+  throw new Error('résumés par jour pas finis');
+}
+const round = (x) => JSON.parse(JSON.stringify(x, (k, v) => (typeof v === 'number' ? Math.round(v) : v)));
 
 /* Appels extérieurs du moteur Cloudflare (fetch) → faux Ecotrack et faux httpSMS de la version Google. */
 globalThis.fetch = async (url, init) => {
@@ -510,6 +530,178 @@ test('Étape 2 · File des SMS : deux actions en même temps ne s’effacent pas
   await env.DB.prepare("DELETE FROM kv WHERE key = 'SMS_QUEUE'").run();
   await smsQueueStatement(env.DB, { base: { props: {} } }, JSON.stringify([A])).run();
   assert.deepStrictEqual(await kvQueue(), [A]);
+});
+
+/* ---------------- Étape 3 : tout dans Cloudflare ---------------- */
+
+test('Étape 3 · Stock : même page que la version Google ; entrée de stock et expédition : onglet Produits et mouvements dans la base', async () => {
+  await fresh(true, true);
+  const w = await api('api_stockPage');
+  const g = gas('api_stockPage');
+  assert.deepStrictEqual(w.products, g.products);
+  assert.deepStrictEqual([w.totals, w.low, w.rupture], [g.totals, g.low, g.rupture]);
+  assert.deepStrictEqual(w.unknown.map((u) => [u.label, u.orders, u.price]), g.unknown.map((u) => [u.label, u.orders, u.price]));
+  // Entrée de stock : même résultat ; l'onglet Produits de la base est à jour, le mouvement noté.
+  const m = g.products[0].models[0];
+  const input = { items: [{ row: m.row, key: m.key, qty: 5, cost: 1000 }], supplier: 'Fournisseur test' };
+  const s0 = (await bridge('/bridge/changes', { after: 0 })).last;
+  const we = await api('api_stockEntry', input);
+  const ge = gas('api_stockEntry', input);
+  assert.strictEqual(we.message, ge.message);
+  const w2 = await api('api_stockPage');
+  const g2 = gas('api_stockPage');
+  assert.deepStrictEqual(w2.products, g2.products, 'même stock et même coût moyen');
+  assert.deepStrictEqual(w2.moves.map((x) => [x.type, x.qty, x.after, x.order]), g2.moves.slice(0, w2.moves.length).map((x) => [x.type, x.qty, x.after, x.order]));
+  assert.strictEqual((await api('api_bootstrap', null)).products.length, gas('api_bootstrap', null).products.length);
+  // Changements pour le classeur : l'onglet Produits (paquet de lignes) et le mouvement.
+  const ch = await bridge('/bridge/changes', { after: s0 });
+  const tab = ch.changes.find((c) => c.kind === 'tab' && c.id === 'Produits');
+  assert.ok(tab && tab.tab.parts[0].length >= 2, 'onglet Produits à recopier');
+  assert.ok(ch.changes.some((c) => c.kind === 'moves'), 'mouvement à recopier');
+  // Expédition (Ecotrack) : le stock baisse ici, comme dans la version Google.
+  const conf = readOrders_().orders.filter((o) => o.status === STATUS.CONFIRMED && !String(o.tracking).trim()).map((o) => String(o.id));
+  const before = ecoState();
+  const ok = gas('api_shipEcotrack', conf).filter((x) => x.ok).map((x) => x.id);
+  gas('api_validateParcels', ok, false);
+  ecoRestore(before);
+  await api('api_shipEcotrack', conf);
+  await api('api_validateParcels', ok, false);
+  const w3 = await api('api_stockPage');
+  const g3 = gas('api_stockPage');
+  assert.deepStrictEqual(w3.products.map((p) => p.models.map((x) => [x.key, x.stock, x.reserved])), g3.products.map((p) => p.models.map((x) => [x.key, x.stock, x.reserved])));
+  assert.strictEqual((await dbOrder(ok[0])).stockMove, sheetOrder(ok[0]).stockMove);
+  assert.strictEqual((await dbOrder(ok[0])).stockMove, 'Sorti');
+});
+
+test('Étape 3 · Bénéfices et Statistiques : mêmes chiffres que la version Google (résumés par jour), dépenses, prime, recalcul', async () => {
+  await fresh(true, true);
+  const n = await settleDays();
+  assert.ok(n >= 1, 'résumés calculés par la tâche automatique');
+  for (const period of ['30', '7', 'all']) {
+    const w = await api('api_profit', period);
+    const g = gas('api_profit', period);
+    assert.deepStrictEqual(round(w.totals), round(g.totals), 'totaux ' + period);
+    assert.deepStrictEqual(round(w.series), round(g.series), 'courbe ' + period);
+    assert.deepStrictEqual(round(w.products), round(g.products), 'produits ' + period);
+    assert.deepStrictEqual(round(w.campaigns), round(g.campaigns), 'campagnes ' + period);
+    assert.deepStrictEqual(round(w.breakEven), round(g.breakEven));
+    assert.deepStrictEqual(w.prev && round(w.prev), g.prev && round(g.prev));
+    assert.strictEqual(w.pending, 0);
+  }
+  // Dépense ajoutée dans Cloudflare : onglet Dépenses de la base, bénéfice net mis à jour.
+  const exp = { category: 'Publicité Facebook', campaign: 'Promo', amount: 1000, currency: 'DA', date: new Date(Date.now() - 2 * 86400000).toISOString() };
+  await api('api_addExpense', exp);
+  gas('api_addExpense', exp);
+  const w = await api('api_profit', '30');
+  const g = gas('api_profit', '30');
+  assert.deepStrictEqual([w.totals.expenses, w.totals.net], [g.totals.expenses, g.totals.net]);
+  assert.strictEqual(w.expenses.length, g.expenses.length);
+  // Statistiques.
+  for (const period of ['30', 'month']) {
+    const ws = await api('api_stats', period);
+    const gs = gas('api_stats', period);
+    assert.deepStrictEqual(round(ws.kpis), round(gs.kpis), 'kpis ' + period);
+    assert.deepStrictEqual(round(ws.series), round(gs.series), 'courbe ' + period);
+    assert.deepStrictEqual(round(ws.wilayas), round(gs.wilayas));
+    assert.deepStrictEqual(round(ws.products), round(gs.products));
+    assert.deepStrictEqual(round(ws.agents), round(gs.agents));
+    assert.deepStrictEqual(round(ws.money.toReceive), round(gs.money.toReceive));
+    assert.deepStrictEqual(ws.hours, gs.hours);
+  }
+  // Une commande change : son jour est recalculé (au plus tard à l'ouverture de la page).
+  const o = readOrders_().orders.filter((x) => x.status === STATUS.TO_CONFIRM)[0];
+  await api('api_recordCall', String(o.id), 'confirm', { fields: {} }, {});
+  gas('api_recordCall', String(o.id), 'confirm', { fields: {} }, {});
+  const after = await api('api_stats', '30');
+  assert.strictEqual(after.kpis.confirmed, gas('api_stats', '30').kpis.confirmed);
+  // Prime (Paramètres) puis « Recalculer » : tous les jours à refaire, la page le dit.
+  const pr = await api('api_setPrime', 50, '2026-01-01');
+  assert.ok(/50 DA/.test(pr.message));
+  assert.ok(/PRIMES/.test(JSON.stringify((await bridge('/bridge/changes', { after: 0 })).changes.filter((c) => c.id === 'Paramètres').map((c) => c.tab))));
+  const rb = await api('api_rebuildStats');
+  assert.ok(/recalculé/.test(rb.message));
+  const pending = await api('api_stats', '30');
+  assert.ok(pending.pending > 0, 'jours encore en calcul');
+  await settleDays();
+  assert.strictEqual((await api('api_stats', '30')).pending, 0);
+});
+
+test('Étape 3 · Administration : réglages, équipe (partage via le classeur), état de l’outil, pages chargées à la demande', async () => {
+  await fresh(true, true);
+  const ws = await api('api_settingsGet');
+  const gs = gas('api_settingsGet');
+  assert.deepStrictEqual(Object.keys(ws).sort(), Object.keys(gs).sort());
+  await api('api_settingsSave', { NOM_BOUTIQUE: 'Boutique Cloudflare' });
+  assert.strictEqual((await api('api_bootstrap', null)).shop, 'Boutique Cloudflare', 'réglage recalculé depuis l’onglet');
+  const t = await api('api_teamSave', { email: 'nouvelle@example.com', name: 'Nouvelle', role: 'Confirmatrice' });
+  assert.ok(/ajouté/.test(t.message), t.message);
+  assert.ok(t.team.members.some((m) => m.email === 'nouvelle@example.com' && m.access === true));
+  const ch = (await bridge('/bridge/changes', { after: 0 })).changes;
+  assert.ok(ch.some((c) => c.kind === 'share:add' && c.id === 'nouvelle@example.com'), 'partage demandé au classeur');
+  assert.ok(ch.some((c) => c.kind === 'tab' && c.id === 'Équipe'));
+  // La nouvelle personne peut entrer.
+  const st = await apiRaw('nouvelle@example.com', 'api_counts', []);
+  assert.strictEqual(st.body.ok, true);
+  const ov = await api('api_adminOverview');
+  assert.strictEqual(ov.health.cloud, true);
+  assert.ok(ov.health.tasks.some((x) => x.key === 'days'));
+  assert.strictEqual(ov.connections.cloud.inCloud, true);
+  assert.strictEqual(ov.connections.ecotrack.configured, true);
+  const page = await api('api_pageScript', 'stock', { fn: 'api_stockPage', args: [] });
+  assert.ok(page.code.length > 1000 && page.preload && page.preload.data.products.length);
+  const boot = await api('api_bootstrap', null);
+  assert.strictEqual(boot.cloud.step, 3);
+  // Modification à la main dans le classeur : reprise ; refusée si Cloudflare a changé l'onglet depuis.
+  const values = cloudTabValues_('Tarifs');
+  const last = (await bridge('/bridge/changes', { after: 0 })).last;
+  const okPush = await bridge('/bridge/tabs', { tabs: { Tarifs: values }, base: { Tarifs: last } });
+  assert.deepStrictEqual(okPush.saved, ['Tarifs']);
+  const eq = cloudTabValues_('Équipe');
+  const refused = await bridge('/bridge/tabs', { tabs: { 'Équipe': eq }, base: { 'Équipe': 0 } });
+  assert.deepStrictEqual(refused.refused, ['Équipe'], 'Cloudflare a modifié l’équipe depuis : sa version l’emporte');
+  // Pas encore à l'étape 3 : ces pages restent dans Google.
+  await bridge('/bridge/full', { full: false });
+  const later = await apiRaw('admin@example.com', 'api_stockPage', []);
+  assert.strictEqual(later.body.code, 'later');
+});
+
+test('Étape 3 · Shopify lu par Cloudflare ; SMS « reçue » ; entretien de nuit (archivage, stock)', async () => {
+  await fresh(true, true);
+  // Shopify configuré (faux serveur), clés envoyées comme le fait Apps Script.
+  saveShopifyConfig_(__fakeShopify.host.replace('https://', ''), __fakeShopify.token, '');
+  const pp = PropertiesService.getScriptProperties();
+  await bridge('/bridge/config', { props: { SHOPIFY_SHOP: pp.getProperty('SHOPIFY_SHOP'), SHOPIFY_TOKEN: pp.getProperty('SHOPIFY_TOKEN') } });
+  const first = await api('api_shopifyImport'); // commandes d'exemple déjà là : écartées
+  assert.strictEqual(first.imported, 0, JSON.stringify(first));
+  __fakeShopify.add({ name: '#7001', client: 'Nouveau Shopify', phoneInput: '0661009988' });
+  const r = await api('api_shopifyImport');
+  assert.strictEqual(r.imported, 1, JSON.stringify(r));
+  const o7 = await dbOrder('#7001');
+  assert.strictEqual(o7.status, STATUS.TO_CONFIRM, 'préparée comme avant (statut, téléphone, frais)');
+  assert.strictEqual(o7.phone, '0661009988');
+  const q = await api('api_queue', {});
+  assert.ok(q.due.concat(q.later, q.waiting).some((x) => x.id === '#7001'), 'dans la file de Confirmation');
+  assert.ok((await kvQueue()).some((x) => x.i === '#7001'), 'SMS « reçue » en file');
+  const again = await api('api_shopifyImport');
+  assert.strictEqual(again.imported, 0, 'pas de doublon');
+  // Commande Releasit reçue du classeur : SMS « reçue » mis en file ici.
+  releasitTab_();
+  releasitRow_('9401', '0550776655');
+  transferReleasitOrders_();
+  await bridge('/bridge/orders', { orders: [sheetOrder('9401')] });
+  assert.ok((await kvQueue()).some((x) => x.i === '9401'), 'SMS « commande reçue » en file');
+  // Entretien de nuit : une vieille commande livrée et payée est archivée (et recopiée dans l'archive du classeur).
+  const old = readOrders_().orders.filter((o) => o.status === STATUS.DELIVERED)[0];
+  const d = await dbOrder(old.id);
+  d.date = new Date(Date.now() - 200 * 86400000).toISOString(); d.updated = d.date; d.carrierMoved = d.date; d.carrier = ''; d.tracking = '';
+  await env.DB.prepare('UPDATE orders SET data = ?, updated = ? WHERE id = ?').bind(JSON.stringify(d), d.updated, String(old.id)).run();
+  await env.DB.prepare("DELETE FROM kv WHERE key = 'cf:nightDay'").run();
+  const s0 = (await bridge('/bridge/changes', { after: 0 })).last;
+  const night = await api('api_archiveNow');
+  assert.ok(/1 archivée/.test(night.message), night.message);
+  assert.strictEqual((await env.DB.prepare('SELECT archived FROM orders WHERE id = ?').bind(String(old.id)).first()).archived, 1);
+  const ch = (await bridge('/bridge/changes', { after: s0 })).changes;
+  assert.ok(ch.some((c) => c.kind === 'archive' && c.id === String(old.id)));
 });
 
 /* ================================================================ */

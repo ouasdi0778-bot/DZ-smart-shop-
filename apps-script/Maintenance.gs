@@ -77,7 +77,17 @@ function archiveOldOrders_() {
     var ctx = readOrders_();
     var list = ctx.orders.filter(function (o) { return isArchivable_(o, limit); });
     if (!list.length) return summary;
+    addArchivedCounts_(list);
+    moveToArchive_(ctx, list);
+    log_({ name: 'Automatique' }, '', 'Archivage', list.length + ' commande(s) terminée(s) depuis plus de ' + days + ' jours déplacée(s) dans l’onglet Archive');
+    summary.archived = list.length;
+    return summary;
+  });
+}
 
+/** Déplace des commandes de l'onglet Commandes vers l'onglet Archive (sous verrou). */
+function moveToArchive_(ctx, list) {
+    if (!list.length) return;
     var titles = ctx.sheet.getRange(1, 1, 1, ctx.width).getValues()[0];
     var all = ctx.sheet.getRange(2, 1, ctx.sheet.getLastRow() - 1, ctx.width).getValues();
     var arch = ss_().getSheetByName(SHEET.ARCHIVE) || ss_().insertSheet(SHEET.ARCHIVE);
@@ -87,13 +97,8 @@ function archiveOldOrders_() {
     var extra = {};
     extra[ARCHIVE_EXTRA_[0]] = now;
     appendArchiveRows_(arch, list.map(function (o) { return rowForHeader_(titles, all[o._row - 2], header, extra); }));
-
-    addArchivedCounts_(list);
     deleteRowNumbers_(ctx.sheet, list.map(function (o) { return o._row; }));
-    log_({ name: 'Automatique' }, '', 'Archivage', list.length + ' commande(s) terminée(s) depuis plus de ' + days + ' jours déplacée(s) dans l’onglet Archive');
-    summary.archived = list.length;
-    return summary;
-  });
+    ctx.orders = ctx.orders.filter(function (o) { return list.indexOf(o) < 0; });
 }
 
 /** Onglet Clients : ajoute au bilan de chaque numéro ses commandes archivées. */
@@ -244,12 +249,13 @@ function nightlyMaintenance() {
   };
   var live = cloudLive_(); // après le basculement : appels sans réponse et archivage faits par Cloudflare
   if (!live) step('appels', function () { out.autoCancelled = autoCancelUnreachable_(); });
-  step('stock', function () { withLock_(function () { applyStockMoves_(readOrders_()); }); });
+  var full = cloudFull_(); // étape 3 : stock, corbeille et statistiques tenus par la version Cloudflare
+  if (!full) step('stock', function () { withLock_(function () { applyStockMoves_(readOrders_()); }); });
   if (!live) step('archivage', function () { out.archived = archiveOldOrders_().archived; });
   step('journal', function () { out.journal = trimJournal_(getSettings_().JOURNAL_JOURS); });
-  step('corbeille', function () { out.trash = purgeOldTrash_(); });
+  if (!full) step('corbeille', function () { out.trash = purgeOldTrash_(); });
   step('allègement', function () { out.rows = lightenSheets_(); });
-  step('statistiques', function () { out.stats = rebuildStats_().days; });
+  if (!full) step('statistiques', function () { out.stats = rebuildStats_().days; });
   if (out.errors.length) log_({ name: 'Automatique' }, '', 'Erreur maintenance', out.errors.join(' · '));
   try { noteNightly_(Date.now() - t0, out.errors); } catch (e) { /* l'état de l'outil ne doit pas bloquer l'entretien */ }
   return out;

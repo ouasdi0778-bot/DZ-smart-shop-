@@ -109,6 +109,22 @@ function addOrderToDay_(day, o, env, catalog) {
   }
 }
 
+/**
+ * Résumés d'une liste de commandes, par jour de commande, pour Statistiques (st) et Bénéfices (pr) :
+ * la version Cloudflare les garde dans sa base et ne recalcule que les jours qui ont changé.
+ */
+function daySummaries_(orders, env, catalog) {
+  var byDay = {};
+  orders.forEach(function (o) {
+    var d = toDate_(o.date);
+    if (d) (byDay[ymd_(d)] = byDay[ymd_(d)] || []).push(o);
+  });
+  var st = summarizeDays_(orders, env, catalog, '');
+  var out = {};
+  Object.keys(byDay).forEach(function (k) { out[k] = { st: st[k], pr: profitAccumulate_(byDay[k], env, catalog, null, true) }; });
+  return out;
+}
+
 /** Arrondit les montants d'un résumé (JSON plus court). */
 function roundDay_(day) {
   ['rev', 'sales', 'fee', 'dnet', 'cost', 'retf', 'pack', 'profit', 'dh'].forEach(function (k) { day[k] = Math.round(day[k]); });
@@ -211,6 +227,7 @@ function primeAt_(primes, day) {
 
 /** Nouveau montant de la prime à partir d'un jour (les jours d'avant gardent l'ancien). */
 function api_setPrime(amount, fromDay) {
+  cloudGuardAll_();
   requireAdmin_();
   var a = Math.round(toNumber_(amount));
   if (!(a >= 0)) throw new Error('Montant invalide.');
@@ -292,7 +309,7 @@ function groupList_(map, extra) {
     };
     if (extra) extra(g, name, r);
     return g;
-  }).sort(function (a, b) { return b.orders - a.orders; });
+  }).sort(function (a, b) { return (b.orders - a.orders) || String(a.name).localeCompare(String(b.name)); });
 }
 
 /** Période : « today », « 7 », « 30 », « month », « lastmonth », ou dates « aaaa-mm-jj ». */
@@ -394,7 +411,7 @@ function statsApi_(period, from, to) {
   // Argent maintenant (colis en cours) : à recevoir, et prévu selon votre taux de livraison.
   // Versements d'Ecotrack : ceux qui ont bougé depuis le début de la période.
   var sinceDays = Math.max(dayCount_(range.from, ymd_(new Date())), 1);
-  var tm = trackingMoney_(ctx.orders, new Date(), sinceDays);
+  var tm = trackingMoney_(moneyOrders_(ctx), new Date(), sinceDays);
   var m = tm.money;
   var rate = k.deliveryRate !== null ? k.deliveryRate : kp.deliveryRate;
   var wilayas = groupList_(cur.groups.w, function (g, name, r) { g.lost = Math.round(r[STATS.R] * settings.FRAIS_RETOUR); });
@@ -437,6 +454,9 @@ function statsApi_(period, from, to) {
   };
 }
 
+/** Commandes comptées dans « Où est l'argent » et les versements. */
+function moneyOrders_(ctx) { return ctx.orders; }
+
 /** Commandes par jour de la semaine (lundi d'abord). */
 function weekdayCounts_(days, keys) {
   var out = [0, 0, 0, 0, 0, 0, 0];
@@ -450,6 +470,7 @@ function weekdayCounts_(days, keys) {
 
 /** « Recalculer » : refait tous les résumés tout de suite. */
 function api_rebuildStats() {
+  cloudGuardAll_();
   requireAdmin_();
   var r = rebuildStats_();
   return { message: plural_(r.days, 'jour recalculé', 'jours recalculés') + '.' };

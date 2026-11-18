@@ -136,6 +136,7 @@ function adminOverviewApi_() {
 
 /** Ecotrack : adresse et jeton (jeton vide = garder l'actuel), puis test. */
 function api_saveEcotrack(url, token) {
+  cloudGuardAll_();
   var user = requireAdmin_();
   var cur = ecotrackConfig_();
   var t = String(token || '').trim() || cur.token;
@@ -157,6 +158,7 @@ function api_saveEcotrack(url, token) {
 
 /** SMS : clé httpSMS (vide = garder l'actuelle) et numéro de la carte SIM. */
 function api_saveSms(key, from) {
+  cloudGuardAll_();
   var user = requireAdmin_();
   var cur = smsConfig_();
   var k = String(key || '').trim() || cur.key;
@@ -169,6 +171,7 @@ function api_saveSms(key, from) {
 
 /** Shopify : boutique et accès (jeton shpat_, ou identifiant client + secret). */
 function api_saveShopify(shop, key, secret) {
+  cloudGuardAll_();
   var user = requireAdmin_();
   var cur = shopifyConfig_();
   var k = String(key || '').trim();
@@ -276,6 +279,7 @@ function writeSettings_(changes, user) {
 }
 
 function api_settingsSave(changes) {
+  cloudGuardAll_();
   var user = requireAdmin_();
   var defaults = {};
   DEFAULT_SETTINGS.forEach(function (d) { defaults[d[0]] = d[1]; });
@@ -327,6 +331,7 @@ function api_teamList() {
 
 /** Ajoute ou modifie une personne, et lui partage le classeur (sinon elle ne peut pas ouvrir l'application). */
 function api_teamSave(member) {
+  cloudGuardAll_();
   var user = requireAdmin_();
   member = member || {};
   var email = String(member.email || '').trim().toLowerCase();
@@ -357,6 +362,7 @@ function api_teamSave(member) {
 
 /** Retire une personne de l'équipe, et son accès au classeur. */
 function api_teamRemove(email) {
+  cloudGuardAll_();
   var user = requireAdmin_();
   email = String(email || '').trim().toLowerCase();
   var me = String(currentUser_().email || '').toLowerCase();
@@ -408,6 +414,7 @@ function api_clientsAdmin() {
 
 /** Retire le signalement « a refusé un colis ». */
 function api_clearFlag(phone) {
+  cloudGuardAll_();
   var user = requireAdmin_();
   var p = normalizePhone(phone);
   if (!p.valid) throw new Error('Numéro invalide.');

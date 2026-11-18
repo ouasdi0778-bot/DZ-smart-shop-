@@ -16,15 +16,25 @@
     secret: '',
     refuse: '',            // message d'erreur forcé
     live: false,
+    full: false,
+    tabs: {},              // onglets reçus par /bridge/tabs
+    tabSeq: {},            // dernier changement de chaque onglet (pour refuser une modification à la main dépassée)
+    editors: null,
     orders: {},            // commandes reçues par /bridge/orders
     changes: [],           // { seq, id, kind, info, order }
     marks: [],
     config: null,
-    reset: function () { fake.calls = []; fake.secret = ''; fake.refuse = ''; fake.live = false; fake.orders = {}; fake.changes = []; fake.marks = []; fake.config = null; },
+    reset: function () { fake.calls = []; fake.secret = ''; fake.refuse = ''; fake.live = false; fake.full = false; fake.tabs = {}; fake.tabSeq = {}; fake.editors = null; fake.orders = {}; fake.changes = []; fake.marks = []; fake.config = null; },
     /** Ajoute un changement « fait dans Cloudflare ». */
     change: function (kind, id, order, info) {
       var seq = fake.changes.length ? fake.changes[fake.changes.length - 1].seq + 1 : 1;
       fake.changes.push({ seq: seq, id: String(id), kind: kind, info: info || '', order: order || null });
+    },
+    /** Un onglet modifié « dans Cloudflare » : toutes ses lignes (un seul paquet). */
+    changeTab: function (name, rows) {
+      var seq = fake.changes.length ? fake.changes[fake.changes.length - 1].seq + 1 : 1;
+      fake.tabSeq[name] = seq;
+      fake.changes.push({ seq: seq, id: name, kind: 'tab', info: '', tab: { n: rows.length, size: 250, parts: { 0: rows } } });
     },
     byPath: function (path) { return fake.calls.filter(function (c) { return c.path === path; }); }
   };
@@ -56,7 +66,21 @@
       }
       if (path === '/bridge/status') return respond(200, { ok: true, data: { orders: 0, live: fake.live } });
       if (path === '/bridge/live') { fake.live = body.live !== false; return respond(200, { ok: true, data: { live: fake.live, seq: 0 } }); }
-      if (path === '/bridge/config') { fake.config = body; return respond(200, { ok: true, data: { ok: true } }); }
+      if (path === '/bridge/config') {
+        if (body.editors) fake.editors = body.editors;
+        if (body.config || body.props) fake.config = body;
+        return respond(200, { ok: true, data: { ok: true } });
+      }
+      if (path === '/bridge/full') { fake.full = body.full !== false; return respond(200, { ok: true, data: { full: fake.full, seq: 0 } }); }
+      if (path === '/bridge/tabs') {
+        var out = { saved: [], refused: [] };
+        Object.keys(body.tabs || {}).forEach(function (n) {
+          if (body.base && body.base[n] !== undefined && (fake.tabSeq[n] || 0) > body.base[n]) { out.refused.push(n); return; }
+          fake.tabs[n] = body.tabs[n];
+          out.saved.push(n);
+        });
+        return respond(200, { ok: true, data: out });
+      }
       if (path === '/bridge/orders') {
         var added = [];
         (body.orders || []).forEach(function (o) { if (!fake.orders[o.id]) { fake.orders[o.id] = o; added.push(o.id); } });

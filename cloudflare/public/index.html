@@ -388,6 +388,7 @@ body:has(.outcomes) #toast { bottom: calc(150px + env(safe-area-inset-bottom)); 
 .modal { border-radius: 0; min-height: 100%; }
 }
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
+.cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }
 </style>
 </head>
 <body>
@@ -487,7 +488,7 @@ body:has(.outcomes) #toast { bottom: calc(150px + env(safe-area-inset-bottom)); 
   var STEP_KEY = 'dz-smart-shop:step';
   /** Pages restées dans l'application Google (étape 3) : ouvertes là-bas. */
   var EXTERNAL = ['benefices', 'stock', 'stats', 'admin'];
-  var VERSION = '1.5.0';
+  var VERSION = '1.6.0';
 
   /** Même empreinte que shortHash_ (Api.gs) : clé de la mémoire sur l'appareil, sans l'adresse. */
   function shortHash(text) {
@@ -585,18 +586,21 @@ body:has(.outcomes) #toast { bottom: calc(150px + env(safe-area-inset-bottom)); 
       try { window.localStorage.setItem(STEP_KEY, JSON.stringify(step)); } catch (e) { /* sans importance */ }
     }
     root.classList.toggle('cf-step1', step.n < 2);
-    root.classList.toggle('cf-step2', step.n >= 2);
+    root.classList.toggle('cf-step2', step.n === 2);
+    root.classList.toggle('cf-step3', step.n >= 3);
   }
   applyStep(null);
   window.DZ_CLOUD = { applyStep: applyStep };
   function googleLink(route) { return step.google ? step.google + '&page=' + route : ''; }
   // Une page de l'application Google demandée ici (lien, menu « Plus ») : ouverte dans l'application Google.
+  // Étape 3 : toutes les pages sont ici.
+  function external(route) { return step.n === 2 && EXTERNAL.indexOf(route) >= 0; }
   var startRoute = String(location.hash || '').replace(/^#\/?/, '');
-  if (EXTERNAL.indexOf(startRoute) >= 0) history.replaceState(null, '', location.pathname + location.search + '#/tableau');
+  if (step.n < 3 && EXTERNAL.indexOf(startRoute) >= 0) history.replaceState(null, '', location.pathname + location.search + '#/tableau');
   document.addEventListener('click', function (ev) {
     var a = ev.target && ev.target.closest ? ev.target.closest('[data-route], a[href^="#/"]') : null;
     var route = a ? (a.getAttribute('data-route') || String(a.getAttribute('href') || '').replace(/^#\/?/, '')) : '';
-    if (EXTERNAL.indexOf(route) < 0 || step.n < 2) return;
+    if (!external(route)) return;
     var link = googleLink(route);
     if (!link) return;
     ev.preventDefault();
@@ -605,9 +609,9 @@ body:has(.outcomes) #toast { bottom: calc(150px + env(safe-area-inset-bottom)); 
   }, true);
   window.addEventListener('hashchange', function () {
     var r = String(location.hash || '').replace(/^#\/?/, '');
-    if (EXTERNAL.indexOf(r) >= 0) {
+    if (step.n < 3 && EXTERNAL.indexOf(r) >= 0) {
       history.replaceState(null, '', location.pathname + location.search + '#/tableau');
-      if (step.n >= 2 && googleLink(r)) window.open(googleLink(r), '_blank', 'noopener');
+      if (external(r) && googleLink(r)) window.open(googleLink(r), '_blank', 'noopener');
     }
   }, true);
   if (!session) document.addEventListener('DOMContentLoaded', function () { showLogin(); });
@@ -3157,14 +3161,17 @@ $all('[data-admin]').forEach(function (el) { el.hidden = !b.user.admin; });
 $all('[data-stockrole]').forEach(function (el) { el.hidden = !b.user.stock; });
 $all('[data-more]').forEach(function (el) { el.hidden = !(b.user.admin || b.user.stock); });
 document.documentElement.classList.toggle('cf-live', !!(b.cloud && b.cloud.live));
+document.documentElement.classList.toggle('cf-full', !!(b.cloud && b.cloud.full));
 showHealth(b.health);
 }
 var CLOUD_ROUTES = ['commandes', 'confirmation', 'expeditions', 'suivi'];
 function cloudMoved(r) {
 var url = S.boot && S.boot.cloud && S.boot.cloud.live ? S.boot.cloud.url : '';
-if (!url || CLOUD_ROUTES.indexOf(r) < 0) return false;
+var full = !!(S.boot.cloud && S.boot.cloud.full);
+if (!url || (full ? r === 'admin' : CLOUD_ROUTES.indexOf(r) < 0)) return false;
 view.innerHTML = '<section class="card"><h2>Cette page est dans la version Cloudflare</h2>' +
-'<p class="sub">Commandes, Confirmation, Expédier et Suivi se font maintenant dans la version Cloudflare (plus rapide). Ici : Bénéfices, Stock, Statistiques et Administration.</p>' +
+'<p class="sub">' + (full ? 'Toute l’application est maintenant dans la version Cloudflare (plus rapide). Ici : Administration (lien avec Cloudflare, retour en arrière).'
+: 'Commandes, Confirmation, Expédier et Suivi se font maintenant dans la version Cloudflare (plus rapide). Ici : Bénéfices, Stock, Statistiques et Administration.') + '</p>' +
 '<div class="quick" style="margin-top:12px"><a class="btn primary" href="' + h(url) + '/#/' + h(r) + '" target="_top">Ouvrir la version Cloudflare</a></div></section>';
 return true;
 }

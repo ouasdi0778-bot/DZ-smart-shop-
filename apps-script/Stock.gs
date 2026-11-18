@@ -333,17 +333,19 @@ function stockData_(ctx, settings) {
   totals.value = Math.round(totals.value);
 
   // Libellés vus dans les commandes récentes mais absents de l'onglet Produits.
+  // (__n : nombre de commandes identiques, quand la version Cloudflare les donne déjà regroupées.)
   var since = new Date(Date.now() - 60 * 86400000);
   var unknown = {};
-  ctx.orders.forEach(function (o) {
+  recentOrdersForLabels_(ctx).forEach(function (o) {
     var d = toDate_(o.date);
     if (d && d < since) return;
+    var w = o.__n || 1;
     orderItems_(o).forEach(function (it) {
       if (matchCatalog_(catalog, it.label)) return;
       var k = normalizeLoose_(it.label);
       var u = unknown[k] = unknown[k] || { label: it.label, orders: 0, sum: 0, n: 0 };
-      u.orders++;
-      if (toNumber_(o.price) > 0 && orderItems_(o).length === 1) { u.sum += toNumber_(o.price) / it.qty; u.n++; }
+      u.orders += w;
+      if (toNumber_(o.price) > 0 && orderItems_(o).length === 1) { u.sum += w * toNumber_(o.price) / it.qty; u.n += w; }
     });
   });
   var unknownList = Object.keys(unknown).map(function (k) {
@@ -354,6 +356,9 @@ function stockData_(ctx, settings) {
 
   return { products: order, low: totals.low, rupture: totals.rupture, totals: totals, unknown: unknownList };
 }
+
+/** Commandes où chercher les libellés absents du catalogue. */
+function recentOrdersForLabels_(ctx) { return ctx.orders; }
 
 /** Derniers mouvements de stock (les plus récents d'abord). */
 function readStockMoves_(limit) {
@@ -395,6 +400,7 @@ function api_stock() {
 
 /** Ajoute des modèles au catalogue (libellés vus dans les commandes), sans doublon. */
 function api_addCatalogItems(labels) {
+  cloudGuardAll_();
   var user = requireStockAccess_();
   return withLock_(function () {
     var sh = productsSheet_();
@@ -448,6 +454,7 @@ function numOrBlank_(v) {
  * Le stock de départ est noté comme mouvement « Stock initial ».
  */
 function api_addProduct(input) {
+  cloudGuardAll_();
   var user = requireStockAccess_();
   input = input || {};
   var product = String(input.product || '').replace(/\s+/g, ' ').trim();
@@ -495,6 +502,7 @@ function api_addProduct(input) {
  * pour que les commandes déjà passées restent reliées.
  */
 function api_updateCatalogRow(input) {
+  cloudGuardAll_();
   var user = requireStockAccess_();
   input = input || {};
   return withLock_(function () {
@@ -529,6 +537,7 @@ function api_updateCatalogRow(input) {
  * COUT_MOYEN = OUI, le coût d'achat devient la moyenne pondérée (ancien stock et nouvelle entrée).
  */
 function api_stockEntry(input) {
+  cloudGuardAll_();
   var user = requireStockAccess_();
   input = input || {};
   var settings = getSettings_();
@@ -571,6 +580,7 @@ function api_stockEntry(input) {
 
 /** Inventaire : items = [{ row, key, counted }] ; l'écart avec le stock est noté avec le motif. */
 function api_stockInventory(input) {
+  cloudGuardAll_();
   var user = requireStockAccess_();
   input = input || {};
   var reason = String(input.reason || 'Comptage').trim() || 'Comptage';

@@ -101,7 +101,8 @@ function everyMinute() {
     }, SMS.PROP_LAST_ERROR);
   }
   if (due('newrows')) runClaimed_(h, 'newrows', function () { return processNewRows(); }, '');
-  if (shopifyConfig_().configured && due('shopify')) runClaimed_(h, 'shopify', function () { return importShopifyOrders(); }, SHOP.PROP_LAST_ERROR);
+  var full = cloudFull_(); // étape 3 : Shopify lu par la version Cloudflare
+  if (!full && shopifyConfig_().configured && due('shopify')) runClaimed_(h, 'shopify', function () { return importShopifyOrders(); }, SHOP.PROP_LAST_ERROR);
   var live = cloudLive_();
   // Après le basculement, les statuts Ecotrack sont lus par la version Cloudflare (qui les recopie ici).
   if (!live && ecotrackConfig_().configured && due('ecotrack')) runClaimed_(h, 'ecotrack', function () { return syncEcotrackStatuses(); }, ECO.PROP_LAST_ERROR);
@@ -166,7 +167,7 @@ function noteNightly_(ms, errors) {
 
 /** Tâche configurée (sinon elle ne doit pas être signalée). */
 function taskEnabled_(key) {
-  if (key === 'shopify') return shopifyConfig_().configured;
+  if (key === 'shopify') return shopifyConfig_().configured && !cloudFull_();
   if (key === 'ecotrack') return ecotrackConfig_().configured && !cloudLive_();
   if (key === 'cloud') return cloudLive_();
   if (key === 'sms') return smsConfig_().configured;
@@ -286,7 +287,7 @@ function healthData_() {
       key: info.key, label: info.label, every: info.every, state: state,
       at: t && t.at ? t.at : '', lastOk: t && t.lastOk ? t.lastOk : '', ms: t ? t.ms || 0 : 0, err: t ? t.err || '' : '', fails: t ? t.fails || 0 : 0,
       note: info.key === 'releasit' && t && t.off ? 'Onglet RELEASIT absent'
-        : info.key === 'ecotrack' && cloudLive_() ? 'Fait par la version Cloudflare'
+        : (info.key === 'ecotrack' && cloudLive_()) || (info.key === 'shopify' && cloudFull_()) ? 'Fait par la version Cloudflare'
         : !taskEnabled_(info.key) ? (info.key === 'cloud' ? 'Après le basculement' : 'Pas configuré') : ''
     };
   });
