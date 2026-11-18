@@ -546,16 +546,16 @@ Le moteur de l'application tourne chez **Cloudflare** (offre gratuite) au lieu d
 ### Mise en ligne (une seule fois)
 
 1. Créer un compte gratuit sur **cloudflare.com** (un e-mail suffit).
-2. Créer un **jeton d'accès** : *My Profile › API Tokens › Create Token*, modèle **Edit Cloudflare Workers**, ajouter la permission **Account › D1 › Edit**, puis *Create Token*. Le jeton se donne dans le formulaire sécurisé de Claude, **jamais dans le chat**.
-3. Mise en ligne (faite par Claude avec le jeton) :
+2. Créer un **jeton d'accès** (*Gérer le compte › Jetons d'API du compte*) avec les permissions **Compte › Scripts Workers › Modifier** et **Compte › D1 › Modifier**, et ouvrir une fois **Workers et Pages** (crée l'adresse `…workers.dev`). Le jeton se donne dans le formulaire sécurisé de Claude, **jamais dans le chat**.
+3. Mise en ligne (faite par Claude avec le jeton ; la base est déjà créée, son identifiant est dans `wrangler.toml`) :
    ```
    node cloudflare/build.js
    cd cloudflare
-   npx wrangler d1 create dz-smart-shop          # puis mettre l'identifiant dans wrangler.toml
-   npx wrangler d1 execute dz-smart-shop --remote --file schema.sql
-   npx wrangler deploy
+   npx wrangler d1 execute dz-smart-shop --remote --file schema.sql   # une fois (déjà fait)
+   npx wrangler deploy                                                # à chaque nouvelle version
    ```
-4. Dans cette application Google : **Administration › Connexions › Cloudflare**, coller l'adresse (`https://dz-smart-shop.<votre-nom>.workers.dev`), puis **Relier et copier les données**.
+   La page de l'interface est intégrée au moteur : une seule mise en ligne, rien d'autre à envoyer.
+4. Dans cette application Google : **Administration › Connexions › Cloudflare**, coller l'adresse **https://dz-smart-shop.besmartshop-algerie.workers.dev**, puis **Relier et copier les données**.
 5. Ouvrir l'adresse Cloudflare, **Se connecter avec Google**. Sur téléphone : menu du navigateur › *Ajouter à l'écran d'accueil*.
 
 ### Pour les développeurs

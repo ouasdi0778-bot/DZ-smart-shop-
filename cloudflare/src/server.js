@@ -791,6 +791,17 @@ async function api(request, env, fn) {
   return handler(env, R, args);
 }
 
+/** L'interface : une seule page, intégrée au moteur ; le navigateur la garde et vérifie si elle a changé. */
+function page(request) {
+  const path = new URL(request.url).pathname;
+  if (request.method !== 'GET' && request.method !== 'HEAD') return new Response('Méthode non permise.', { status: 405 });
+  if (path !== '/' && path !== '/index.html') return new Response('Introuvable.', { status: 404 });
+  const etag = '"' + INDEX_TAG + '"';
+  const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', etag: etag, 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' };
+  if (request.headers.get('if-none-match') === etag) return new Response(null, { status: 304, headers: headers });
+  return new Response(request.method === 'HEAD' ? null : INDEX_HTML, { headers: headers });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -804,7 +815,7 @@ export default {
       }
       if (path.indexOf('/api/') === 0) return json({ ok: true, data: await api(request, env, path.slice(5)) });
       if (path.indexOf('/bridge/') === 0) return json({ ok: true, data: await bridge(request, env, path) });
-      return env.ASSETS.fetch(request);
+      return page(request);
     } catch (e) {
       const status = e instanceof HttpError ? e.status : 500;
       const code = e instanceof HttpError ? e.code : '';

@@ -24,7 +24,7 @@ function names(text, re) {
   return out;
 }
 
-function buildWorker() {
+function buildWorker(page) {
   var shim = read(path.join(HERE, 'src', 'gas-shim.js'));
   var over = read(path.join(HERE, 'src', 'overrides.js'));
   var gs = bundle.ORDER.map(function (f) { return '/* ---- ' + f + ' ---- */\n' + read(path.join(SRC, f)); }).join('\n');
@@ -48,6 +48,10 @@ function buildWorker() {
     '};',
     '}',
     '',
+    // La page est dans le moteur (pas de fichiers à envoyer à part) : une seule mise en ligne.
+    'const INDEX_HTML = ' + JSON.stringify(page || '') + ';',
+    'const INDEX_TAG = ' + JSON.stringify(require('crypto').createHash('sha256').update(page || '').digest('hex').slice(0, 16)) + ';',
+    '',
     read(path.join(HERE, 'src', 'server.js'))
   ];
   return parts.join('\n');
@@ -69,8 +73,9 @@ function buildPage() {
 function build() {
   fs.mkdirSync(path.join(HERE, 'dist'), { recursive: true });
   fs.mkdirSync(path.join(HERE, 'public'), { recursive: true });
-  fs.writeFileSync(path.join(HERE, 'dist', 'worker.js'), buildWorker());
-  fs.writeFileSync(path.join(HERE, 'public', 'index.html'), buildPage());
+  var page = buildPage();
+  fs.writeFileSync(path.join(HERE, 'public', 'index.html'), page);
+  fs.writeFileSync(path.join(HERE, 'dist', 'worker.js'), buildWorker(page));
 }
 
 module.exports = { build: build, buildWorker: buildWorker, buildPage: buildPage };
