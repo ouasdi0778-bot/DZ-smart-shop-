@@ -103,3 +103,46 @@ function api_importStatus() {
 
 /** Compteurs du menu : calculés par server.js avec D1, après l'enregistrement (voir fastCounts). */
 function countsData_() { return { __fast: true }; }
+
+/* ---------------- Étape 2 ---------------- */
+
+/** Client « signalé » : gardé dans les réglages clients de D1, recopié dans l'onglet Clients par Apps Script. */
+function flagClient_(ctx, o, text) {
+  var p = normalizePhone(o.phone);
+  if (!p.valid) return false;
+  var clients = readClients_();
+  clients.flags = clients.flags || {};
+  clients.flags[p.phone] = String(text);
+  REQ.config['cfg:clients'] = JSON.stringify(clients);
+  REQ.configWrites['cfg:clients'] = REQ.config['cfg:clients'];
+  REQ.notes.push({ id: p.phone, kind: 'flag', info: JSON.stringify({ text: String(text), name: String(o.client || '') }) });
+  refreshClientAlerts_(ctx, p.phone);
+  return true;
+}
+
+/**
+ * Retour abîmé : la commande est marquée ici ; le stock (onglet Produits du classeur) est corrigé
+ * par Apps Script quand il recopie ce changement (voir Cloud.gs).
+ */
+function api_markReturnDamaged(id) {
+  var user = requireStockAccess_();
+  var ctx = readOrders_();
+  var o = findOrder_(ctx, id);
+  if (!o) throw new Error('Commande ' + id + ' introuvable.');
+  if (o.status !== STATUS.RETURNED || String(o.stockMove).trim() !== STOCK_BACK_) {
+    throw new Error('Seul un retour reçu et remis en stock peut être marqué abîmé.');
+  }
+  writeFields_(ctx, o, { stockMove: STOCK_DAMAGED_, updated: new Date() });
+  log_(user, o.id, 'Stock : retour abîmé', 'Retiré du stock (onglet Produits mis à jour dans la minute)');
+  return { order: serializeOrder_(o), message: 'Retour ' + o.id + ' marqué abîmé : retiré du stock.' };
+}
+
+/** Les mouvements de stock sont faits par Apps Script sur le classeur (voir Cloud.gs) : rien ici. */
+function logStockMoves_() {}
+
+/* Lien avec la version Cloudflare (Cloud.gs) : ici, on EST la version Cloudflare. */
+function cloudLive_() { return false; }
+function cloudGuard_() {}
+function cloudConfigChanged_() {}
+function cloudOutboxAdd_() {}
+function cloudBootInfo_() { return null; }

@@ -222,6 +222,7 @@ function shortDate_(d) {
  *   return    : demande de retour (client injoignable)
  */
 function api_followUpResult(id, result, data) {
+  cloudGuard_();
   var user = currentUser_();
   data = data || {};
   id = String(id);

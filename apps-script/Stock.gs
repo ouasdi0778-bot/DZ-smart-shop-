@@ -600,6 +600,7 @@ function api_stockInventory(input) {
 
 /** Retour reçu abîmé : il ne peut pas être revendu, on le retire du stock. */
 function api_markReturnDamaged(id) {
+  cloudGuard_();
   var user = requireStockAccess_();
   return withLock_(function () {
     var ctx = readOrders_();
@@ -608,6 +609,13 @@ function api_markReturnDamaged(id) {
     if (o.status !== STATUS.RETURNED || String(o.stockMove).trim() !== STOCK_BACK_) {
       throw new Error('Seul un retour reçu et remis en stock peut être marqué abîmé.');
     }
+    damageReturn_(ctx, o, user);
+    return { order: serializeOrder_(o), message: 'Retour ' + o.id + ' marqué abîmé : retiré du stock.' };
+  });
+}
+
+/** Retire du stock un retour abîmé et le note sur la commande (sous verrou). */
+function damageReturn_(ctx, o, user) {
     var sh = productsSheet_();
     var catalog = readCatalogFromSheet_();
     var moves = [];
@@ -622,6 +630,4 @@ function api_markReturnDamaged(id) {
     clearConfigCache_(configKeysFor_(SHEET.PRODUCTS));
     logStockMoves_(moves);
     log_(user, o.id, 'Stock : retour abîmé', moves.length ? 'Retiré du stock' : 'Produit non suivi en stock');
-    return { order: serializeOrder_(o), message: 'Retour ' + o.id + ' marqué abîmé : retiré du stock.' };
-  });
 }

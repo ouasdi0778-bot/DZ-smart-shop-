@@ -242,9 +242,10 @@ function nightlyMaintenance() {
   var step = function (name, fn) {
     try { fn(); } catch (e) { out.errors.push(name + ' : ' + (e && e.message ? e.message : e)); }
   };
-  step('appels', function () { out.autoCancelled = autoCancelUnreachable_(); });
+  var live = cloudLive_(); // après le basculement : appels sans réponse et archivage faits par Cloudflare
+  if (!live) step('appels', function () { out.autoCancelled = autoCancelUnreachable_(); });
   step('stock', function () { withLock_(function () { applyStockMoves_(readOrders_()); }); });
-  step('archivage', function () { out.archived = archiveOldOrders_().archived; });
+  if (!live) step('archivage', function () { out.archived = archiveOldOrders_().archived; });
   step('journal', function () { out.journal = trimJournal_(getSettings_().JOURNAL_JOURS); });
   step('corbeille', function () { out.trash = purgeOldTrash_(); });
   step('allègement', function () { out.rows = lightenSheets_(); });

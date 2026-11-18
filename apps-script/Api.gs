@@ -21,10 +21,12 @@ function hasBundledHtml_() {
 function doGet(e) {
   // Connexion à la version Cloudflare (Cloud.gs) : ce lien avec « ?cf=1 ».
   if (e && e.parameter && e.parameter.cf) return cloudGateway_();
+  // Après le basculement, l'application est sur Cloudflare (sauf « ?google=1 » : Bénéfices, Stock, Statistiques, Administration).
+  if (!(e && e.parameter && e.parameter.google) && cloudLive_()) return cloudGateway_();
   var template = hasBundledHtml_()
     ? HtmlService.createTemplate(HTML_FILES_.Index)
     : HtmlService.createTemplateFromFile('Index');
-  template.device = deviceInfo_();
+  template.device = deviceInfo_(e && e.parameter ? e.parameter.page : '');
   return template.evaluate()
     .setTitle(APP_NAME + ' · Commandes COD')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
@@ -34,10 +36,13 @@ function doGet(e) {
  * Ce que la page sait avant tout appel au serveur : une clé propre à l'utilisateur (pas son adresse)
  * pour la mémoire sur l'appareil, et la version. Texte JSON inséré dans la page.
  */
-function deviceInfo_() {
+function deviceInfo_(page) {
   var email = '';
   try { email = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase(); } catch (e) { email = ''; }
-  return JSON.stringify({ key: email ? shortHash_('dz-smart-shop|' + email) : '', v: APP_VERSION });
+  var info = { key: email ? shortHash_('dz-smart-shop|' + email) : '', v: APP_VERSION };
+  // Page demandée dans le lien (« &page=benefices », depuis la version Cloudflare).
+  if (/^[a-z]{3,20}$/.test(String(page || ''))) info.page = String(page);
+  return JSON.stringify(info);
 }
 
 /** Empreinte courte (16 caractères) d'un texte : sert à distinguer deux comptes sur un même appareil. */
@@ -180,7 +185,8 @@ function bootstrapApi_(preload) {
     callbackDelay: s.DELAI_RAPPEL_MINUTES,
     waTemplate: s.MESSAGE_WHATSAPP,
     rates: readRates_(wilayas),
-    products: products
+    products: products,
+    cloud: cloudBootInfo_()
   };
 }
 
@@ -541,6 +547,7 @@ function orderDetail_(ctx, env, o, user) {
  *             callback: date ISO, reason: motif } ; price et shipping seulement s'ils ont été tapés à la main
  */
 function api_recordCall(id, outcome, payload, opts) {
+  cloudGuard_();
   payload = payload || {};
   opts = opts || {};
   return withLock_(function () {
@@ -638,6 +645,7 @@ function pickEdits_(input) {
  * administrateur : input.force = true et input.forceReason = motif.
  */
 function api_updateOrder(id, input) {
+  cloudGuard_();
   input = input || {};
   return withLock_(function () {
     var ctx = readOrders_();
@@ -710,6 +718,7 @@ function api_updateOrder(id, input) {
 
 /** Ajoute une commande saisie à la main. */
 function api_createOrder(input) {
+  cloudGuard_();
   input = input || {};
   if (!String(input.client || '').trim()) throw new Error('Le nom du client est obligatoire.');
   if (!normalizePhone(input.phone).valid) throw new Error('Numéro de téléphone invalide (ex. 0550 12 34 56).');
@@ -754,11 +763,21 @@ function refreshClientAlerts_(ctx, phone) {
 
 /** Ajoute ou retire un numéro de la liste noire (onglet Clients). */
 function api_setBlacklist(phone, on, note) {
+  cloudGuard_();
   var p = normalizePhone(phone);
   if (!p.valid) throw new Error('Numéro invalide.');
   return withLock_(function () {
-    var sh = sheet_(SHEET.CLIENTS);
     var user = currentUser_();
+    writeBlacklist_(p, on, note);
+    refreshClientAlerts_(readOrders_(), p.phone);
+    log_(user, '', on ? 'Liste noire : ajout' : 'Liste noire : retrait', p.phone);
+    return { phone: p.phone, blacklisted: !!on };
+  });
+}
+
+/** Écrit la liste noire dans l'onglet Clients (sous verrou). */
+function writeBlacklist_(p, on, note) {
+    var sh = sheet_(SHEET.CLIENTS);
     var last = sh.getLastRow();
     var row = 0;
     if (last > 1) {
@@ -777,8 +796,4 @@ function api_setBlacklist(phone, on, note) {
       if (note) sh.getRange(row, 4).setValue(note);
     }
     clearConfigCache_(configKeysFor_(SHEET.CLIENTS));
-    refreshClientAlerts_(readOrders_(), p.phone);
-    log_(user, '', on ? 'Liste noire : ajout' : 'Liste noire : retrait', p.phone);
-    return { phone: p.phone, blacklisted: !!on };
-  });
 }

@@ -32,6 +32,7 @@ var TASKS_ = [
   { key: 'newrows', label: 'Nouvelles lignes du classeur', every: 5, staleMin: 60 },
   { key: 'shopify', label: 'Importation Shopify', every: 5, staleMin: 90 },
   { key: 'ecotrack', label: 'Statuts des colis Ecotrack', every: 60, staleMin: 180 },
+  { key: 'cloud', label: 'Lien avec la version Cloudflare', every: 1, staleMin: 30 },
   { key: 'nightly', label: 'Entretien de nuit', every: 1440, staleMin: 27 * 60 }
 ];
 
@@ -101,7 +102,10 @@ function everyMinute() {
   }
   if (due('newrows')) runClaimed_(h, 'newrows', function () { return processNewRows(); }, '');
   if (shopifyConfig_().configured && due('shopify')) runClaimed_(h, 'shopify', function () { return importShopifyOrders(); }, SHOP.PROP_LAST_ERROR);
-  if (ecotrackConfig_().configured && due('ecotrack')) runClaimed_(h, 'ecotrack', function () { return syncEcotrackStatuses(); }, ECO.PROP_LAST_ERROR);
+  var live = cloudLive_();
+  // Après le basculement, les statuts Ecotrack sont lus par la version Cloudflare (qui les recopie ici).
+  if (!live && ecotrackConfig_().configured && due('ecotrack')) runClaimed_(h, 'ecotrack', function () { return syncEcotrackStatuses(); }, ECO.PROP_LAST_ERROR);
+  if (live) runClaimed_(h, 'cloud', function () { return cloudSync_(); }, CLOUD.PROP_ERROR);
 
   h.minute = new Date().toISOString();
   h.ms += Date.now() - t0;
@@ -163,7 +167,8 @@ function noteNightly_(ms, errors) {
 /** Tâche configurée (sinon elle ne doit pas être signalée). */
 function taskEnabled_(key) {
   if (key === 'shopify') return shopifyConfig_().configured;
-  if (key === 'ecotrack') return ecotrackConfig_().configured;
+  if (key === 'ecotrack') return ecotrackConfig_().configured && !cloudLive_();
+  if (key === 'cloud') return cloudLive_();
   if (key === 'sms') return smsConfig_().configured;
   return true;
 }
@@ -280,7 +285,9 @@ function healthData_() {
     return {
       key: info.key, label: info.label, every: info.every, state: state,
       at: t && t.at ? t.at : '', lastOk: t && t.lastOk ? t.lastOk : '', ms: t ? t.ms || 0 : 0, err: t ? t.err || '' : '', fails: t ? t.fails || 0 : 0,
-      note: info.key === 'releasit' && t && t.off ? 'Onglet RELEASIT absent' : !taskEnabled_(info.key) ? 'Pas configuré' : ''
+      note: info.key === 'releasit' && t && t.off ? 'Onglet RELEASIT absent'
+        : info.key === 'ecotrack' && cloudLive_() ? 'Fait par la version Cloudflare'
+        : !taskEnabled_(info.key) ? (info.key === 'cloud' ? 'Après le basculement' : 'Pas configuré') : ''
     };
   });
   var user = currentUser_();

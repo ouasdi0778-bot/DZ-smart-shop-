@@ -395,4 +395,6 @@
     body:has(.outcomes) #toast { bottom: calc(150px + env(safe-area-inset-bottom)); }
     .modal { border-radius: 0; min-height: 100%; }
   }
+/* Application Google après le basculement : les pages des commandes sont dans la version Cloudflare. */
+.cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 </style>

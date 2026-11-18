@@ -1,6 +1,8 @@
 /**
  * Fausse application Cloudflare (pont), pour tester Cloud.gs sans réseau : elle note les appels
- * et répond comme server.js (/bridge/register, /bridge/import, /bridge/status).
+ * et répond comme server.js (/bridge/register, /bridge/import, /bridge/status, et après le
+ * basculement /bridge/live, /bridge/config, /bridge/orders, /bridge/changes, /bridge/marks).
+ * fake.changes : les changements que « Cloudflare » renverra (comme /bridge/changes).
  * À charger après les autres faux services : les autres adresses leur sont transmises.
  */
 (function (g) {
@@ -13,7 +15,18 @@
     calls: [],
     secret: '',
     refuse: '',            // message d'erreur forcé
-    reset: function () { fake.calls = []; fake.secret = ''; fake.refuse = ''; }
+    live: false,
+    orders: {},            // commandes reçues par /bridge/orders
+    changes: [],           // { seq, id, kind, info, order }
+    marks: [],
+    config: null,
+    reset: function () { fake.calls = []; fake.secret = ''; fake.refuse = ''; fake.live = false; fake.orders = {}; fake.changes = []; fake.marks = []; fake.config = null; },
+    /** Ajoute un changement « fait dans Cloudflare ». */
+    change: function (kind, id, order, info) {
+      var seq = fake.changes.length ? fake.changes[fake.changes.length - 1].seq + 1 : 1;
+      fake.changes.push({ seq: seq, id: String(id), kind: kind, info: info || '', order: order || null });
+    },
+    byPath: function (path) { return fake.calls.filter(function (c) { return c.path === path; }); }
   };
 
   function respond(code, body) {
@@ -37,8 +50,24 @@
         return respond(200, { ok: true, data: { ok: true } });
       }
       if (key !== fake.secret) return respond(403, { ok: false, error: 'Clé refusée.' });
-      if (path === '/bridge/import') return respond(200, { ok: true, data: { ok: true } });
-      if (path === '/bridge/status') return respond(200, { ok: true, data: { orders: 0 } });
+      if (path === '/bridge/import') {
+        if (body.reset && fake.live && !body.goLive) return respond(409, { ok: false, error: 'La version Cloudflare est la vraie application : la recopie depuis le classeur est désactivée.' });
+        return respond(200, { ok: true, data: { ok: true } });
+      }
+      if (path === '/bridge/status') return respond(200, { ok: true, data: { orders: 0, live: fake.live } });
+      if (path === '/bridge/live') { fake.live = body.live !== false; return respond(200, { ok: true, data: { live: fake.live, seq: 0 } }); }
+      if (path === '/bridge/config') { fake.config = body; return respond(200, { ok: true, data: { ok: true } }); }
+      if (path === '/bridge/orders') {
+        var added = [];
+        (body.orders || []).forEach(function (o) { if (!fake.orders[o.id]) { fake.orders[o.id] = o; added.push(o.id); } });
+        return respond(200, { ok: true, data: { added: added, skipped: (body.orders || []).length - added.length } });
+      }
+      if (path === '/bridge/changes') {
+        var after = Number(body.after) || 0;
+        var list = fake.changes.filter(function (c) { return c.seq > after; }).slice(0, body.limit || 300);
+        return respond(200, { ok: true, data: { changes: list, last: list.length ? list[list.length - 1].seq : after, more: false } });
+      }
+      if (path === '/bridge/marks') { fake.marks = fake.marks.concat(body.marks || []); return respond(200, { ok: true, data: { marked: (body.marks || []).length } }); }
       return respond(404, { ok: false, error: 'Inconnu.' });
     }
   };

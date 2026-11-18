@@ -840,6 +840,7 @@ function api_ecotrackSyncFees() {
 }
 
 function api_ecotrackSyncStatuses() {
+  cloudGuard_();
   var s = syncEcotrackStatuses_();
   var message = s.checked + ' colis vérifié(s), ' + s.updated + ' mis à jour' +
     (s.unknown ? ', ' + s.unknown + ' statut(s) inconnu(s) (voir l’onglet Journal)' : '') +
@@ -910,6 +911,7 @@ function shippingListApi_() {
 
 /** Crée les colis chez Ecotrack (la validation se fait ensuite : bouton « Valider l'expédition » ou interface d'Ecotrack). */
 function api_shipEcotrack(ids) {
+  cloudGuard_();
   return shipToEcotrack_(ids, currentUser_());
 }
 

@@ -6,6 +6,9 @@
 (function () {
   'use strict';
   var KEY = 'dz-smart-shop:session';
+  var STEP_KEY = 'dz-smart-shop:step';
+  /** Pages restées dans l'application Google (étape 3) : ouvertes là-bas. */
+  var EXTERNAL = ['benefices', 'stock', 'stats', 'admin'];
   var VERSION = '__VERSION__';
 
   /** Même empreinte que shortHash_ (Api.gs) : clé de la mémoire sur l'appareil, sans l'adresse. */
@@ -79,7 +82,11 @@
             headers: { 'content-type': 'application/json', authorization: 'Bearer ' + session.t },
             body: JSON.stringify(args)
           }).then(function (r) { return r.json(); }).then(function (r) {
-            if (r && r.ok) { if (handlers.ok) handlers.ok(r.data === undefined ? null : r.data); return; }
+            if (r && r.ok) {
+              if (name === 'api_bootstrap' && r.data && r.data.cloud) applyStep(r.data.cloud);
+              if (handlers.ok) handlers.ok(r.data === undefined ? null : r.data);
+              return;
+            }
             if (r && r.code === 'auth') { try { window.localStorage.removeItem(KEY); } catch (e) {} session = null; showLogin(r.error); }
             fail(new Error(r && r.error ? r.error : 'Erreur du serveur.'));
           }).catch(function () { fail(new Error('Pas de connexion internet. Réessayez.')); });
@@ -88,6 +95,42 @@
     });
   }
   window.google = { script: { run: runner({}) } };
-  document.documentElement.classList.add('cf-step1');
+
+  /* ---------------- Étape : 1 (essai, sur une copie) ou 2 (la vraie application) ---------------- */
+
+  var root = document.documentElement;
+  var step = { n: 1, google: '' };
+  try { step = JSON.parse(window.localStorage.getItem(STEP_KEY) || 'null') || step; } catch (e) { /* première ouverture */ }
+  function applyStep(info) {
+    if (info && info.step) {
+      step = { n: info.step, google: info.google || '' };
+      try { window.localStorage.setItem(STEP_KEY, JSON.stringify(step)); } catch (e) { /* sans importance */ }
+    }
+    root.classList.toggle('cf-step1', step.n < 2);
+    root.classList.toggle('cf-step2', step.n >= 2);
+  }
+  applyStep(null);
+  window.DZ_CLOUD = { applyStep: applyStep };
+  function googleLink(route) { return step.google ? step.google + '&page=' + route : ''; }
+  // Une page de l'application Google demandée ici (lien, menu « Plus ») : ouverte dans l'application Google.
+  var startRoute = String(location.hash || '').replace(/^#\/?/, '');
+  if (EXTERNAL.indexOf(startRoute) >= 0) history.replaceState(null, '', location.pathname + location.search + '#/tableau');
+  document.addEventListener('click', function (ev) {
+    var a = ev.target && ev.target.closest ? ev.target.closest('[data-route], a[href^="#/"]') : null;
+    var route = a ? (a.getAttribute('data-route') || String(a.getAttribute('href') || '').replace(/^#\/?/, '')) : '';
+    if (EXTERNAL.indexOf(route) < 0 || step.n < 2) return;
+    var link = googleLink(route);
+    if (!link) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    window.open(link, '_blank', 'noopener');
+  }, true);
+  window.addEventListener('hashchange', function () {
+    var r = String(location.hash || '').replace(/^#\/?/, '');
+    if (EXTERNAL.indexOf(r) >= 0) {
+      history.replaceState(null, '', location.pathname + location.search + '#/tableau');
+      if (step.n >= 2 && googleLink(r)) window.open(googleLink(r), '_blank', 'noopener');
+    }
+  }, true);
   if (!session) document.addEventListener('DOMContentLoaded', function () { showLogin(); });
 })();

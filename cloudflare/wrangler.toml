@@ -10,3 +10,7 @@ preview_urls = false
 binding = "DB"
 database_name = "dz-smart-shop"
 database_id = "835de714-f582-4540-a6a3-d18dac3fd6f7"
+
+# Tâches automatiques (étape 2) : SMS, statuts Ecotrack, entretien de nuit. Rien ne se passe avant le basculement.
+[triggers]
+crons = ["* * * * *"]

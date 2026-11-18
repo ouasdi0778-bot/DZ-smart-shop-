@@ -382,6 +382,7 @@ function trackingOverviewApi_(days) {
 
 /** « J'ai traité cette alerte » : elle disparaît jusqu'au prochain changement du colis. */
 function api_markFollowUp(id) {
+  cloudGuard_();
   return withLock_(function () {
     var ctx = readOrders_();
     var o = findOrder_(ctx, id);

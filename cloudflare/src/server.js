@@ -126,11 +126,17 @@ function rowOf(o) {
     tracking: String(p.tracking || '').trim(),
     updated: isoOf(p.updated),
     search: (F.normalizeText_(text) + ' ' + text.toLowerCase() + ' ' + String(p.phone || '').replace(/\D/g, '')).slice(0, 2000),
-    data: JSON.stringify(p)
+    data: JSON.stringify(p),
+    track: tracked(o) ? 1 : 0
   };
 }
 
-const ROW_COLS = ['stage', 'status', 'day', 'date', 'phone', 'wilaya', 'agent', 'product', 'total', 'callback', 'carrier', 'tracking', 'updated', 'search', 'data'];
+/** Colis Ecotrack encore à suivre (statut, argent, retour) : lus par la page Suivi et la lecture automatique. */
+function tracked(o) {
+  try { return !!F.isEcotrackTracked_(o); } catch (e) { return false; } // fonction pure (statut, société, n° de suivi)
+}
+
+const ROW_COLS = ['stage', 'status', 'day', 'date', 'phone', 'wilaya', 'agent', 'product', 'total', 'callback', 'carrier', 'tracking', 'updated', 'search', 'data', 'track'];
 
 function toOrder(row) {
   const o = JSON.parse(row.data);
@@ -154,16 +160,81 @@ async function loadBase(env) {
   (cfg.results || []).forEach((r) => { config[r.key] = r.value; });
   const props = {};
   const secret = {};
-  (kv.results || []).forEach((r) => { if (r.key.indexOf('cf:') === 0) secret[r.key] = r.value; else props[r.key] = r.value; });
-  return { config, props, secret };
+  const cache = {};
+  const now = Date.now();
+  (kv.results || []).forEach((r) => {
+    if (r.key.indexOf('cf:') === 0) secret[r.key] = r.value;
+    else if (r.key.indexOf('cache:') === 0) {
+      try { const c = JSON.parse(r.value); if (c.exp > now) cache[r.key.slice(6)] = c.v; } catch (e) { /* ignorée */ }
+    } else props[r.key] = r.value;
+  });
+  return { config, props, secret, cache };
 }
 
 function newReq(base, user) {
   return {
-    now: new Date(), user: user, config: base.config, props: Object.assign({}, base.props), propWrites: {}, cache: {},
-    orders: [], byId: {}, dirty: {}, inserts: [], journal: [], configWrites: {}, extra: [], changed: [],
-    trashIds: null, archived: [], manualMax: 0
+    now: new Date(), user: user, config: base.config, props: Object.assign({}, base.props), propWrites: {},
+    cache: Object.assign({}, base.cache || {}), cacheWrites: {},
+    orders: [], byId: {}, dirty: {}, inserts: [], journal: [], configWrites: {}, extra: [], notes: [],
+    trashIds: null, archived: [], manualMax: 0,
+    fetched: {}, fetchUsed: {}, needFetch: null, base: base
   };
+}
+
+/**
+ * Exécute une action qui appelle Ecotrack ou httpSMS (voir UrlFetchApp dans gas-shim.js) : jouée,
+ * l'appel manquant est fait, puis rejouée depuis le début avec les commandes telles qu'elles étaient,
+ * jusqu'à ce qu'elle aille au bout. Seul le dernier passage compte (et sera enregistré).
+ */
+async function runFetch(R, fn) {
+  const snap = R.orders.map((o) => ({ rev: o.__rev, data: JSON.stringify(o) }));
+  const props = Object.assign({}, R.props);
+  const cache = Object.assign({}, R.cache);
+  const config = Object.assign({}, R.config);
+  for (let attempt = 0; attempt < 30; attempt++) {
+    R.orders = []; R.byId = {};
+    addOrders(R, snap.map((x) => toOrder({ rev: x.rev, data: x.data })));
+    R.dirty = {}; R.inserts = []; R.journal = []; R.extra = []; R.notes = []; R.configWrites = {};
+    R.props = Object.assign({}, props); R.propWrites = {};
+    R.cache = Object.assign({}, cache); R.cacheWrites = {};
+    R.config = Object.assign({}, config);
+    R.fetchUsed = {}; R.needFetch = null;
+    let result;
+    let error = null;
+    APP.begin(R);
+    try { result = fn(); } catch (e) { error = e; } finally { APP.end(); }
+    if (R.needFetch) { await doFetches(R.needFetch, R.fetched); continue; }
+    if (error) throw error;
+    return result;
+  }
+  throw new Error('Trop d’appels extérieurs pour une seule action : réessayez.');
+}
+
+/** Fait les appels demandés (en parallèle) et garde les réponses pour le passage suivant. */
+async function doFetches(list, store) {
+  await Promise.all(list.map(async (req) => {
+    const p = req.params || {};
+    const key = F.fetchKey_(req.url, p);
+    const headers = Object.assign({}, p.headers || {});
+    let body;
+    if (p.payload !== undefined && p.payload !== null) {
+      if (typeof p.payload === 'string') body = p.payload;
+      else { body = new URLSearchParams(p.payload).toString(); if (!p.contentType) headers['content-type'] = 'application/x-www-form-urlencoded'; }
+    }
+    if (p.contentType) headers['content-type'] = p.contentType;
+    const method = String(p.method || 'get').toUpperCase();
+    let out;
+    try {
+      const res = await fetch(req.url, { method: method, headers: headers, body: method === 'GET' || method === 'HEAD' ? undefined : body, redirect: p.followRedirects === false ? 'manual' : 'follow' });
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      const h = {};
+      res.headers.forEach((v, k) => { h[k] = v; h[k.replace(/(^|-)([a-z])/g, (m, a, b) => a + b.toUpperCase())] = v; });
+      out = { code: res.status, text: new TextDecoder().decode(bytes), bytes: bytes, headers: h };
+    } catch (e) {
+      out = { error: 'Address unavailable: ' + req.url + ' (' + String(e && e.message ? e.message : e) + ')' };
+    }
+    (store[key] = store[key] || []).push(out);
+  }));
 }
 
 /** Ajoute des commandes à la requête (sans doublon). */
@@ -228,6 +299,13 @@ async function flush(env, R) {
     st.push(db.prepare('INSERT INTO changes(order_id, kind, at) VALUES (?, ?, ?)').bind(row.id, 'insert', now));
   });
   R.extra.forEach((s) => st.push(s));
+  // Autres changements à recopier dans le classeur (liste noire, client signalé…).
+  R.notes.forEach((n) => st.push(db.prepare('INSERT INTO changes(order_id, kind, at, info) VALUES (?, ?, ?, ?)').bind(String(n.id), n.kind, now, String(n.info || ''))));
+  Object.keys(R.cacheWrites || {}).forEach((k) => {
+    const v = R.cacheWrites[k];
+    if (v === null) st.push(db.prepare('DELETE FROM kv WHERE key = ?').bind('cache:' + k));
+    else if (v.v.length < 60000) st.push(db.prepare('INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').bind('cache:' + k, JSON.stringify(v)));
+  });
   R.journal.forEach((r) => {
     const at = r[0] instanceof Date ? r[0].toISOString() : now;
     st.push(db.prepare('INSERT INTO journal (at, who, order_id, action, detail) VALUES (?, ?, ?, ?, ?)')
@@ -235,6 +313,7 @@ async function flush(env, R) {
   });
   Object.keys(R.propWrites).forEach((k) => {
     const v = R.propWrites[k];
+    if (k === 'SMS_QUEUE') { st.push(smsQueueStatement(db, R, v)); return; }
     st.push(v === null ? db.prepare('DELETE FROM kv WHERE key = ?').bind(k)
       : db.prepare('INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').bind(k, v));
   });
@@ -254,6 +333,27 @@ async function flush(env, R) {
   }
 }
 
+/**
+ * File des SMS : plusieurs actions en même temps peuvent la modifier. Au lieu de réécrire la file
+ * entière (et d'effacer un SMS ajouté entre-temps par quelqu'un d'autre), seuls les SMS ajoutés
+ * et retirés par CETTE requête sont appliqués à la file actuelle de la base.
+ */
+function smsQueueStatement(db, R, value) {
+  const list = (v) => { try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } };
+  const before = list(R.base && R.base.props ? R.base.props.SMS_QUEUE : '').map((x) => JSON.stringify(x));
+  const after = list(value).map((x) => JSON.stringify(x));
+  const left = before.slice();
+  const added = [];
+  after.forEach((x) => { const i = left.indexOf(x); if (i >= 0) left.splice(i, 1); else added.push(x); });
+  const removed = left; // présents avant, plus là après (envoyés ou abandonnés)
+  return db.prepare(
+    "INSERT INTO kv (key, value) VALUES ('SMS_QUEUE', ?1) ON CONFLICT(key) DO UPDATE SET value = (" +
+    'SELECT json_group_array(json(v)) FROM (' +
+    'SELECT j.value AS v, 0 AS g, j.key AS k FROM json_each(kv.value) j WHERE j.value NOT IN (SELECT r.value FROM json_each(?2) r) ' +
+    'UNION ALL SELECT a.value, 1, a.key FROM json_each(?1) a ORDER BY g, k))'
+  ).bind('[' + added.join(',') + ']', '[' + removed.join(',') + ']');
+}
+
 /** Compteurs du menu (à appeler / en attente / à expédier) : trois comptes lus sur l'index. */
 async function fastCounts(env) {
   const now = new Date().toISOString();
@@ -261,10 +361,18 @@ async function fastCounts(env) {
     'SELECT ' +
     "SUM(CASE WHEN stage = 'todo' AND status IN (" + placeholders(QUEUE.length) + ") AND (callback = '' OR callback <= ?) THEN 1 ELSE 0 END) AS queue, " +
     "SUM(CASE WHEN stage = 'todo' THEN 1 ELSE 0 END) AS pending, " +
-    "SUM(CASE WHEN stage = 'confirmed' AND tracking = '' THEN 1 ELSE 0 END) AS toShip " +
+    "SUM(CASE WHEN stage = 'confirmed' AND tracking = '' THEN 1 ELSE 0 END) AS toShip, " +
+    "(SELECT value FROM kv WHERE key = 'cf:alerts') AS alerts " +
     "FROM orders WHERE archived = 0 AND stage IN ('todo', 'confirmed')"
   ).bind(...QUEUE, now).first();
-  return { queue: (r && r.queue) || 0, pending: (r && r.pending) || 0, toShip: (r && r.toShip) || 0, alerts: 0 };
+  return { queue: (r && r.queue) || 0, pending: (r && r.pending) || 0, toShip: (r && r.toShip) || 0, alerts: Number(r && r.alerts) || 0 };
+}
+
+/** Alertes de suivi (urgentes ou à surveiller) : comptées sur les colis suivis, gardées pour le menu. */
+function alertStatement(env, R) {
+  const list = R.orders.filter((o) => tracked(o));
+  const n = run(R, () => F.trackingAlerts_(list, F.getSettings_(), new Date()).filter((a) => a.level !== 'info').length);
+  return env.DB.prepare("INSERT INTO kv (key, value) VALUES ('cf:alerts', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(n));
 }
 
 /** Remplace les compteurs marqués par l'outil (countsData_) par ceux de D1, après l'enregistrement. */
@@ -301,9 +409,10 @@ const PAGES = {
     const preload = args[0] || null;
     const boot = run(R, () => F.bootstrapApi_(null));
     boot.counts = await fastCounts(env);
-    boot.cloud = { version: K.APP_VERSION, step: 1 };
+    const gw = (R.base && R.base.secret && R.base.secret['cf:gateway']) || '';
+    boot.cloud = { version: K.APP_VERSION, step: isLive(R) ? 2 : 1, google: gw ? gw + (gw.indexOf('?') >= 0 ? '&' : '?') + 'google=1' : '' };
     if (preload && preload.fn && PAGES[preload.fn] && ['api_dashboard', 'api_listOrders', 'api_queue'].indexOf(preload.fn) >= 0) {
-      const R2 = newReq({ config: R.config, props: R.props }, R.user);
+      const R2 = newReq(R.base, R.user);
       R2.userName = R.userName;
       const data = await PAGES[preload.fn](env, R2, Array.isArray(preload.args) ? preload.args : []);
       await flush(env, R2);
@@ -394,6 +503,7 @@ const PAGES = {
       R.configWrites['cfg:clients'] = R.config['cfg:clients'];
       F.refreshClientAlerts_(F.readOrders_(), p.phone);
       F.log_(user, '', on ? 'Liste noire : ajout' : 'Liste noire : retrait', p.phone);
+      R.notes.push({ id: p.phone, kind: on ? 'blacklist:on' : 'blacklist:off', info: note });
       return { phone: p.phone, blacklisted: on };
     });
     await flush(env, R);
@@ -409,7 +519,7 @@ const PAGES = {
     for (const s of specs) {
       if (!s || ['api_dashboard', 'api_listOrders', 'api_queue'].indexOf(s.fn) < 0) { out.push(null); continue; }
       try {
-        const R2 = newReq({ config: R.config, props: R.props }, R.user);
+        const R2 = newReq(R.base, R.user);
         R2.userName = R.userName;
         out.push({ data: await PAGES[s.fn](env, R2, Array.isArray(s.args) ? s.args : []) });
       } catch (e) { out.push(null); }
@@ -417,7 +527,16 @@ const PAGES = {
     return out;
   },
 
-  async api_importStatus() { return run(newReq({ config: {}, props: {} }, null), () => F.api_importStatus()); },
+  async api_importStatus(env, R) {
+    const live = R && isLive(R);
+    const last = live ? (R.base.secret['cf:lastIngest'] || '') : '';
+    return {
+      releasit: { found: !!live, missing: [], lastRun: last, lastError: '' },
+      shopify: { configured: false },
+      sms: null,
+      cloud: true
+    };
+  },
 
   /* ---------------- Corbeille ---------------- */
 
@@ -461,7 +580,7 @@ const PAGES = {
         if (!F.orderRules_(o, user, null).canDelete) { out.skipped.push({ id: id, why: 'déjà envoyée à une société de livraison' }); return; }
         R.extra.push(env.DB.prepare('INSERT OR REPLACE INTO trash (id, data, deleted_at, deleted_by, reason) VALUES (?, ?, ?, ?, ?)').bind(id, JSON.stringify(plain(o)), now, user.name, why));
         R.extra.push(env.DB.prepare('DELETE FROM orders WHERE id = ?').bind(id));
-        R.extra.push(env.DB.prepare('INSERT INTO changes(order_id, kind, at) VALUES (?, ?, ?)').bind(id, 'delete', now));
+        R.extra.push(env.DB.prepare('INSERT INTO changes(order_id, kind, at, info) VALUES (?, ?, ?, ?)').bind(id, 'delete', now, JSON.stringify({ by: user.name, reason: why })));
         F.log_(user, id, 'Suppression', 'Mise à la corbeille' + (why ? ' · Motif : ' + why : ''));
         out.deleted.push(id);
       });
@@ -518,6 +637,7 @@ const PAGES = {
     ids.forEach((id) => {
       R.extra.push(env.DB.prepare('INSERT OR REPLACE INTO blocked (id, at, by) VALUES (?, ?, ?)').bind(id, now, user.name));
       R.extra.push(env.DB.prepare('DELETE FROM trash WHERE id = ?').bind(id));
+      R.notes.push({ id: id, kind: 'purge', info: user.name });
     });
     run(R, () => F.log_(user, '', 'Corbeille vidée', F.plural_(ids.length, 'commande effacée', 'commandes effacées') + ' pour de bon : ' + ids.slice(0, 20).join(', ') + (ids.length > 20 ? '…' : '')));
     await flush(env, R);
@@ -540,6 +660,174 @@ async function manualMax(env) {
     env.DB.prepare("SELECT MAX(CAST(SUBSTR(id, 2) AS INTEGER)) AS m FROM blocked WHERE id GLOB 'M[0-9]*'")
   ]);
   return Math.max(...r.map((x) => (x.results && x.results[0] && x.results[0].m) || 0));
+}
+
+/* ---------------- Étape 2 : Expédier, Suivi, SMS ---------------- */
+
+function idsOf(list) {
+  const out = [];
+  (Array.isArray(list) ? list : [list]).forEach((x) => {
+    const id = String(x && typeof x === 'object' ? x.id : x == null ? '' : x).trim();
+    if (id && out.indexOf(id) < 0) out.push(id);
+  });
+  return out.slice(0, 500);
+}
+async function loadIds(env, R, ids) {
+  for (let i = 0; i < ids.length; i += 90) {
+    const part = ids.slice(i, i + 90);
+    await loadWhere(env, R, 'id IN (' + placeholders(part.length) + ')', part);
+  }
+}
+function isLive(R) { return !!(R.base && R.base.secret && R.base.secret['cf:live']); }
+function needLive(R) {
+  if (!isLive(R)) throw new HttpError(400, 'Pendant l’essai, Ecotrack et les SMS restent dans l’application Google (la version Cloudflare travaille sur une copie).', 'later');
+}
+/** Action qui touche Ecotrack ou httpSMS : jouée avec les appels, enregistrée, compteurs à jour. */
+async function external(env, R, fn, opts) {
+  needLive(R);
+  const res = await runFetch(R, fn);
+  if (opts && opts.alerts) R.extra.push(alertStatement(env, R));
+  await flush(env, R);
+  return withCounts(env, res);
+}
+
+Object.assign(PAGES, {
+  async api_shippingList(env, R) {
+    await loadWhere(env, R, "archived = 0 AND stage = 'confirmed'", []);
+    if (!isLive(R)) return run(R, () => F.api_shippingList());
+    return runFetch(R, () => F.api_shippingList());
+  },
+  async api_shipEcotrack(env, R, args) {
+    await loadIds(env, R, idsOf(args[0]));
+    return external(env, R, () => F.api_shipEcotrack(args[0]));
+  },
+  async api_labelFiles(env, R, args) {
+    await loadIds(env, R, idsOf(args[0]));
+    return external(env, R, () => F.api_labelFiles(args[0]));
+  },
+  async api_markLabelsPrinted(env, R, args) {
+    await loadIds(env, R, idsOf(args[0]));
+    const res = run(R, () => F.api_markLabelsPrinted(args[0]));
+    await flush(env, R);
+    return res;
+  },
+  async api_validateParcels(env, R, args) {
+    await loadIds(env, R, idsOf(args[0]));
+    return external(env, R, () => F.api_validateParcels(args[0], args[1]));
+  },
+  async api_refreshCreated(env, R) {
+    await loadWhere(env, R, "archived = 0 AND stage = 'confirmed' AND tracking != ''", []);
+    if (!isLive(R)) return { checked: 0, updated: 0, missing: 0, message: '' };
+    return external(env, R, () => F.api_refreshCreated());
+  },
+  async api_cancelParcel(env, R, args) {
+    await loadIds(env, R, idsOf([args[0]]));
+    return external(env, R, () => F.api_cancelParcel(args[0]));
+  },
+  async api_ecotrackSyncStatuses(env, R) {
+    await loadWhere(env, R, 'archived = 0 AND track = 1', []);
+    return external(env, R, () => F.api_ecotrackSyncStatuses(), { alerts: true });
+  },
+  async api_trackingOverview(env, R, args) {
+    const days = [7, 30, 90].indexOf(Number(args[0])) >= 0 ? Number(args[0]) : 30;
+    const since = new Date(Date.now() - (days + 1) * 86400000).toISOString();
+    await loadMany(env, R, [['archived = 0 AND track = 1', []], ["archived = 0 AND stage IN ('delivered', 'returned') AND updated >= ?", [since]]]);
+    const res = run(R, () => F.api_trackingOverview(days));
+    R.extra.push(alertStatement(env, R));
+    await flush(env, R);
+    return res;
+  },
+  async api_parcelHistory(env, R, args) {
+    await loadIds(env, R, idsOf([args[0]]));
+    return external(env, R, () => F.api_parcelHistory(args[0]));
+  },
+  async api_followUpResult(env, R, args) {
+    await loadIds(env, R, idsOf([args[0]]));
+    const o = R.byId[String(args[0])];
+    const pq = o ? phoneQuery(phonesOf([o.phone])) : null;
+    await loadMany(env, R, [['archived = 0 AND track = 1', []]].concat(pq ? [pq] : []));
+    return external(env, R, () => F.api_followUpResult(args[0], args[1], args[2]), { alerts: true });
+  },
+  async api_markFollowUp(env, R, args) {
+    await loadWhere(env, R, 'archived = 0 AND track = 1', []);
+    await loadIds(env, R, idsOf([args[0]]));
+    const res = run(R, () => F.api_markFollowUp(args[0]));
+    R.extra.push(alertStatement(env, R));
+    await flush(env, R);
+    return res;
+  },
+  async api_markReturnDamaged(env, R, args) {
+    await loadIds(env, R, idsOf([args[0]]));
+    const res = run(R, () => F.api_markReturnDamaged(args[0]));
+    await flush(env, R);
+    return res;
+  },
+  async api_smsSendNow(env, R) {
+    await loadSmsOrders(env, R);
+    return external(env, R, () => F.api_smsSendNow());
+  },
+  async api_releasitTransfer() { return { added: 0, message: 'Les commandes Releasit arrivent par le classeur Google, chaque minute.' }; },
+  async api_shopifyImport() { return { imported: 0, message: 'Les commandes Shopify arrivent par le classeur Google, toutes les 5 minutes.' }; }
+});
+
+/** Commandes des SMS en attente (le texte se remplit avec la commande). */
+async function loadSmsOrders(env, R) {
+  let q = [];
+  try { q = JSON.parse(R.props.SMS_QUEUE || '[]'); } catch (e) { q = []; }
+  await loadIds(env, R, idsOf(q.map((x) => x && x.i)));
+  return q.length;
+}
+
+/* ---------------- Tâches automatiques (chaque minute) ---------------- */
+
+async function cron(env) {
+  const base = await loadBase(env);
+  if (!base.secret['cf:live']) return { live: false };
+  const robot = { email: '' };
+  const out = {};
+  const settings = (() => { try { return JSON.parse(base.config['cfg:settings'] || '{}'); } catch (e) { return {}; } })();
+  // 1. SMS en attente.
+  try {
+    const R = newReq(base, robot);
+    if (await loadSmsOrders(env, R)) {
+      out.sms = await runFetch(R, () => F.sendSmsQueue_({}));
+      await flush(env, R);
+    }
+  } catch (e) { out.smsError = String(e && e.message ? e.message : e); }
+  // 2. Statuts Ecotrack (toutes les SUIVI_ECOTRACK_MINUTES minutes).
+  const every = Number(settings.SUIVI_ECOTRACK_MINUTES) || 60;
+  const last = Date.parse(base.secret['cf:ecoLast'] || '') || 0;
+  if (Date.now() - last >= every * 60000 - 30000) {
+    const R = newReq(base, robot);
+    try {
+      await loadWhere(env, R, 'archived = 0 AND track = 1', []);
+      out.ecotrack = await runFetch(R, () => F.syncEcotrackStatuses_());
+      R.extra.push(alertStatement(env, R));
+    } catch (e) { out.ecotrackError = String(e && e.message ? e.message : e); }
+    R.extra.push(env.DB.prepare("INSERT INTO kv (key, value) VALUES ('cf:ecoLast', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(new Date().toISOString()));
+    await flush(env, R);
+  }
+  // 3. Entretien de nuit (vers 3 h, heure d'Algérie) : appels sans réponse, corbeille, Journal.
+  const today = F.ymd_(new Date());
+  const hour = new Date(Date.now() + 3600000).getUTCHours(); // heure d'Algérie (UTC+1)
+  if (hour >= 3 && base.secret['cf:nightDay'] !== today) {
+    const R = newReq(base, robot);
+    await loadWhere(env, R, 'archived = 0 AND status IN (?, ?)', [S.NO_ANSWER, S.UNREACHABLE]);
+    out.autoCancelled = run(R, () => F.autoCancelUnreachable_());
+    const now = Date.now();
+    const trashDays = Number(settings.CORBEILLE_JOURS) || 0;
+    if (trashDays > 0) {
+      const cut = new Date(now - trashDays * 86400000).toISOString();
+      R.extra.push(env.DB.prepare("INSERT OR REPLACE INTO blocked (id, at, by) SELECT id, ?, 'Automatique' FROM trash WHERE deleted_at < ?").bind(new Date().toISOString(), cut));
+      R.extra.push(env.DB.prepare('DELETE FROM trash WHERE deleted_at < ?').bind(cut));
+    }
+    const journalDays = Number(settings.JOURNAL_JOURS) || 0;
+    if (journalDays > 0) R.extra.push(env.DB.prepare('DELETE FROM journal WHERE at < ?').bind(new Date(now - journalDays * 86400000).toISOString()));
+    R.extra.push(env.DB.prepare('DELETE FROM changes WHERE at < ?').bind(new Date(now - 30 * 86400000).toISOString()));
+    R.extra.push(env.DB.prepare("INSERT INTO kv (key, value) VALUES ('cf:nightDay', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(today));
+    await flush(env, R);
+  }
+  return out;
 }
 
 /* ---------------- Tableau de bord (comptes faits par la base) ---------------- */
@@ -684,7 +972,7 @@ async function listOrders(env, R, filter) {
   const list = (rows.results || []).map(toOrder);
   const out = run(R, () => list.map((o) => F.serializeOrder_(o)));
   const res = { rows: out, total: total, counts: counts, arrived: 0 };
-  if (filter.withStatus) res.importStatus = await PAGES.api_importStatus();
+  if (filter.withStatus) res.importStatus = await PAGES.api_importStatus(env, R);
   return res;
 }
 
@@ -721,11 +1009,115 @@ async function bridge(request, env, path) {
       db.prepare('SELECT COUNT(*) AS n FROM trash'),
       db.prepare("SELECT value FROM kv WHERE key = 'cf:imported'")
     ]);
-    return { orders: r[0].results[0].n, archived: r[1].results[0].n, trash: r[2].results[0].n, importedAt: r[3].results[0] ? r[3].results[0].value : '' };
+    return { orders: r[0].results[0].n, archived: r[1].results[0].n, trash: r[2].results[0].n, importedAt: r[3].results[0] ? r[3].results[0].value : '', live: !!cf['cf:live'] };
+  }
+
+  /* ---------------- Étape 2 : pont continu (après le basculement) ---------------- */
+
+  // Basculement : la version Cloudflare devient la vraie (Ecotrack, SMS, tâches automatiques).
+  if (path === '/bridge/live') {
+    const st = [];
+    if (body.reset) {
+      ['orders', 'trash', 'blocked', 'changes', 'journal', 'guard'].forEach((t) => st.push(db.prepare('DELETE FROM ' + t)));
+      st.push(db.prepare("DELETE FROM kv WHERE key NOT LIKE 'cf:%'"));
+    }
+    st.push(body.live === false ? db.prepare("DELETE FROM kv WHERE key = 'cf:live'")
+      : db.prepare("INSERT INTO kv (key, value) VALUES ('cf:live', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(new Date().toISOString()));
+    await db.batch(st);
+    const m = await db.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM changes').first();
+    return { live: body.live !== false, seq: m.m };
+  }
+
+  // Réglages et clés (Ecotrack, SMS) envoyés par Apps Script quand ils changent.
+  if (path === '/bridge/config') {
+    const allowed = ['ECOTRACK_URL', 'ECOTRACK_TOKEN', 'SMS_API_KEY', 'SMS_FROM', 'OWNER_EMAIL'];
+    const st = [];
+    Object.keys(body.config || {}).forEach((k) => {
+      if (k.indexOf('cfg:') !== 0) return;
+      st.push(db.prepare('INSERT INTO config (key, value, updated) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated = excluded.updated')
+        .bind(k, String(body.config[k]), new Date().toISOString()));
+    });
+    Object.keys(body.props || {}).forEach((k) => {
+      if (allowed.indexOf(k) < 0) return;
+      const v = body.props[k];
+      st.push(v === null || v === '' ? db.prepare('DELETE FROM kv WHERE key = ?').bind(k)
+        : db.prepare('INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').bind(k, String(v)));
+    });
+    if (body.dropCache) st.push(db.prepare("DELETE FROM kv WHERE key LIKE 'cache:%'"));
+    if (st.length) await db.batch(st);
+    return { ok: true, written: st.length };
+  }
+
+  // Nouvelles commandes (Releasit, Shopify) déjà préparées par Apps Script : ajoutées si elles n'existent pas.
+  if (path === '/bridge/orders') {
+    const list = (body.orders || []).filter((o) => o && String(o.id || '').trim());
+    if (!list.length) return { added: [] };
+    const ids = list.map((o) => String(o.id).trim());
+    const known = {};
+    for (let i = 0; i < ids.length; i += 90) {
+      const part = ids.slice(i, i + 90);
+      const ph = placeholders(part.length);
+      const r = await db.batch([
+        db.prepare('SELECT id FROM orders WHERE id IN (' + ph + ')').bind(...part),
+        db.prepare('SELECT id FROM trash WHERE id IN (' + ph + ')').bind(...part),
+        db.prepare('SELECT id FROM blocked WHERE id IN (' + ph + ')').bind(...part)
+      ]);
+      r.forEach((x) => (x.results || []).forEach((y) => { known[y.id] = true; }));
+    }
+    const fresh = list.filter((o) => !known[String(o.id).trim()]);
+    const st = [];
+    const now = new Date().toISOString();
+    if (fresh.length) {
+      const rows = fresh.map((o) => { const r = rowOf(o); r.archived = 0; return r; });
+      const cols = ['id', 'archived'].concat(ROW_COLS);
+      st.push(db.prepare('INSERT OR IGNORE INTO orders (rev, seq, ' + cols.join(', ') + ') SELECT 0, (SELECT COALESCE(MAX(seq), 0) FROM orders) + key + 1, ' +
+        cols.map((c) => "json_extract(value, '$." + c + "')").join(', ') + ' FROM json_each(?)').bind(JSON.stringify(rows)));
+    }
+    st.push(db.prepare("INSERT INTO kv (key, value) VALUES ('cf:lastIngest', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(now));
+    await db.batch(st);
+    return { added: fresh.map((o) => String(o.id).trim()), skipped: list.length - fresh.length };
+  }
+
+  // Changements à recopier dans le classeur, dans l'ordre (seq).
+  if (path === '/bridge/changes') {
+    const after = Number(body.after) || 0;
+    const limit = Math.min(Math.max(Number(body.limit) || 300, 1), 500);
+    const ch = await db.prepare('SELECT seq, order_id, kind, info FROM changes WHERE seq > ? ORDER BY seq LIMIT ?').bind(after, limit).all();
+    const rows = ch.results || [];
+    const ids = [];
+    rows.forEach((r) => { if (/^(insert|update)$/.test(r.kind) && ids.indexOf(r.order_id) < 0) ids.push(r.order_id); });
+    const data = {};
+    for (let i = 0; i < ids.length; i += 90) {
+      const part = ids.slice(i, i + 90);
+      const r = await db.prepare('SELECT id, data FROM orders WHERE id IN (' + placeholders(part.length) + ')').bind(...part).all();
+      (r.results || []).forEach((x) => { data[x.id] = JSON.parse(x.data); });
+    }
+    // Une commande changée plusieurs fois n'est envoyée qu'une fois (son état actuel).
+    const seen = {};
+    const out = [];
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const r = rows[i];
+      const k = r.kind + '|' + r.order_id;
+      if (/^(insert|update)$/.test(r.kind)) { if (seen['o|' + r.order_id]) continue; seen['o|' + r.order_id] = true; }
+      else if (seen[k]) continue;
+      seen[k] = true;
+      out.unshift({ seq: r.seq, id: r.order_id, kind: r.kind, info: r.info || '', order: data[r.order_id] || null });
+    }
+    return { changes: out, last: rows.length ? rows[rows.length - 1].seq : after, more: rows.length === limit };
+  }
+
+  // Marques de stock posées par Apps Script (Sorti, Rentré, Abîmé…) : la commande ne repart pas dans les changements.
+  if (path === '/bridge/marks') {
+    const marks = (body.marks || []).filter((m) => m && m.id);
+    const st = marks.map((m) => db.prepare("UPDATE orders SET rev = rev + 1, data = json_set(data, '$.stockMove', ?) WHERE id = ?").bind(String(m.stockMove || ''), String(m.id)));
+    if (st.length) await db.batch(st);
+    return { marked: st.length };
   }
 
   if (path === '/bridge/import') {
     const st = [];
+    // Après le basculement, la base est la vraie : une recopie depuis le classeur l'écraserait.
+    if (body.reset && cf['cf:live'] && !body.goLive) throw new HttpError(409, 'La version Cloudflare est la vraie application : la recopie depuis le classeur est désactivée.');
     if (body.reset) {
       ['orders', 'trash', 'blocked', 'changes', 'journal', 'guard'].forEach((t) => st.push(db.prepare('DELETE FROM ' + t)));
       st.push(db.prepare("DELETE FROM kv WHERE key NOT LIKE 'cf:%'"));
@@ -803,6 +1195,9 @@ function page(request) {
 }
 
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(cron(env).catch(() => {}));
+  },
   async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname;
@@ -826,4 +1221,4 @@ export default {
   }
 };
 
-export { stageOf, rowOf, plain, hmac, b64urlText, verifyToken };
+export { stageOf, rowOf, plain, hmac, b64urlText, verifyToken, cron, smsQueueStatement };

@@ -186,13 +186,26 @@
       '<div class="quick" style="margin-top:10px"><button type="button" class="btn" data-act="admin-call" data-fn="api_releasitTransfer">Transférer maintenant</button></div></section>';
 
     var cf = c.cloud || {};
+    if (cf.live) {
+      html += '<section class="card"><div class="detail-head"><div><h2>Cloudflare (la vraie application)</h2><p class="muted">' + icon(cf.error ? 'alert' : 'ok') +
+        'Depuis ' + h(fmtDate(cf.live)) + ' · recopie dans le classeur ' + (cf.sync ? h(ago(cf.sync)) : 'pas encore faite') +
+        (cf.waiting ? ' · ' + plural(cf.waiting, 'commande à envoyer', 'commandes à envoyer') : '') + '</p></div></div>' +
+        (cf.error ? '<p class="small" style="color:var(--danger)">Dernière erreur : ' + h(cf.error) + '</p>' : '') +
+        '<p class="small">Commandes, Confirmation, Expédier et Suivi (Ecotrack, SMS) se font dans la version Cloudflare. Ce classeur reçoit les commandes (Releasit, Shopify) et les lui envoie, garde une copie à jour (chaque minute) et le stock. Bénéfices, Stock, Statistiques et Administration restent ici.</p>' +
+        '<div class="quick" style="margin-top:10px"><a class="btn primary" href="' + h(cf.url) + '" target="_blank" rel="noopener">Ouvrir la version Cloudflare</a>' +
+        '<button type="button" class="btn" data-act="admin-cloud-stop">Revenir à l’application Google</button></div></section>';
+      return html;
+    }
     html += '<section class="card"><div class="detail-head"><div><h2>Cloudflare (version rapide, essai)</h2><p class="muted">' +
       (cf.linked ? '' + icon('ok') + 'Reliée à ' + h(cf.url.replace(/^https?:\/\//, '')) + (cf.last ? ' · données copiées ' + h(ago(cf.last)) : '') : 'Pas encore reliée') + '</p></div></div>' +
       '<p class="small">Étape 1 : la version Cloudflare travaille sur une <strong>copie</strong> (Tableau de bord, Commandes, Confirmation). Cette application reste la vraie : recopiez les données quand vous voulez.</p>' +
       '<form class="form-grid" id="f-cloud" onsubmit="return false">' + text('url', 'Adresse de l’application Cloudflare', cf.url, 'https://dz-smart-shop.votre-nom.workers.dev') + '</form>' +
       '<div class="quick" style="margin-top:10px"><button type="button" class="btn primary" data-act="admin-save-cloud">' + (cf.linked ? 'Relier à nouveau et copier' : 'Relier et copier les données') + '</button>' +
       (cf.linked ? '<button type="button" class="btn" data-act="admin-call" data-fn="api_cloudCopy">Recopier les données</button>' +
-        '<a class="btn" href="' + h(cf.url) + '" target="_blank" rel="noopener">Ouvrir la version Cloudflare</a>' : '') + '</div></section>';
+        '<a class="btn" href="' + h(cf.url) + '" target="_blank" rel="noopener">Ouvrir la version Cloudflare</a>' : '') + '</div>' +
+      (cf.linked ? '<p class="small" style="margin-top:14px"><strong>Étape 2 :</strong> quand l’essai vous convient, basculez : la version Cloudflare devient la vraie application (Commandes, Confirmation, Expédier, Suivi, Ecotrack, SMS). Ce classeur garde une copie à jour, le stock, Bénéfices et Statistiques.</p>' +
+        '<div class="quick" style="margin-top:10px"><button type="button" class="btn primary" data-act="admin-cloud-live">Basculer vers Cloudflare…</button></div>' : '') +
+      '</section>';
     return html;
   }
 
@@ -364,6 +377,24 @@
     'admin-save-sms': function (el) { var f = formData('f-sms'); saveConnection('api_saveSms', [f.key, f.from], el); },
     'admin-save-shopify': function (el) { var f = formData('f-shopify'); saveConnection('api_saveShopify', [f.shop, f.key, f.secret], el); },
     'admin-save-cloud': function (el) { var f = formData('f-cloud'); saveConnection('api_cloudConnect', [f.url], el); },
+    'admin-cloud-live': function () {
+      DZ.showModal(DZ.modalHead('Basculer vers Cloudflare ?') +
+        '<p>La version Cloudflare devient la vraie application pour Commandes, Confirmation, Expédier et Suivi (Ecotrack, SMS). Le lien de cette application ouvrira la version Cloudflare.</p>' +
+        '<label class="check" style="display:flex;gap:8px;align-items:flex-start;margin:12px 0"><input type="checkbox" id="cf-clear"> <span>Effacer d’abord les commandes de test (onglets Commandes et Corbeille). Leurs n° ne reviendront pas.</span></label>' +
+        '<p class="small">Les réglages, l’équipe, les produits et le stock sont gardés. Retour possible à tout moment (bouton « Revenir à l’application Google »).</p>' +
+        '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Annuler</button>' +
+        '<button type="button" class="btn primary" data-act="admin-cloud-live-go">Basculer</button></div>');
+    },
+    'admin-cloud-live-go': function (el) {
+      var box = document.getElementById('cf-clear');
+      var clear = !!(box && box.checked);
+      DZ.closeModal();
+      saveConnection('api_cloudGoLive', [{ clear: clear }], el);
+    },
+    'admin-cloud-stop': function () {
+      DZ.confirmModal('Revenir à l’application Google ?', 'Les derniers changements de Cloudflare sont recopiés dans le classeur, puis cette application redevient la vraie (Ecotrack et SMS compris). La version Cloudflare repasse en essai.', 'admin-cloud-stop-go', 'Revenir');
+    },
+    'admin-cloud-stop-go': function (el) { DZ.closeModal(); saveConnection('api_cloudStopLive', [], el); },
     'admin-save-settings': saveSettings,
     'admin-team-add': function (el) { var f = formData('f-team'); teamCall('api_teamSave', [{ email: f.email, name: f.name, role: f.role }], el); },
     'admin-team-remove': function (el) {

@@ -141,6 +141,7 @@ function api_saveEcotrack(url, token) {
   var t = String(token || '').trim() || cur.token;
   if (!t) throw new Error('Collez le jeton API de votre compte Ecotrack.');
   saveEcotrackConfig_(url || cur.url, t);
+  cloudConfigChanged_();
   adminLog_(user, 'Connexion Ecotrack enregistrée', normalizeEcotrackUrl_(url || cur.url) + (String(token || '').trim() ? ' · nouveau jeton' : ''));
   var res = { saved: true, ok: true, message: '' };
   try {
@@ -161,6 +162,7 @@ function api_saveSms(key, from) {
   var k = String(key || '').trim() || cur.key;
   if (!k) throw new Error('Collez la clé API de la page Settings de httpsms.com.');
   var r = saveSmsConfig_(k, from || ('0' + String(cur.from || '').replace(/^\+213/, '')));
+  cloudConfigChanged_();
   adminLog_(user, 'SMS enregistrés', 'Numéro ' + r.from + (String(key || '').trim() ? ' · nouvelle clé' : ''));
   return { saved: true, message: 'Enregistré : les SMS partiront du ' + r.from + '.', connections: connectionsData_() };
 }

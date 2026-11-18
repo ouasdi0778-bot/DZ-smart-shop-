@@ -605,6 +605,7 @@ function processNewRowsNow_() {
       writeFields_(ctx, o, f);
       log_(user, o.id, 'Nouvelle commande', 'Ajoutée à la file de confirmation · ' + f.alert);
     });
+    cloudOutboxAdd_(pending.map(function (item) { return String(item.order.id); }));
     return pending.length;
   });
 }

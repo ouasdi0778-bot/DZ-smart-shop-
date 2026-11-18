@@ -168,6 +168,7 @@ function cancelParcel_(id, user) {
 }
 
 function api_cancelParcel(id) {
+  cloudGuard_();
   return cancelParcel_(String(id), currentUser_());
 }
 
@@ -221,14 +222,14 @@ function deleteSheetRows_(sh, rows) {
 }
 
 /** Met des commandes à la corbeille (sous verrou). Renvoie { deleted, skipped: [{ id, why }] }. */
-function trashOrders_(ctx, ids, why, user) {
+function trashOrders_(ctx, ids, why, user, force) {
   var out = { deleted: [], skipped: [] };
   var titles = ctx.sheet.getRange(1, 1, 1, ctx.width).getValues()[0];
   var picked = [];
   ids.forEach(function (id) {
     var o = findOrder_(ctx, id);
     if (!o) { out.skipped.push({ id: id, why: 'introuvable' }); return; }
-    if (!orderRules_(o, user, null).canDelete) { out.skipped.push({ id: id, why: 'déjà envoyée à une société de livraison' }); return; }
+    if (!force && !orderRules_(o, user, null).canDelete) { out.skipped.push({ id: id, why: 'déjà envoyée à une société de livraison' }); return; }
     picked.push(o);
   });
   if (!picked.length) return out;
@@ -259,6 +260,7 @@ function trashOrders_(ctx, ids, why, user) {
  * société de livraison). La ligne est déplacée dans l'onglet Corbeille.
  */
 function api_deleteOrder(id, reason) {
+  cloudGuard_();
   var user = requireAdminFor_('supprimer une commande');
   var why = String(reason == null ? '' : reason).trim();
   return withLock_(function () {
@@ -275,6 +277,7 @@ function api_deleteOrder(id, reason) {
 
 /** Met plusieurs commandes à la corbeille ; celles déjà envoyées à une société de livraison sont ignorées. */
 function api_deleteOrders(ids, reason) {
+  cloudGuard_();
   var user = requireAdminFor_('supprimer des commandes');
   var list = idList_(ids);
   if (!list.length) throw new Error('Cochez au moins une commande.');
@@ -338,6 +341,7 @@ function readTrash_() {
 
 /** Remet plusieurs commandes de la corbeille dans l'onglet Commandes. */
 function api_restoreOrders(ids) {
+  cloudGuard_();
   var user = requireAdminFor_('restaurer une commande');
   var list = idList_(ids);
   if (!list.length) throw new Error('Cochez au moins une commande.');
@@ -416,6 +420,7 @@ function purgeTrash_(ids, user, olderThanDays) {
 
 /** « Vider la corbeille » (ids absent) ou « Supprimer définitivement » les commandes cochées. */
 function api_purgeTrash(ids) {
+  cloudGuard_();
   var user = requireAdminFor_('vider la corbeille');
   return withLock_(function () {
     var r = purgeTrash_(ids, user, 0);

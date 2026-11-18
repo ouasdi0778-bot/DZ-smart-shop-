@@ -217,6 +217,7 @@ function api_labelFiles(rawIds) {
 
 /** Note « Bordereau imprimé » sur les commandes : items = [{ id, tracking }]. */
 function api_markLabelsPrinted(items) {
+  cloudGuard_();
   var user = currentUser_();
   var list = (items || []).filter(function (it) { return it && it.id; }).slice(0, 500);
   if (!list.length) return { marked: 0, labels: {} };
@@ -279,6 +280,7 @@ function validateRefusal_(resp) {
  * Renvoie { results: [{ id, client, tracking, ok, message }], counts }.
  */
 function api_validateParcels(rawIds, pickup) {
+  cloudGuard_();
   var user = requireStockAccess_();
   var ids = uniqueIds_(rawIds);
   if (!ids.length) throw new Error('Aucun colis sélectionné.');
@@ -368,6 +370,7 @@ function api_validateParcels(rawIds, pickup) {
 
 /** À l'ouverture de « Créés, à valider » : relit chez Ecotrack les colis pas encore validés. */
 function api_refreshCreated() {
+  cloudGuard_();
   var s = syncEcotrackStatuses_({ onlyCreated: true });
   var parts = [];
   if (s.updated) parts.push(plural_(s.updated, 'colis validé chez Ecotrack est passé', 'colis validés chez Ecotrack sont passés') + ' dans Suivi');

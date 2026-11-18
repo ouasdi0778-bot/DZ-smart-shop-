@@ -381,4 +381,5 @@ function cached_(key, compute) {
 function clearConfigCache_(keys) {
   (keys || allConfigKeys_()).forEach(function (k) { delete CFG_MEMO_[k]; });
   try { CacheService.getScriptCache().removeAll(keys || allConfigKeys_()); } catch (e) { /* sans importance */ }
+  try { cloudConfigChanged_(); } catch (e) { /* sans importance */ }
 }

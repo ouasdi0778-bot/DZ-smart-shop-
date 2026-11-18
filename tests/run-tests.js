@@ -3953,6 +3953,140 @@ test('Cloudflare : relier (clé créée ici), copier par paquets, jeton de conne
   assert.throws(function () { api_cloudConnect(CF.host); }, /déjà reliée à un autre classeur/);
 });
 
+test('Cloudflare étape 2 : basculer, nouvelles commandes envoyées, changements recopiés (stock, corbeille, liste noire), retour', function () {
+  seedDemo_();
+  __mock.setUser('admin@example.com');
+  transferReleasitOrders_(); // commandes d'exemple en attente dans l'onglet RELEASIT
+  var CF = globalThis.__fakeCloud;
+  saveEcotrackConfig_(FAKE.host, FAKE.token);
+  saveSmsConfig_(HTTPSMS.key, '0550 12 34 56');
+  api_cloudConnect(CF.host);
+  var p = PropertiesService.getScriptProperties();
+  // Avant : rien ne change (essai).
+  assert.strictEqual(cloudLive_(), false);
+  assert.strictEqual(cloudSync_(), null);
+  // Basculer en effaçant les commandes de test.
+  var before = readOrders_().orders.map(function (o) { return String(o.id); });
+  CF.calls = [];
+  var r = api_cloudGoLive({ clear: true });
+  assert.ok(/C’est fait/.test(r.message), r.message);
+  assert.strictEqual(readOrders_().orders.length, 0, 'onglet Commandes vidé');
+  assert.ok(before.every(function (id) { return trashIds_()[id]; }), 'n° de test bloqués (ils ne reviendront pas)');
+  assert.ok(cloudLive_());
+  assert.strictEqual(CF.live, true);
+  assert.strictEqual(r.connections.cloud.live.length > 0, true);
+  assert.strictEqual(CF.calls[0].path, '/bridge/import');
+  assert.strictEqual(CF.calls[0].body.goLive, true);
+  assert.strictEqual(CF.config.props.ECOTRACK_TOKEN, FAKE.token, 'clé Ecotrack envoyée à Cloudflare');
+  assert.strictEqual(CF.config.props.SMS_API_KEY, HTTPSMS.key);
+  assert.ok(JSON.parse(CF.config.config['cfg:products']).rows.length, 'produits envoyés');
+  // Recopie depuis le classeur refusée ; le lien de l'application ouvre Cloudflare ; les actions sur les commandes sont refusées ici.
+  assert.throws(function () { api_cloudCopy(); }, /plus recopiées/);
+  assert.ok(doGet({ parameter: {} }).getContent().indexOf(CF.host + '/#jeton=') >= 0, 'lien → version Cloudflare');
+  assert.ok(doGet({ parameter: { google: '1' } }).getContent().indexOf('#jeton=') < 0, '?google=1 → application Google');
+  assert.strictEqual(JSON.parse(deviceInfo_('benefices')).page, 'benefices', 'page demandée dans le lien (&page=)');
+  assert.strictEqual(JSON.parse(deviceInfo_('"><script>')).page, undefined, 'rien d’autre qu’un nom de page');
+  assert.throws(function () { api_updateOrder('1001', { notes: 'x' }); }, /version Cloudflare/);
+  assert.throws(function () { api_shipEcotrack(['1001']); }, /version Cloudflare/);
+  assert.strictEqual(api_bootstrap(null).cloud.live, true);
+
+  // 1. Une commande Releasit arrive : préparée ici (SMS « reçue » ici), envoyée à Cloudflare.
+  releasitTab();
+  releasitAdd({ id: '9001', client: 'Client Test', phone: '0550998877', product: 'cover iPhone  - iphone 15 PRO MAX' });
+  transferReleasitOrders_();
+  assert.deepStrictEqual(JSON.parse(p.getProperty('CF_OUTBOX')), ['9001']);
+  var smsBefore = readSmsQueue_(p).length;
+  var sync = cloudSync_();
+  assert.strictEqual(sync.sent, 1, JSON.stringify(sync));
+  assert.strictEqual(CF.orders['9001'].status, STATUS.TO_CONFIRM, 'envoyée préparée');
+  assert.strictEqual(p.getProperty('CF_OUTBOX'), null);
+  // 2. Cloudflare la confirme puis l'expédie (Ecotrack) : recopié ici, stock baissé ici, marque renvoyée.
+  var o = JSON.parse(JSON.stringify(CF.orders['9001']));
+  o.status = STATUS.SHIPPED; o.carrier = 'Ecotrack'; o.tracking = 'ECO-TEST-1'; o.agent = 'Imane'; o.confirmedAt = new Date().toISOString(); o.updated = new Date().toISOString();
+  o.stockMove = 'n’importe quoi (la colonne appartient au classeur)';
+  CF.change('update', '9001', o);
+  var stock = function () { return readCatalogFromSheet_().rows.filter(function (x) { return x.model === 'iphone 15 PRO MAX'; })[0].stock; };
+  var s0 = stock();
+  sync = cloudSync_();
+  var row = findOrder_(readOrders_(), '9001');
+  assert.strictEqual(row.status, STATUS.SHIPPED);
+  assert.strictEqual(String(row.tracking), 'ECO-TEST-1');
+  assert.ok(row.confirmedAt instanceof Date, 'dates recopiées comme des dates');
+  assert.strictEqual(String(row.stockMove), STOCK_OUT_, 'marque du classeur, pas celle reçue');
+  assert.strictEqual(stock(), s0 - 1, 'stock baissé dans l’onglet Produits');
+  assert.deepStrictEqual(CF.marks, [{ id: '9001', stockMove: STOCK_OUT_ }]);
+  assert.strictEqual(readSmsQueue_(p).length, smsBefore, 'pas de 2e SMS : Cloudflare l’a déjà mis en file');
+  assert.strictEqual(p.getProperty('CF_SEQ'), '1');
+  // Rien de nouveau : rien n'est réécrit.
+  CF.calls = [];
+  sync = cloudSync_();
+  assert.deepStrictEqual([sync.updated, sync.added, sync.marks], [0, 0, 0]);
+  // 3. Retour reçu puis abîmé dans Cloudflare.
+  o.status = STATUS.RETURNED; o.carrierStatus = 'retour_recu'; o.followUp = new Date().toISOString();
+  CF.change('update', '9001', o);
+  cloudSync_();
+  row = findOrder_(readOrders_(), '9001');
+  assert.strictEqual(String(row.stockMove), STOCK_BACK_);
+  assert.strictEqual(stock(), s0, 'retour reçu : stock remonté');
+  o.stockMove = STOCK_DAMAGED_;
+  CF.change('update', '9001', o);
+  cloudSync_();
+  assert.strictEqual(String(findOrder_(readOrders_(), '9001').stockMove), STOCK_DAMAGED_);
+  assert.strictEqual(stock(), s0 - 1, 'abîmé : retiré du stock');
+  // 4. Commande créée dans Cloudflare, liste noire, suppression.
+  var m = JSON.parse(JSON.stringify(CF.orders['9001']));
+  m.id = 'M0001'; m.status = STATUS.TO_CONFIRM; m.phone = '0661223344'; m.client = 'Saisie Cloudflare'; m.tracking = ''; m.carrier = '';
+  CF.change('insert', 'M0001', m);
+  CF.change('blacklist:on', '0661223344', null, 'Refus répétés');
+  sync = cloudSync_();
+  assert.strictEqual(sync.added, 1);
+  assert.ok(findOrder_(readOrders_(), 'M0001'), 'commande saisie dans Cloudflare recopiée');
+  assert.strictEqual(readClients_().blacklist['0661223344'], true, 'liste noire recopiée dans l’onglet Clients');
+  assert.strictEqual(p.getProperty('CF_CONFIG_DIRTY'), null, 'réglages renvoyés dans la même minute');
+  assert.ok(JSON.parse(CF.config.config['cfg:clients']).blacklist['0661223344']);
+  CF.change('delete', 'M0001', null, JSON.stringify({ by: 'Admin', reason: 'Doublon' }));
+  cloudSync_();
+  assert.strictEqual(findOrder_(readOrders_(), 'M0001'), null);
+  assert.ok(readTrash_().rowsById['M0001'], 'mise dans l’onglet Corbeille');
+  CF.change('purge', 'M0001', null, 'Admin');
+  cloudSync_();
+  assert.ok(!readTrash_(), 'effacée pour de bon');
+  assert.ok(trashIds_()['M0001'], 'n° bloqué');
+  // 5. Tâche de chaque minute : lien Cloudflare au lieu de la lecture Ecotrack.
+  CF.calls = [];
+  FAKE.calls = [];
+  var h = everyMinute();
+  assert.ok(h.tasks.cloud && h.tasks.cloud.ok, JSON.stringify(h.tasks.cloud));
+  assert.strictEqual(FAKE.calls.length, 0, 'Ecotrack lu par Cloudflare, pas ici');
+  var tasks = healthData_().tasks;
+  assert.ok(tasks.some(function (t) { return t.key === 'cloud' && t.state === 'ok'; }), JSON.stringify(tasks));
+  assert.ok(tasks.some(function (t) { return t.key === 'ecotrack' && t.state === 'off' && /Cloudflare/.test(t.note); }));
+  // Un réglage change : renvoyé.
+  clearConfigCache_(['cfg:settings']);
+  assert.strictEqual(p.getProperty('CF_CONFIG_DIRTY'), '1');
+  cloudSync_();
+  assert.strictEqual(p.getProperty('CF_CONFIG_DIRTY'), null);
+  // Erreur réseau : notée, rien de perdu.
+  CF.refuse = 'Panne';
+  releasitAdd({ id: '9002', client: 'Client Deux', phone: '0550998866' });
+  transferReleasitOrders_();
+  assert.ok(cloudSync_().error);
+  assert.ok(/Panne/.test(p.getProperty('CF_LAST_ERROR')));
+  assert.deepStrictEqual(JSON.parse(p.getProperty('CF_OUTBOX')), ['9002'], 'gardée pour la minute suivante');
+  CF.refuse = '';
+  assert.strictEqual(cloudSync_().sent, 1);
+  assert.strictEqual(p.getProperty('CF_LAST_ERROR'), null);
+  // Une confirmatrice ne peut pas basculer ; retour à l'application Google.
+  asAgent();
+  assert.throws(function () { api_cloudStopLive(); }, /Réservé/);
+  asAdmin();
+  r = api_cloudStopLive();
+  assert.ok(/redevient|de nouveau/.test(r.message));
+  assert.strictEqual(cloudLive_(), false);
+  assert.strictEqual(CF.live, false);
+  assert.doesNotThrow(function () { api_updateOrder('9001', { notes: 'de retour' }); });
+});
+
 test('fichier unique dist/Code.gs : à jour et fonctionnel', function () {
   var bundle = require('./build-bundle.js');
   var expected = bundle.build();

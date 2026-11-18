@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.4
+## Ce que fait la version 1.5
 
 | Écran | Contenu |
 |---|---|
@@ -522,7 +522,7 @@ Ce que fait l'outil pour rester rapide :
 - Le **tableau de bord sur « Tout »** compte aussi les commandes archivées.
 - La liste Commandes, elle, ne montre pas les archives. Pour retrouver une vieille commande, cherchez-la dans l'onglet Archive du classeur (Ctrl + F).
 
-## Version Cloudflare (plus rapide) — étape 1 : essai
+## Version Cloudflare (plus rapide) — étapes 1 et 2
 
 Le moteur de l'application tourne chez **Cloudflare** (offre gratuite) au lieu d'Apps Script. Chaque clic répond en environ 0,1 à 0,3 s au lieu d'environ 1 s, plusieurs confirmatrices travaillent en même temps sans s'attendre, et la vitesse ne baisse pas avec le nombre de commandes.
 
@@ -531,10 +531,25 @@ Le moteur de l'application tourne chez **Cloudflare** (offre gratuite) au lieu d
 | Étape | Contenu | État |
 |---|---|---|
 | **1. Essai** | Tableau de bord, Commandes (recherche, fiche, modification, nouvelle commande, liste noire, corbeille), Confirmation, sur une **copie** des données | prête |
-| 2 | Expédier et Suivi (Ecotrack), SMS, arrivée des nouvelles commandes (Releasit, Shopify), recopie automatique dans le classeur, stock | à faire |
-| 3 | Bénéfices, Statistiques, Administration, Stock ; passage définitif | à faire |
+| **2. Basculement** | Expédier et Suivi (Ecotrack : colis, bordereaux, validation, statuts, résultat de l'appel), SMS, tâches automatiques ; arrivée des nouvelles commandes (Releasit, Shopify) ; **recopie automatique dans le classeur** chaque minute ; stock | prête (v1.5) — basculer quand vous voulez |
+| 3 | Bénéfices, Statistiques, Administration, Stock dans Cloudflare ; archivage | à faire |
 
 **Pendant l'essai, cette application Google reste la vraie** : ce que vous faites dans la version Cloudflare ne revient pas dans le classeur. Recopiez les données quand vous voulez (Administration › Connexions › Cloudflare › Recopier les données).
+
+### Étape 2 : basculer (Administration › Connexions › Cloudflare › Basculer vers Cloudflare)
+
+Une case permet d'**effacer d'abord les commandes de test** (onglets Commandes et Corbeille) : leurs n° sont gardés dans « Numéros effacés », Releasit et Shopify ne les recréent pas. Les réglages, l'équipe, les produits et le stock sont gardés. Ensuite :
+
+| Où | Quoi |
+|---|---|
+| **Version Cloudflare** (la vraie) | Tableau de bord, Commandes, Confirmation, **Expédier**, **Suivi** ; Ecotrack (création des colis, bordereaux, validation, statuts lus selon le réglage `SUIVI_ECOTRACK_MINUTES`) ; SMS des changements de statut ; chaque minute : SMS en attente, statuts Ecotrack, et la nuit (3 h) : appels sans réponse annulés, corbeille et Journal raccourcis |
+| **Classeur Google** | La **porte d'entrée** : Releasit (chaque minute) et Shopify (toutes les 5 minutes) arrivent ici, sont préparées comme avant (téléphone, wilaya, frais, alerte, SMS « commande reçue »), puis envoyées à Cloudflare dans la minute. Une **copie à jour** : chaque minute, les changements faits dans Cloudflare sont recopiés dans les onglets Commandes, Corbeille et Clients. Le **stock** (onglet Produits) : colis partis, retours reçus, retours abîmés |
+| **Application Google** (lien `?google=1`, ouverte depuis la version Cloudflare : flèche ↗) | Bénéfices, Stock, Statistiques, Administration. Le lien habituel de l'application Google ouvre la version Cloudflare. Les pages des commandes y renvoient vers Cloudflare, et leurs actions y sont refusées |
+
+- **Réglages** : modifiés dans le classeur ou dans Administration (onglets Paramètres, Équipe, Produits, Tarifs, Clients, clés Ecotrack et SMS), ils sont **renvoyés à Cloudflare dans la minute**.
+- **État de l'outil** : la tâche « Lien avec la version Cloudflare » (chaque minute) apparaît dans Administration › État de l'outil ; une panne y est signalée (et par e-mail) ; rien n'est perdu : les commandes à envoyer attendent la minute suivante.
+- **Retour en arrière** : Administration › Connexions › Cloudflare › **Revenir à l'application Google** : les derniers changements sont recopiés dans le classeur, puis l'application Google redevient la vraie (Ecotrack et SMS compris).
+- **Archivage** : après le basculement, l'onglet Commandes n'est plus archivé la nuit (la base Cloudflare garde tout) ; l'archivage revient à l'étape 3.
 
 ### Comment ça marche
 
@@ -552,6 +567,7 @@ Le moteur de l'application tourne chez **Cloudflare** (offre gratuite) au lieu d
    node cloudflare/build.js
    cd cloudflare
    npx wrangler d1 execute dz-smart-shop --remote --file schema.sql   # une fois (déjà fait)
+   npx wrangler d1 execute dz-smart-shop --remote --file migrations/0002-etape2.sql   # v1.5 (déjà fait)
    npx wrangler deploy                                                # à chaque nouvelle version
    ```
    La page de l'interface est intégrée au moteur : une seule mise en ligne, rien d'autre à envoyer.
@@ -562,8 +578,9 @@ Le moteur de l'application tourne chez **Cloudflare** (offre gratuite) au lieu d
 
 ```
 npm run cf:build    # cloudflare/dist/worker.js et cloudflare/public/index.html
-npm run cf:test     # 11 tests : la version Cloudflare (base SQLite locale) comparée à la version Google
+npm run cf:test     # 15 tests : la version Cloudflare (base SQLite locale) comparée à la version Google, Ecotrack et SMS contre de faux serveurs
 npm run cf:serve    # la version Cloudflare sur http://localhost:8787/connexion, avec les données d'exemple
+node cloudflare/test/serve.js 8787 --etape2   # la même, après le basculement (Expédier, Suivi, faux Ecotrack et SMS)
 ```
 
 ```
@@ -571,12 +588,15 @@ cloudflare/
   schema.sql          la base D1 (commandes avec index, réglages, journal, corbeille…)
   src/gas-shim.js     remplaçants des services Google (dates à l'heure d'Algérie, propriétés, mémoire)
   src/overrides.js    lecture et écriture des commandes dans la base au lieu du classeur
-  src/server.js       le moteur : connexion, pages, tableau de bord et liste en SQL, pont avec Apps Script
-  src/client-cloud.*  l'interface : google.script.run → /api, écran de connexion
+  src/server.js       le moteur : connexion, pages, tableau de bord et liste en SQL, appels à Ecotrack et httpSMS
+                      (action rejouée avec les réponses), tâches de chaque minute, pont avec Apps Script
+  src/client-cloud.*  l'interface : google.script.run → /api, écran de connexion, étape 1 ou 2
+  migrations/         changements de la base pour les versions suivantes
   build.js            assemble le moteur (code de apps-script/ compris) et la page
   wrangler.toml       configuration Cloudflare
   test/               imitation de D1 (SQLite), tests, serveur local
-apps-script/Cloud.gs  côté Google : relier, copier les données, page de connexion (?cf=1)
+apps-script/Cloud.gs  côté Google : relier, copier les données, page de connexion (?cf=1), basculer,
+                      envoi des nouvelles commandes, recopie des changements et du stock, retour en arrière
 ```
 
 ## Tester sans Google (pour les développeurs)
@@ -584,7 +604,7 @@ apps-script/Cloud.gs  côté Google : relier, copier les données, page de conne
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 136 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 137 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
@@ -614,7 +634,7 @@ apps-script/
   Profit.gs     bénéfice des commandes, dépenses et gains (sur un intervalle), graphiques, rentabilité par produit et par campagne
   Sms.gs        SMS automatiques selon le statut (httpSMS)
   Calls.gs      appels sans réponse : 3 par jour pendant 3 jours, annulation automatique, historique des appels, motif « en attente »
-  Cloud.gs      lien avec la version Cloudflare : relier, copier les données, page de connexion
+  Cloud.gs      lien avec la version Cloudflare : relier, copier, connexion, basculer, recopie chaque minute
   Api.gs        application web, menu du classeur, fonctions appelées par l'interface
   Setup.gs      création/réparation du classeur et du traitement automatique
   Index.html    page de l'application
@@ -633,7 +653,7 @@ tests/          imitation de Google Apps Script, tests, données d'exemple, aper
 3. **SMS** : confirmation par réponse « 1 » / « 2 » du client, et accusé de réception des SMS (demande une adresse publique pour httpSMS).
 4. **Yalidine** (Ecotrack est fait, bordereaux compris) : création des colis, suivi des statuts et bordereaux.
 5. **Sauvegarde automatique** du classeur chaque nuit dans Google Drive, rapprochement des versements d'Ecotrack, résumé du matin par e-mail.
-6. **Version Cloudflare** : étapes 2 et 3 (voir « Version Cloudflare »).
+6. **Version Cloudflare** : étape 3 (voir « Version Cloudflare »).
 
 ## Limites connues
 

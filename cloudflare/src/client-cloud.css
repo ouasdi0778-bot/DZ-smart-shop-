@@ -1,4 +1,7 @@
-/* Version Cloudflare (étape 1) : pages pas encore disponibles masquées, écran de connexion. */
+/* Version Cloudflare. Étape 1 (essai) : pages pas encore disponibles masquées. Étape 2 : Bénéfices,
+   Stock, Statistiques, Administration s'ouvrent dans l'application Google (flèche). Écran de connexion. */
+.cf-step2 [data-route="benefices"] span:not(.badge):not(.nav-ic)::after, .cf-step2 [data-route="stock"] span:not(.badge):not(.nav-ic)::after,
+.cf-step2 [data-route="stats"] span:not(.badge):not(.nav-ic)::after, .cf-step2 [data-route="admin"] span:not(.badge):not(.nav-ic)::after { content: " ↗"; opacity: .6; }
 .cf-step1 [data-route="expeditions"], .cf-step1 [data-route="suivi"], .cf-step1 [data-route="stock"],
 .cf-step1 [data-route="benefices"], .cf-step1 [data-route="stats"], .cf-step1 [data-route="admin"],
 .cf-step1 [data-more] { display: none !important; }

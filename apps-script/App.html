@@ -353,7 +353,8 @@
       if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
     });
     closeModal();
-    if (r === 'tableau') pageDashboard();
+    if (cloudMoved(r)) { /* page déplacée */ }
+    else if (r === 'tableau') pageDashboard();
     else if (r === 'commandes') pageOrders();
     else if (r === 'expeditions') pageShipping();
     else if (r === 'suivi') pageTracking();
@@ -2847,7 +2848,19 @@
     $all('[data-admin]').forEach(function (el) { el.hidden = !b.user.admin; });
     $all('[data-stockrole]').forEach(function (el) { el.hidden = !b.user.stock; });
     $all('[data-more]').forEach(function (el) { el.hidden = !(b.user.admin || b.user.stock); });
+    document.documentElement.classList.toggle('cf-live', !!(b.cloud && b.cloud.live));
     showHealth(b.health);
+  }
+
+  /** Après le basculement (application Google) : Commandes, Confirmation, Expédier et Suivi sont sur Cloudflare. */
+  var CLOUD_ROUTES = ['commandes', 'confirmation', 'expeditions', 'suivi'];
+  function cloudMoved(r) {
+    var url = S.boot && S.boot.cloud && S.boot.cloud.live ? S.boot.cloud.url : '';
+    if (!url || CLOUD_ROUTES.indexOf(r) < 0) return false;
+    view.innerHTML = '<section class="card"><h2>Cette page est dans la version Cloudflare</h2>' +
+      '<p class="sub">Commandes, Confirmation, Expédier et Suivi se font maintenant dans la version Cloudflare (plus rapide). Ici : Bénéfices, Stock, Statistiques et Administration.</p>' +
+      '<div class="quick" style="margin-top:12px"><a class="btn primary" href="' + h(url) + '/#/' + h(r) + '" target="_top">Ouvrir la version Cloudflare</a></div></section>';
+    return true;
   }
 
   function started() {
@@ -2860,6 +2873,8 @@
       '<p class="sub" style="margin-top:12px">Vérifiez que le classeur est partagé avec votre adresse Google (en Éditeur), puis rechargez la page.</p>';
   }
 
+  // Lien avec une page demandée (« &page=benefices », depuis la version Cloudflare).
+  if (window.DZ_DEVICE && DZ_DEVICE.page && ROUTES.indexOf(DZ_DEVICE.page) >= 0 && !location.hash) location.hash = '#/' + DZ_DEVICE.page;
   var mem = memRead();
   if (mem) {
     // Ouverture instantanée : la dernière version des pages, gardée sur cet appareil, s'affiche tout de suite ;
