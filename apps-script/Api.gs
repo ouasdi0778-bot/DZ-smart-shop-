@@ -18,7 +18,9 @@ function hasBundledHtml_() {
   return typeof HTML_FILES_ !== 'undefined';
 }
 
-function doGet() {
+function doGet(e) {
+  // Connexion à la version Cloudflare (Cloud.gs) : ce lien avec « ?cf=1 ».
+  if (e && e.parameter && e.parameter.cf) return cloudGateway_();
   var template = hasBundledHtml_()
     ? HtmlService.createTemplate(HTML_FILES_.Index)
     : HtmlService.createTemplateFromFile('Index');

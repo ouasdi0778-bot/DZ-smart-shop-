@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.3
+## Ce que fait la version 1.4
 
 | Écran | Contenu |
 |---|---|
@@ -522,12 +522,69 @@ Ce que fait l'outil pour rester rapide :
 - Le **tableau de bord sur « Tout »** compte aussi les commandes archivées.
 - La liste Commandes, elle, ne montre pas les archives. Pour retrouver une vieille commande, cherchez-la dans l'onglet Archive du classeur (Ctrl + F).
 
+## Version Cloudflare (plus rapide) — étape 1 : essai
+
+Le moteur de l'application tourne chez **Cloudflare** (offre gratuite) au lieu d'Apps Script. Chaque clic répond en environ 0,1 à 0,3 s au lieu d'environ 1 s, plusieurs confirmatrices travaillent en même temps sans s'attendre, et la vitesse ne baisse pas avec le nombre de commandes.
+
+**Les règles ne sont pas réécrites** : la version Cloudflare embarque le même code que `apps-script/` (statuts, appels, alertes, rappels, verrouillage, corbeille…). Seuls changent la lecture et l'écriture des données : une base **D1** au lieu de l'onglet Commandes. Les tests vérifient que les deux versions donnent les mêmes résultats sur les mêmes données.
+
+| Étape | Contenu | État |
+|---|---|---|
+| **1. Essai** | Tableau de bord, Commandes (recherche, fiche, modification, nouvelle commande, liste noire, corbeille), Confirmation, sur une **copie** des données | prête |
+| 2 | Expédier et Suivi (Ecotrack), SMS, arrivée des nouvelles commandes (Releasit, Shopify), recopie automatique dans le classeur, stock | à faire |
+| 3 | Bénéfices, Statistiques, Administration, Stock ; passage définitif | à faire |
+
+**Pendant l'essai, cette application Google reste la vraie** : ce que vous faites dans la version Cloudflare ne revient pas dans le classeur. Recopiez les données quand vous voulez (Administration › Connexions › Cloudflare › Recopier les données).
+
+### Comment ça marche
+
+- **Connexion** : l'application Cloudflare renvoie vers le lien de cette application Google avec `?cf=1`. Google sait qui vous êtes ; un **jeton signé** (valable 30 jours sur l'appareil) vous renvoie vers Cloudflare. Seuls les membres de l'onglet **Équipe** (et le propriétaire du classeur) entrent.
+- **Lien entre les deux** : une clé partagée est créée par Apps Script et enregistrée par Cloudflare au premier contact (« Relier et copier les données ») ; ensuite, seule cette clé permet de copier des données ou de relier un autre classeur. Elle n'est jamais affichée.
+- **Deux personnes sur la même commande** : chaque commande a un n° de version ; la deuxième personne reçoit « Cette commande vient d'être modifiée par quelqu'un d'autre » et rien n'est écrasé.
+- **Limites gratuites de Cloudflare** : les pages les plus utilisées lisent seulement les commandes utiles (index de la base), en moins de 50 instructions par action.
+
+### Mise en ligne (une seule fois)
+
+1. Créer un compte gratuit sur **cloudflare.com** (un e-mail suffit).
+2. Créer un **jeton d'accès** : *My Profile › API Tokens › Create Token*, modèle **Edit Cloudflare Workers**, ajouter la permission **Account › D1 › Edit**, puis *Create Token*. Le jeton se donne dans le formulaire sécurisé de Claude, **jamais dans le chat**.
+3. Mise en ligne (faite par Claude avec le jeton) :
+   ```
+   node cloudflare/build.js
+   cd cloudflare
+   npx wrangler d1 create dz-smart-shop          # puis mettre l'identifiant dans wrangler.toml
+   npx wrangler d1 execute dz-smart-shop --remote --file schema.sql
+   npx wrangler deploy
+   ```
+4. Dans cette application Google : **Administration › Connexions › Cloudflare**, coller l'adresse (`https://dz-smart-shop.<votre-nom>.workers.dev`), puis **Relier et copier les données**.
+5. Ouvrir l'adresse Cloudflare, **Se connecter avec Google**. Sur téléphone : menu du navigateur › *Ajouter à l'écran d'accueil*.
+
+### Pour les développeurs
+
+```
+npm run cf:build    # cloudflare/dist/worker.js et cloudflare/public/index.html
+npm run cf:test     # 11 tests : la version Cloudflare (base SQLite locale) comparée à la version Google
+npm run cf:serve    # la version Cloudflare sur http://localhost:8787/connexion, avec les données d'exemple
+```
+
+```
+cloudflare/
+  schema.sql          la base D1 (commandes avec index, réglages, journal, corbeille…)
+  src/gas-shim.js     remplaçants des services Google (dates à l'heure d'Algérie, propriétés, mémoire)
+  src/overrides.js    lecture et écriture des commandes dans la base au lieu du classeur
+  src/server.js       le moteur : connexion, pages, tableau de bord et liste en SQL, pont avec Apps Script
+  src/client-cloud.*  l'interface : google.script.run → /api, écran de connexion
+  build.js            assemble le moteur (code de apps-script/ compris) et la page
+  wrangler.toml       configuration Cloudflare
+  test/               imitation de D1 (SQLite), tests, serveur local
+apps-script/Cloud.gs  côté Google : relier, copier les données, page de connexion (?cf=1)
+```
+
 ## Tester sans Google (pour les développeurs)
 
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 135 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 136 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
@@ -557,6 +614,7 @@ apps-script/
   Profit.gs     bénéfice des commandes, dépenses et gains (sur un intervalle), graphiques, rentabilité par produit et par campagne
   Sms.gs        SMS automatiques selon le statut (httpSMS)
   Calls.gs      appels sans réponse : 3 par jour pendant 3 jours, annulation automatique, historique des appels, motif « en attente »
+  Cloud.gs      lien avec la version Cloudflare : relier, copier les données, page de connexion
   Api.gs        application web, menu du classeur, fonctions appelées par l'interface
   Setup.gs      création/réparation du classeur et du traitement automatique
   Index.html    page de l'application
@@ -575,7 +633,7 @@ tests/          imitation de Google Apps Script, tests, données d'exemple, aper
 3. **SMS** : confirmation par réponse « 1 » / « 2 » du client, et accusé de réception des SMS (demande une adresse publique pour httpSMS).
 4. **Yalidine** (Ecotrack est fait, bordereaux compris) : création des colis, suivi des statuts et bordereaux.
 5. **Sauvegarde automatique** du classeur chaque nuit dans Google Drive, rapprochement des versements d'Ecotrack, résumé du matin par e-mail.
-6. **Encore plus rapide** : sortir le moteur d'Apps Script (Cloudflare Workers + base D1, gratuit pour ce volume), Google Sheets restant la copie lisible. Chaque clic passerait d'environ 1 s à environ 0,1 s.
+6. **Version Cloudflare** : étapes 2 et 3 (voir « Version Cloudflare »).
 
 ## Limites connues
 

@@ -11,7 +11,7 @@ var path = require('path');
 var ROOT = path.join(__dirname, '..');
 var SRC = path.join(ROOT, 'apps-script');
 var OUT = path.join(ROOT, 'dist', 'Code.gs');
-var ORDER = ['Config.gs', 'Utils.gs', 'Orders.gs', 'Ecotrack.gs', 'Tracking.gs', 'Labels.gs', 'FollowUp.gs', 'Health.gs', 'Stats.gs', 'Admin.gs', 'Speed.gs', 'Shopify.gs', 'Releasit.gs', 'Rules.gs', 'Maintenance.gs', 'Stock.gs', 'Profit.gs', 'Sms.gs', 'Calls.gs', 'Api.gs', 'Setup.gs'];
+var ORDER = ['Config.gs', 'Utils.gs', 'Orders.gs', 'Ecotrack.gs', 'Tracking.gs', 'Labels.gs', 'FollowUp.gs', 'Health.gs', 'Stats.gs', 'Admin.gs', 'Speed.gs', 'Shopify.gs', 'Releasit.gs', 'Rules.gs', 'Maintenance.gs', 'Stock.gs', 'Profit.gs', 'Sms.gs', 'Calls.gs', 'Cloud.gs', 'Api.gs', 'Setup.gs'];
 var HTML = ['Index', 'Styles', 'App', 'PageStock', 'PageProfit', 'PageStats', 'PageAdmin'];
 
 /**
@@ -69,7 +69,7 @@ function build() {
   return parts.join('\n');
 }
 
-module.exports = { build: build, OUT: OUT, minify: minify, HTML: HTML };
+module.exports = { build: build, OUT: OUT, minify: minify, HTML: HTML, ORDER: ORDER };
 
 if (require.main === module) {
   fs.mkdirSync(path.dirname(OUT), { recursive: true });

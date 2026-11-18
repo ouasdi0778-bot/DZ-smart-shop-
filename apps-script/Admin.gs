@@ -117,7 +117,8 @@ function connectionsData_() {
     releasit: {
       found: rel.found, missing: rel.missing || [],
       lastRun: String(p.getProperty(RELEASIT.PROP_LAST_RUN) || ''), lastError: String(p.getProperty(RELEASIT.PROP_LAST_ERROR) || '')
-    }
+    },
+    cloud: cloudStatus_()
   };
 }
 

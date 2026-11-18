@@ -1,0 +1,15 @@
+# DZ Smart Shop sur Cloudflare (offre gratuite) : le moteur (Worker), l'interface (fichiers de public/)
+# et la base de données D1. Construire d'abord : node cloudflare/build.js
+name = "dz-smart-shop"
+main = "dist/worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = true
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dz-smart-shop"
+database_id = "A_REMPLIR_APRES_wrangler_d1_create"

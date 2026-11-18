@@ -1,0 +1,11 @@
+/* Version Cloudflare (étape 1) : pages pas encore disponibles masquées, écran de connexion. */
+.cf-step1 [data-route="expeditions"], .cf-step1 [data-route="suivi"], .cf-step1 [data-route="stock"],
+.cf-step1 [data-route="benefices"], .cf-step1 [data-route="stats"], .cf-step1 [data-route="admin"],
+.cf-step1 [data-more] { display: none !important; }
+.cf-login { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; background: #10241B; }
+.cf-card { width: 100%; max-width: 420px; background: #FFFFFF; border-radius: 16px; padding: 28px 24px; display: grid; gap: 14px; color: #15181E; font: 15px/1.5 system-ui, sans-serif; }
+.cf-card h1 { font: 700 22px system-ui, sans-serif; margin: 0; }
+.cf-card p { margin: 0; }
+.cf-btn { display: flex; align-items: center; justify-content: center; min-height: 48px; border-radius: 10px; background: #0B6B4C; color: #FFFFFF; font-weight: 600; text-decoration: none; }
+.cf-msg { background: #FFF3DC; color: #8A5200; padding: 10px 12px; border-radius: 10px; }
+.cf-small { font-size: 13px; color: #5B6170; }

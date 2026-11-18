@@ -184,6 +184,15 @@
       '<p class="small">' + lastLine(c.releasit.lastRun, c.releasit.lastError) +
       (c.releasit.missing && c.releasit.missing.length ? ' Informations absentes : ' + h(c.releasit.missing.join(', ')) + '.' : '') + '</p>' +
       '<div class="quick" style="margin-top:10px"><button type="button" class="btn" data-act="admin-call" data-fn="api_releasitTransfer">Transférer maintenant</button></div></section>';
+
+    var cf = c.cloud || {};
+    html += '<section class="card"><div class="detail-head"><div><h2>Cloudflare (version rapide, essai)</h2><p class="muted">' +
+      (cf.linked ? '' + icon('ok') + 'Reliée à ' + h(cf.url.replace(/^https?:\/\//, '')) + (cf.last ? ' · données copiées ' + h(ago(cf.last)) : '') : 'Pas encore reliée') + '</p></div></div>' +
+      '<p class="small">Étape 1 : la version Cloudflare travaille sur une <strong>copie</strong> (Tableau de bord, Commandes, Confirmation). Cette application reste la vraie : recopiez les données quand vous voulez.</p>' +
+      '<form class="form-grid" id="f-cloud" onsubmit="return false">' + text('url', 'Adresse de l’application Cloudflare', cf.url, 'https://dz-smart-shop.votre-nom.workers.dev') + '</form>' +
+      '<div class="quick" style="margin-top:10px"><button type="button" class="btn primary" data-act="admin-save-cloud">' + (cf.linked ? 'Relier à nouveau et copier' : 'Relier et copier les données') + '</button>' +
+      (cf.linked ? '<button type="button" class="btn" data-act="admin-call" data-fn="api_cloudCopy">Recopier les données</button>' +
+        '<a class="btn" href="' + h(cf.url) + '" target="_blank" rel="noopener">Ouvrir la version Cloudflare</a>' : '') + '</div></section>';
     return html;
   }
 
@@ -354,6 +363,7 @@
     'admin-save-ecotrack': function (el) { var f = formData('f-ecotrack'); saveConnection('api_saveEcotrack', [f.url, f.token], el); },
     'admin-save-sms': function (el) { var f = formData('f-sms'); saveConnection('api_saveSms', [f.key, f.from], el); },
     'admin-save-shopify': function (el) { var f = formData('f-shopify'); saveConnection('api_saveShopify', [f.shop, f.key, f.secret], el); },
+    'admin-save-cloud': function (el) { var f = formData('f-cloud'); saveConnection('api_cloudConnect', [f.url], el); },
     'admin-save-settings': saveSettings,
     'admin-team-add': function (el) { var f = formData('f-team'); teamCall('api_teamSave', [{ email: f.email, name: f.name, role: f.role }], el); },
     'admin-team-remove': function (el) {

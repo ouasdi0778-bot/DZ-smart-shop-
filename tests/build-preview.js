@@ -39,7 +39,7 @@ var lazyPages = 'var HTML_FILES_ = {' + bundle.HTML.filter(function (n) { return
   return JSON.stringify(n) + ': ' + JSON.stringify(readHtml(n));
 }).join(',') + '};';
 
-var server = [read(path.join(__dirname, 'gas-mock.js')), read(path.join(__dirname, 'fake-ecotrack.js')), read(path.join(__dirname, 'fake-shopify.js')), read(path.join(__dirname, 'fake-httpsms.js'))]
+var server = [read(path.join(__dirname, 'gas-mock.js')), read(path.join(__dirname, 'fake-ecotrack.js')), read(path.join(__dirname, 'fake-shopify.js')), read(path.join(__dirname, 'fake-httpsms.js')), read(path.join(__dirname, 'fake-cloud.js'))]
   .concat(fs.readdirSync(SRC).filter(function (f) { return f.endsWith('.gs'); }).sort()
     .map(function (f) { return '// ---- ' + f + '\n' + read(path.join(SRC, f)); }))
   .concat([lazyPages, read(path.join(__dirname, 'seed.js'))])

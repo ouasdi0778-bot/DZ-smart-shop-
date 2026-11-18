@@ -296,6 +296,20 @@
       var bin = '';
       for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i] & 255);
       return typeof btoa === 'function' ? btoa(bin) : Buffer.from(bin, 'binary').toString('base64');
+    },
+    /** Texte (UTF-8) ou octets → base64 « web » (- et _ au lieu de + et /), avec le = final, comme Apps Script. */
+    base64EncodeWebSafe: function (value) {
+      var bytes = typeof value === 'string' ? Array.prototype.slice.call(new TextEncoder().encode(value)) : value;
+      return g.Utilities.base64Encode(bytes).replace(/\+/g, '-').replace(/\//g, '_');
+    },
+    /** HMAC-SHA256 (octets signés, comme Apps Script) : seulement sous Node (tests). */
+    computeHmacSha256Signature: function (value, key) {
+      var crypto = require('crypto');
+      return Array.prototype.slice.call(crypto.createHmac('sha256', key).update(value, 'utf8').digest()).map(function (b) { return b > 127 ? b - 256 : b; });
+    },
+    getUuid: function () {
+      var c = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto : require('crypto');
+      return c.randomUUID();
     }
   };
 

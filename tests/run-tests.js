@@ -16,6 +16,8 @@ load(path.join(__dirname, 'gas-mock.js'));
 load(path.join(__dirname, 'fake-ecotrack.js'));
 load(path.join(__dirname, 'fake-shopify.js'));
 load(path.join(__dirname, 'fake-httpsms.js'));
+load(path.join(__dirname, 'fake-cloud.js'));
+globalThis.require = require; // HMAC de l'imitation (Utilities.computeHmacSha256Signature)
 fs.readdirSync(SRC).filter(function (f) { return f.endsWith('.gs'); }).sort()
   .forEach(function (f) { load(path.join(SRC, f)); });
 load(path.join(__dirname, 'seed.js'));
@@ -3902,6 +3904,53 @@ test('Confirmation : toutes les informations modifiables (produit, prix, sociét
   processNewRows();
   var o2 = api_recordCall('#F2', 'confirm', { fields: { wilaya: '31 - Oran', mode: 'Domicile', carrier: 'Ecotrack' } });
   assert.deepStrictEqual([o2.shipping, o2.total], [700, 1700], 'tarif Ecotrack d’Oran à domicile');
+});
+
+test('Cloudflare : relier (clé créée ici), copier par paquets, jeton de connexion signé, page de connexion', function () {
+  seedDemo_();
+  __mock.setUser('admin@example.com');
+  var CF = globalThis.__fakeCloud;
+  assert.throws(function () { api_cloudConnect('http://pas-https.example'); }, /Adresse invalide/);
+  var r = api_cloudConnect(CF.host + '/');
+  assert.ok(/commandes? copiées?/.test(r.message), r.message);
+  assert.strictEqual(r.connections.cloud.url, CF.host);
+  assert.strictEqual(r.connections.cloud.linked, true);
+  var secret = PropertiesService.getScriptProperties().getProperty('CF_SECRET');
+  assert.ok(secret.length >= 32);
+  assert.deepStrictEqual(CF.calls.map(function (c) { return c.path; }).slice(0, 2), ['/bridge/register', '/bridge/import']);
+  assert.strictEqual(CF.calls[0].body.secret, secret);
+  assert.ok(CF.calls[0].body.gateway.indexOf('https://') === 0);
+  var first = CF.calls[1].body;
+  assert.strictEqual(first.reset, true);
+  assert.ok(JSON.parse(first.config['cfg:settings']).NOM_BOUTIQUE, 'réglages tels que l’outil les calcule');
+  var sent = CF.calls.filter(function (c) { return c.body && c.body.orders; }).reduce(function (n, c) { return n + c.body.orders.length; }, 0);
+  assert.strictEqual(sent, readOrders_().orders.length, 'toutes les commandes copiées');
+  assert.ok(CF.calls[CF.calls.length - 1].body.done);
+  assert.ok(CF.calls.slice(1).every(function (c) { return c.key === secret; }), 'clé partagée envoyée à chaque appel');
+  assert.ok(logActions().indexOf('Cloudflare') >= 0);
+  // Recopier : même clé, même adresse.
+  CF.calls = [];
+  api_cloudCopy();
+  assert.strictEqual(CF.calls[0].body.reset, true);
+  // Jeton : « v1.<données>.<signature HMAC> », 30 jours.
+  var token = cloudToken_('admin@example.com', secret);
+  var parts = token.split('.');
+  assert.strictEqual(parts[0], 'v1');
+  var data = JSON.parse(Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+  assert.strictEqual(data.e, 'admin@example.com');
+  assert.ok(data.x > Date.now() + 29 * 86400000);
+  var expect = require('crypto').createHmac('sha256', secret).update(parts[0] + '.' + parts[1]).digest('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  assert.strictEqual(parts[2], expect, 'signature vérifiable par Cloudflare');
+  // Page de connexion (lien Apps Script avec ?cf=1).
+  var page = doGet({ parameter: { cf: '1' } }).getContent();
+  assert.ok(page.indexOf(CF.host + '/#jeton=v1.') >= 0, 'lien vers Cloudflare avec le jeton');
+  assert.ok(page.indexOf('admin@example.com') >= 0);
+  // Une confirmatrice ne peut pas relier ; une autre adresse Cloudflare déjà reliée refuse.
+  asAgent();
+  assert.throws(function () { api_cloudConnect(CF.host); }, /Réservé/);
+  asAdmin();
+  PropertiesService.getScriptProperties().deleteProperty('CF_SECRET');
+  assert.throws(function () { api_cloudConnect(CF.host); }, /déjà reliée à un autre classeur/);
 });
 
 test('fichier unique dist/Code.gs : à jour et fonctionnel', function () {
