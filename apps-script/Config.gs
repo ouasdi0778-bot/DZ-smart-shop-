@@ -7,7 +7,7 @@
  */
 
 var APP_NAME = 'DZ Smart Shop';
-var APP_VERSION = '1.6.0';
+var APP_VERSION = '1.7.0';
 
 /** Noms des onglets du classeur. */
 var SHEET = {
@@ -100,9 +100,9 @@ var STATUS_LIST = [
 /** Couleurs des statuts (classeur et application). */
 var STATUS_STYLE = {
   'À confirmer': { bg: '#E6EEFB', fg: '#1E4FA8' },
-  'Pas de réponse': { bg: '#EEF0F3', fg: '#3D4350' },
-  'Rappeler': { bg: '#FFF3DC', fg: '#8A5200' },
-  'Injoignable': { bg: '#F3E6E6', fg: '#7A2E2E' },
+  'Pas de réponse': { bg: '#FFF1E2', fg: '#B4570A' },   // orange : le client ne répond pas
+  'Rappeler': { bg: '#F3EDFF', fg: '#6D3BD7' },          // violet : rappel demandé (rendez-vous)
+  'Injoignable': { bg: '#FFF1E2', fg: '#B4570A' },       // orange, comme « Pas de réponse »
   'Confirmée': { bg: '#E3F2EC', fg: '#0B6B4C' },
   'Expédiée': { bg: '#EFE9FB', fg: '#5B34A8' },
   'En livraison': { bg: '#E6F3F7', fg: '#0E6177' },

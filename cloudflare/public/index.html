@@ -387,6 +387,123 @@ padding: 8px 10px; box-shadow: 0 -6px 18px rgba(16,36,28,.12); grid-template-col
 body:has(.outcomes) #toast { bottom: calc(150px + env(safe-area-inset-bottom)); }
 .modal { border-radius: 0; min-height: 100%; }
 }
+.q-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--ink-2); padding: 0 2px 4px; }
+.q-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.q-legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.q-legend i.q-new { background: #3B6FD8; } .q-legend i.q-na { background: #E8730C; } .q-legend i.q-cb { background: #7C4DDB; }
+.q-item.q-new, .q-item.q-na, .q-item.q-cb, .q-item.q-other { border-left-width: 5px; }
+.q-item.q-new { border-left-color: #3B6FD8; }
+.q-item.q-na { border-left-color: #E8730C; background: #FFF6EC; border-color: #FAD7B3; border-left-color: #E8730C; }
+.q-item.q-cb { border-left-color: #7C4DDB; background: #F6F1FF; border-color: #DCCDFB; border-left-color: #7C4DDB; }
+.q-item.q-other { border-left-color: #9AA3AF; }
+.q-item.q-na.q-recall { background: #FFF1E2; box-shadow: 0 0 0 2px rgba(232,115,12,.2); }
+.q-item.q-cb.q-recall { background: #F3EDFF; box-shadow: 0 0 0 2px rgba(124,77,219,.2); }
+.q-item.q-waiting.q-na { background: #FFF6EC; }
+.q-item[aria-current="true"] { border-width: 2px; border-left-width: 5px; border-color: var(--brand); padding: 12px 12px 12px 12px; }
+.q-st { display: inline-flex; align-items: center; gap: 5px; font: 600 12px/1 var(--font); padding: 5px 9px; border-radius: 999px; color: #FFFFFF; white-space: nowrap; }
+.q-st .ic { width: 13px; height: 13px; }
+.q-new .q-st { background: #E6EEFB; color: #1E4FA8; }
+.q-na .q-st { background: #E8730C; }
+.q-cb .q-st { background: #7C4DDB; }
+.q-quiet { font-size: 12px; color: var(--muted); align-self: center; }
+.q-now { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; }
+.q-na .q-now { color: #B45309; } .q-cb .q-now { color: #5B21B6; }
+.q-pulse { width: 9px; height: 9px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 0 currentColor; animation: q-pulse 1.6s ease-out infinite; }
+@keyframes q-pulse { 0% { box-shadow: 0 0 0 0 rgba(232,115,12,.45); } 100% { box-shadow: 0 0 0 7px rgba(232,115,12,0); } }
+@media (prefers-reduced-motion: reduce) { .q-pulse { animation: none; } }
+.q-na .q-motif { color: #B45309; }
+.q-latepill { background: #FBE7E7 !important; color: #A12626 !important; }
+.q-latepill .ic { width: 12px; height: 12px; margin-right: 3px; }
+.q-dots { display: inline-flex; align-items: center; gap: 3px; align-self: center; }
+.q-dots i { width: 8px; height: 8px; border-radius: 50%; background: #DADDE3; display: inline-block; }
+.q-na .q-dots i.on { background: #E8730C; } .q-cb .q-dots i.on { background: #7C4DDB; }
+.q-dots em { font-style: normal; font-size: 11.5px; color: var(--muted); margin-left: 4px; }
+#cstats span.st-cb { background: #F3EDFF; border-color: #DCCDFB; color: #5B21B6; }
+#cstats span.st-na { background: #FFF1E2; border-color: #FAD7B3; color: #9A4A06; }
+[dir="auto"] { unicode-bidi: plaintext; }
+.brief { display: grid; gap: 10px; margin-bottom: 10px; }
+.brief-line { display: flex; gap: 12px; align-items: flex-start; font-size: 15px; color: var(--ink-2); }
+.brief-line .lab { flex: 0 0 72px; color: var(--muted); font-size: 13px; padding-top: 2px; }
+.brief-total { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #E3F2EC; border: 1px solid #BFE0D2; border-radius: 12px; padding: 12px 16px; }
+.brief-total span { color: var(--brand); font-weight: 600; }
+.brief-total b { font: 700 28px/1 var(--font-title); color: var(--brand-dark); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.brief-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.brief-foot .d-edit-btn { margin-left: auto; min-height: 40px; }
+.edit-box { border-top: 1px dashed var(--line-2); padding-top: 14px; margin-top: 4px; }
+.outcome-card { position: sticky; bottom: 0; z-index: 6; box-shadow: 0 -8px 20px rgba(16,36,28,.08); }
+.outcomes kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px; margin-left: 8px;
+border-radius: 5px; font: 600 11px/1 var(--font); background: rgba(0,0,0,.07); color: inherit; opacity: .8; }
+.outcomes .btn.primary kbd { background: rgba(255,255,255,.22); }
+@media (min-width: 861px) {
+.outcome-card .outcomes { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.outcome-card .outcomes .btn.big { padding: 0 10px; gap: 6px; font-size: 14.5px; white-space: nowrap; min-width: 0; }
+.outcome-card .outcomes .btn.big .opt { display: none; }
+.outcome-card .outcomes kbd { margin-left: 4px; }
+}
+@media (hover: none), (max-width: 860px) { .outcomes kbd { display: none; } }
+#undo-bar { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); z-index: 61; display: flex; align-items: center; gap: 14px;
+min-width: min(440px, calc(100% - 32px)); max-width: calc(100% - 32px); background: var(--ink); color: #FFFFFF; padding: 10px 12px 10px 16px;
+border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.25); font-size: 15px; opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s; overflow: hidden; }
+#undo-bar.show { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+#undo-bar .grow { flex: 1; }
+#undo-bar button { background: var(--accent); color: var(--ink); border: 0; border-radius: 8px; padding: 10px 16px; font: 700 14px var(--font); cursor: pointer; min-height: 40px; }
+#undo-bar .undo-time { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: var(--accent); transform-origin: left; animation: undo-time linear forwards; }
+@keyframes undo-time { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+body:has(#undo-bar.show) #toast { opacity: 0; }
+@media (max-width: 860px) {
+.page-head.confirm-head h1 { font-size: 19px; }
+.page-head.confirm-head .sub { display: none; }
+.page-head.confirm-head { margin-bottom: 8px; }
+.detail-head { align-items: stretch; }
+.detail-head .d-actions { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; width: 100%; }
+.detail-head .d-actions .btn { min-height: 52px; justify-content: center; }
+.detail-head .d-actions .d-call { font-size: 17px; }
+.detail-head .d-actions .queue-toggle { gap: 6px; padding: 0 12px; }
+#d-wa .lbl { display: none; }
+#d-wa { min-width: 52px; padding: 0 12px; }
+.outcome-card { position: static; box-shadow: none; }
+.outcome-card h3 { display: none; }
+.brief-total b { font-size: 26px; }
+#undo-bar { bottom: calc(150px + env(safe-area-inset-bottom)); }
+}
+.q-item.q-new[aria-current="true"] { border-left-color: #3B6FD8; }
+.q-item.q-na[aria-current="true"] { border-left-color: #E8730C; }
+.q-item.q-cb[aria-current="true"] { border-left-color: #7C4DDB; }
+.kpi .value { white-space: nowrap; font-size: clamp(22px, 1.9vw, 28px); }
+.kpi .kpi-row { flex-wrap: wrap; }
+.src-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; color: var(--muted); font-size: 13px; margin: -2px 0 10px; }
+.src-line strong { color: var(--ink-2); }
+.src-dot { width: 8px; height: 8px; border-radius: 50%; background: #2E9E6A; flex: none; margin-right: 2px; }
+.src-dot.warn { background: #D98A1C; }
+.src-line .link-btn { font-size: 13px; }
+table.data tbody tr.compact > td.m-sum + td, table.data tbody tr.compact > td.sel + td.m-sum + td { box-shadow: inset 4px 0 0 var(--st, transparent); }
+.result-row.track-alert { padding-left: 12px; margin-left: -4px; border-left: 4px solid transparent; }
+.result-row.track-alert.lv-urgent { border-left-color: #C03434; }
+.result-row.track-alert.lv-warn { border-left-color: #D98A1C; }
+.result-row.track-alert.lv-info { border-left-color: #3B6FD8; }
+.track-actions { align-items: center; }
+.btn.icon-only { min-height: 40px; min-width: 40px; padding: 0 10px; justify-content: center; }
+.more-menu { position: relative; }
+.more-menu > summary { list-style: none; font-size: 18px; letter-spacing: 1px; cursor: pointer; }
+.more-menu > summary::-webkit-details-marker { display: none; }
+.more-menu .menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; min-width: 200px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+box-shadow: 0 10px 28px rgba(16,36,28,.14); padding: 6px; display: grid; }
+.more-menu .menu a, .more-menu .menu button { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border: 0; background: none; border-radius: 8px;
+color: var(--ink); font: 500 14px var(--font); text-decoration: none; text-align: left; cursor: pointer; }
+.more-menu .menu a:hover, .more-menu .menu button:hover { background: var(--soft); }
+@media (max-width: 860px) {
+.grid-kpi { grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid-kpi .card.kpi { padding: 12px; }
+.grid-kpi .kpi .label { font-size: 12px; }
+.grid-kpi .kpi .value { font-size: 23px; }
+.grid-kpi .kpi .spark { width: 56px; height: 18px; }
+.grid-kpi .kpi .note { font-size: 11.5px; }
+.grid-kpi .kpi-ic { display: none; }
+.grid-kpi > .card:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.outcome-card { padding: 0; border: 0; background: transparent; }
+.outcome-card #d-panel:not(:empty) { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.more-menu .menu { right: 0; }
+}
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }
 </style>
@@ -488,7 +605,7 @@ body:has(.outcomes) #toast { bottom: calc(150px + env(safe-area-inset-bottom)); 
   var STEP_KEY = 'dz-smart-shop:step';
   /** Pages restées dans l'application Google (étape 3) : ouvertes là-bas. */
   var EXTERNAL = ['benefices', 'stock', 'stats', 'admin'];
-  var VERSION = '1.6.0';
+  var VERSION = '1.7.0';
 
   /** Même empreinte que shortHash_ (Api.gs) : clé de la mémoire sur l'appareil, sans l'adresse. */
   function shortHash(text) {
@@ -559,7 +676,8 @@ body:has(.outcomes) #toast { bottom: calc(150px + env(safe-area-inset-bottom)); 
           fetch('/api/' + name, {
             method: 'POST',
             headers: { 'content-type': 'application/json', authorization: 'Bearer ' + session.t },
-            body: JSON.stringify(args)
+            body: JSON.stringify(args),
+            keepalive: name === 'api_recordCall' // envoyé même si l'application est fermée juste après
           }).then(function (r) { return r.json(); }).then(function (r) {
             if (r && r.ok) {
               if (name === 'api_bootstrap' && r.data && r.data.cloud) applyStep(r.data.cloud);
@@ -1106,6 +1224,10 @@ function listKey() { return JSON.stringify(listArgs(false)); }
 function statusCard(inner) {
 return '<div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px;padding:12px 16px">' + inner + '</div>';
 }
+function srcLine(ok, inner, act, actLabel) {
+return '<div class="src-line"><span class="src-dot ' + (ok ? 'ok' : 'warn') + '"></span><span>' + inner + '</span>' +
+(act ? ' · <button type="button" class="link-btn" data-act="' + act + '">' + h(actLabel) + '</button>' : '') + '</div>';
+}
 function loadShopStatus() {
 call('api_importStatus').then(renderShopStatus).catch(function () {});
 }
@@ -1117,9 +1239,8 @@ var r = st.releasit;
 var s = st.shopify;
 var html = '';
 if (r.found) {
-html += statusCard('<span><strong>Releasit</strong> · ' + (r.lastRun ? 'dernière lecture ' + h(ago(r.lastRun)) : 'pas encore lu') +
-' · transfert automatique chaque minute</span>' +
-'<button type="button" class="btn" style="min-height:40px" data-act="releasit-transfer">Transférer maintenant</button>');
+html += srcLine(!r.lastError, '<strong>Releasit</strong> : arrivée automatique chaque minute' + (r.lastRun ? ' · dernière lecture ' + h(ago(r.lastRun)) : ''),
+'releasit-transfer', 'transférer maintenant');
 if (r.missing.length) {
 html += '<div class="error-box" role="alert" style="margin-bottom:14px;background:#FFF3DC;color:#8A5200">Onglet RELEASIT : colonne(s) absente(s) : ' +
 h(r.missing.join(', ')) + '. Ajoutez-les dans les réglages Google Sheets de Releasit.</div>';
@@ -1127,17 +1248,15 @@ h(r.missing.join(', ')) + '. Ajoutez-les dans les réglages Google Sheets de Rel
 if (r.lastError) html += '<div style="margin-bottom:14px">' + errorBox(r.lastError) + '</div>';
 }
 if (s.configured) {
-html += statusCard('<span><strong>Shopify</strong> · ' + h(s.shop) + ' · ' + (s.lastRun ? 'dernière importation ' + h(ago(s.lastRun)) : 'pas encore importé') +
-' · importation automatique toutes les 5 minutes</span>' +
-'<button type="button" class="btn" style="min-height:40px" data-act="shop-import">Importer maintenant</button>') +
+html += srcLine(!s.lastError, '<strong>Shopify</strong> : importation toutes les 5 minutes' + (s.lastRun ? ' · dernière ' + h(ago(s.lastRun)) : ''),
+'shop-import', 'importer maintenant') +
 (s.lastError ? '<div style="margin-bottom:14px">' + errorBox(s.lastError) + '</div>' : '');
 }
 var sm = st.sms;
 if (sm && sm.configured) {
-html += statusCard('<span><strong>SMS</strong> · depuis le ' + h(sm.from) + ' · ' + h(sm.hours) + ' · ' +
-(sm.waiting ? sm.waiting + ' en attente' : 'aucun en attente') + (sm.lastRun ? ' · dernier passage ' + h(ago(sm.lastRun)) : '') +
-'<br><span class="small">Statuts avec SMS : ' + h(sm.statuses.join(', ') || 'aucun') + '</span></span>' +
-(S.boot.user.admin && sm.waiting ? '<button type="button" class="btn" style="min-height:40px" data-act="sms-send">Envoyer maintenant</button>' : '')) +
+html += srcLine(!sm.lastError, '<strong>SMS</strong> : depuis le ' + h(sm.from) + ' · ' + (sm.waiting ? sm.waiting + ' en attente' : 'aucun en attente') +
+'<span class="src-more" title="' + h('Statuts avec SMS : ' + (sm.statuses.join(', ') || 'aucun')) + '"> · ' + plural(sm.statuses.length, 'statut avec SMS', 'statuts avec SMS') + '</span>',
+S.boot.user.admin && sm.waiting ? 'sms-send' : '', 'envoyer maintenant') +
 (sm.lastError ? '<div style="margin-bottom:14px">' + errorBox(sm.lastError) + '</div>' : '');
 }
 if (!r.found && !s.configured) {
@@ -1231,15 +1350,15 @@ res.rows.forEach(function (o) {
 var stc = (S.boot.styles[o.status] || {}).fg || '#CFD4DB';
 html += '<tr class="clickable compact' + (selOn ? ' selectable' : '') + '" style="--st:' + stc + '" data-act="open-order" data-id="' + h(o.id) + '">' +
 (selOn ? selCell('orders', o.id) : '') +
-'<td class="m-sum" data-label=""><span class="l1"><span>' + (selOn ? '<span data-stop class="m-sel">' + selBox('orders', o.id) + '</span>' : '') + h(o.client || '—') + '</span><span class="num">' + money(o.total) + '</span></span>' +
+'<td class="m-sum" data-label=""><span class="l1"><span>' + (selOn ? '<span data-stop class="m-sel">' + selBox('orders', o.id) + '</span>' : '') + '<span dir="auto">' + h(o.client || '—') + '</span></span><span class="num">' + money(o.total) + '</span></span>' +
 '<span class="l2">' + pill(o.status) + '<span>' + h(wilayaName(o.wilaya)) + '</span><span>· ' + h(o.id) + '</span>' +
 (o.locked ? '<span class="lock-icon">' + icon('lock') + '</span>' : '') +
 (o.alertLevel === 'bad' || o.alertLevel === 'warn' ? alertPill(o.alert, o.alertLevel) : '') +
 (o.status === 'Annulée' && o.cancelReason ? '<span style="color:#A12626">Motif : ' + h(o.cancelReason) + '</span>' : '') + '</span></td>' +
 '<td data-label="N°" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button>' +
 (o.locked ? ' <span class="lock-icon" title="Verrouillée" aria-label="Verrouillée">' + icon('lock') + '</span>' : '') + '<div class="small">' + fmtDate(o.date) + '</div></td>' +
-'<td data-label="Client" class="multi">' + h(o.client) + '<div class="small">' + h(fmtPhone(o.phone)) + '</div></td>' +
-'<td data-label="Wilaya" class="multi">' + h(o.wilaya) + '<div class="small">' + h(o.commune) + '</div></td>' +
+'<td data-label="Client" class="multi"><span dir="auto">' + h(o.client) + '</span><div class="small">' + h(fmtPhone(o.phone)) + '</div></td>' +
+'<td data-label="Wilaya" class="multi">' + h(o.wilaya) + '<div class="small" dir="auto">' + h(o.commune) + '</div></td>' +
 '<td data-label="Produit">' + h(o.product) + (o.qty > 1 ? ' ×' + o.qty : '') + '</td>' +
 '<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
 '<td data-label="Statut">' + pill(o.status) +
@@ -1543,14 +1662,14 @@ afterOrderSaved(o);
 openOrder(id);
 }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
 }
-function stockNote(items) {
+function stockNote(items, compact) {
 if (!items || !items.length) return '';
 var short = items.filter(function (it) { return it.short; });
 var html = short.map(function (it) {
 return '<div class="stock-warn">' + icon('alert') + 'Stock insuffisant : ' + h(it.model || it.product) + ' — disponible ' + Math.max(it.available, 0) +
 (it.reserved ? ' (' + it.reserved + ' réservé' + (it.reserved > 1 ? 's' : '') + ')' : '') + ', demandé ' + it.qty + '</div>';
 }).join('');
-if (!short.length && S.boot.user.admin) {
+if (!short.length && S.boot.user.admin && !compact) {
 var unknown = items.filter(function (it) { return !it.matched; });
 if (unknown.length) html += '<div class="stock-warn info">Produit absent de l’onglet Produits : stock et bénéfice non suivis (' + h(unknown.map(function (u) { return u.label; }).join(', ')) + ').</div>';
 }
@@ -1677,7 +1796,7 @@ btn.disabled = false;
 }
 function pageConfirm() {
 view.innerHTML =
-'<div class="page-head"><div><h1>Centre de confirmation</h1><p class="sub">Connecté(e) : ' + h(S.boot.user.name) + '</p></div>' +
+'<div class="page-head confirm-head"><div><h1>Centre de confirmation</h1><p class="sub">Connecté(e) : ' + h(S.boot.user.name) + '</p></div>' +
 '<div class="stats" id="cstats"></div></div>' +
 '<div class="confirm">' +
 '<section class="queue" id="queue" aria-label="File d’appels"><p class="loading">Chargement…</p></section>' +
@@ -1754,10 +1873,11 @@ var q = S.queue;
 q.waiting = q.waiting || [];
 $('#cstats').innerHTML =
 '<span>À appeler : <strong>' + q.stats.due + '</strong></span>' +
-'<span>Rappels à venir : <strong>' + q.stats.later + '</strong></span>' +
-'<span>En attente : <strong>' + q.waiting.length + '</strong></span>' +
+'<span class="st-cb">Rappels à venir : <strong>' + q.stats.later + '</strong></span>' +
+'<span class="st-na">En attente : <strong>' + q.waiting.length + '</strong></span>' +
 '<span style="background:#E3F2EC;color:#0B6B4C;border-color:#BFE0D2">Mes confirmations aujourd’hui : <strong>' + q.stats.confirmedToday + '</strong></span>';
-var html = '<div class="q-top"><span class="queue-title">À appeler maintenant · ' + q.due.length + '</span>' +
+var html = '<div class="q-legend" aria-hidden="true"><span><i class="q-new"></i>Nouvelle</span><span><i class="q-na"></i>Pas de réponse · Injoignable</span><span><i class="q-cb"></i>Rappel demandé</span></div>' +
+'<div class="q-top"><span class="queue-title">À appeler maintenant · ' + q.due.length + '</span>' +
 '<button type="button" class="btn" style="min-height:36px;padding:0 10px" data-act="refresh-queue">' + icon('refresh') + 'Actualiser</button></div>';
 html += q.due.length ? q.due.map(function (x) { return queueCard(x, 'due'); }).join('') : '<p class="small">Personne à appeler pour le moment.</p>';
 html += '<span class="queue-title">Rappels à venir · ' + q.later.length + '</span>' +
@@ -1776,20 +1896,42 @@ return '<span class="q-calls">' + (calls.length > shown.length ? '… → ' : ''
 return '<span><b>' + h(c.when.slice(6) || c.when) + '</b> ' + h(c.text.replace(/ · [^·]+$/, '').toLowerCase()) + '</span>';
 }).join(' → ') + '</span>';
 }
+function queueKind(x) {
+if (x.status === 'Rappeler') return 'cb';
+if (x.status === 'Pas de réponse' || x.status === 'Injoignable') return 'na';
+if (x.status === 'À confirmer' || !x.status) return 'new';
+return 'other';
+}
+function callDots(x, kind) {
+if (kind !== 'na' && kind !== 'cb') return '';
+var max = S.boot.callsPerDay || 3;
+var n = Math.min(x.callsToday || 0, max);
+if (kind === 'cb' && !n) return ''; // rappel demandé sans appel manqué aujourd'hui : rien à compter
+var dots = '';
+for (var i = 0; i < max; i++) dots += '<i' + (i < n ? ' class="on"' : '') + '></i>';
+return '<span class="q-dots" title="Appels aujourd’hui">' + dots + '<em>' + n + '/' + max + ' aujourd’hui' +
+(x.attempts > n ? ' · ' + plural(x.attempts, 'appel', 'appels') + ' en tout' : '') + '</em></span>';
+}
 function queueCard(x, block) {
+var kind = queueKind(x);
 var when = block === 'later' ? 'rappel ' + fmtDate(x.callback)
 : x.status === 'À confirmer' || !x.status ? 'reçue ' + ago(x.date)
 : x.recall ? 'rappel prévu ' + fmtDate(x.callback) : (x.callback ? 'rappel ' + fmtDate(x.callback) : ago(x.date));
-var cls = 'q-item' + (x.recall ? ' q-recall' : '') + (x.late && block !== 'later' ? ' q-late' : '') + (block === 'waiting' ? ' q-waiting' : '');
+var cls = 'q-item q-' + kind + (x.recall ? ' q-recall' : '') + (block === 'waiting' ? ' q-waiting' : '');
 var act = x.callable === false ? 'open-order' : 'q-open';
+var status = kind === 'new' ? '<span class="q-st">' + icon('inbox') + 'Nouvelle</span>'
+: kind === 'cb' ? '<span class="q-st">' + icon('calendar') + 'Rappel demandé</span>'
+: kind === 'na' ? '<span class="q-st">' + icon(x.status === 'Injoignable' ? 'alert' : 'noanswer') + h(x.status) + '</span>'
+: pill(x.status);
+var alert = x.alertLevel === 'new' ? (x.alert ? '<span class="q-quiet">' + h(x.alert) + '</span>' : '') : alertPill(x.alert, x.alertLevel);
 return '<button type="button" class="' + cls + '" data-act="' + act + '" data-id="' + h(x.id) + '" aria-current="' + (x.id === S.currentId) + '">' +
-'<span class="q-top"><strong>' + h(x.client || 'Sans nom') + '</strong><span class="small">' + h(when) + '</span></span>' +
+'<span class="q-top"><strong dir="auto">' + h(x.client || 'Sans nom') + '</strong><span class="small">' + h(when) + '</span></span>' +
 '<span class="small" style="color:var(--ink-2)">' + h(x.id) + ' · ' + h(wilayaName(x.wilaya)) + ' · ' + money(x.total) + '</span>' +
-(x.recall ? '<span class="q-motif">' + icon('clock') + 'À rappeler maintenant</span>' : '') +
+(x.recall ? '<span class="q-now"><span class="q-pulse"></span>À rappeler maintenant</span>' : '') +
 (x.reason ? '<span class="q-motif">' + icon('alert') + h(x.reason) + '</span>' : '') +
-'<span class="q-tags">' + alertPill(x.alert, x.alertLevel) + (x.status && x.status !== 'À confirmer' ? pill(x.status) : '') +
-(x.attempts ? '<span class="pill" style="background:#EEF0F3;color:#3D4350">' + plural(x.attempts, 'appel', 'appels') + '</span>' : '') +
-(x.late && block !== 'later' ? '<span class="pill" style="background:#FBE7E7;color:#A12626">en retard · attend depuis ' + h(hoursText(x.waitHours)) + '</span>' : '') +
+'<span class="q-tags">' + status + alert +
+(x.late && block !== 'later' ? '<span class="pill q-latepill">' + icon('clock') + 'en retard · ' + h(hoursText(x.waitHours)) + '</span>' : '') +
+callDots(x, kind) +
 '</span>' + callsLine(x.calls) + '</button>';
 }  function markCurrent() {
 $all('#queue .q-item').forEach(function (b) {
@@ -1828,45 +1970,51 @@ var histText = hist.orders
 : 'Première commande avec ce numéro';
 var dueCount = S.queue ? S.queue.due.length : 0;
 var callBtn = d.phoneValid
-? '<a class="btn primary" href="tel:' + h(o.phone) + '" target="_top">' + icon('confirmation') + 'Appeler</a>'
+? '<a class="btn primary d-call" href="tel:' + h(o.phone) + '" target="_top">' + icon('confirmation') + 'Appeler</a>'
 : '<span class="btn" aria-disabled="true">Numéro invalide</span>';
 var waBtn = d.intlPhone
-? '<a class="btn" id="d-wa" href="#" target="_blank" rel="noopener">' + icon('whatsapp') + 'WhatsApp</a>'
+? '<a class="btn" id="d-wa" href="#" target="_blank" rel="noopener" title="WhatsApp">' + icon('whatsapp') + '<span class="lbl">WhatsApp</span></a>'
 : '';
+var mustEdit = !d.phoneValid || !String(o.wilaya || '').trim() || !String(o.product || '').trim();
+S.editOpen = mustEdit;
+var important = o.alertLevel && o.alertLevel !== 'new';
 $('#detail').innerHTML =
 '<div class="card">' +
-'<div class="detail-head"><div><h2>' + h(o.client || 'Client sans nom') + ' · ' + h(o.id) + '</h2>' +
+'<div class="detail-head"><div><h2><span dir="auto">' + h(o.client || 'Client sans nom') + '</span> · ' + h(o.id) + '</h2>' +
 '<p class="muted">' + h(fmtPhone(o.phone)) + ' · reçue ' + h(ago(o.date)) + (o.attempts ? ' · ' + plural(o.attempts, 'appel', 'appels') : '') +
 ' · jour ' + Math.min(o.callDay, S.boot.callDays) + '/' + S.boot.callDays + ' · ' + o.callsToday + '/' + S.boot.callsPerDay + ' appels aujourd’hui</p></div>' +
-'<div class="quick"><button type="button" class="btn queue-toggle" data-act="toggle-queue">File (' + dueCount + ')</button>' + callBtn + waBtn + '</div>' +
+'<div class="quick d-actions"><button type="button" class="btn queue-toggle" data-act="toggle-queue" title="File d’appels">' + icon('menu') + dueCount + '</button>' + callBtn + waBtn + '</div>' +
 '</div>' +
-'<div class="history" style="background:' + a.bg + '"><span class="strong" style="color:' + a.fg + '">' + h(o.alert || 'Nouveau client') + '</span><span>' + h(histText) + '</span></div>' +
-stockNote(d.stock) +
+(important ? '<div class="history" style="background:' + a.bg + '"><span class="strong" style="color:' + a.fg + '">' + h(o.alert) + '</span><span>' + h(histText) + '</span></div>' : '') +
+stockNote(d.stock, true) +
+'<div class="brief" id="d-brief"></div>' +
 callHistory(o) +
+'<div class="edit-box" id="d-edit"' + (mustEdit ? '' : ' hidden') + '>' +
 '<div class="form-grid" id="d-form">' +
-field('Client', input('client', o.client)) +
+field('Client', input('client', o.client, ' dir="auto"')) +
 field('Téléphone', input('phone', o.phone, ' inputmode="tel"')) +
 field('Wilaya', '<select name="wilaya">' + options(b.wilayas, o.wilaya, 'Choisir…') + '</select>') +
-field('Commune', input('commune', o.commune)) +
-field('Adresse', input('address', o.address), 'full') +
-field('Produit', input('product', o.product, ' list="d-product-list"'), 'full') +
+field('Commune', input('commune', o.commune, ' dir="auto"')) +
+field('Adresse', input('address', o.address, ' dir="auto"'), 'full') +
+field('Produit', input('product', o.product, ' list="d-product-list" dir="auto"'), 'full') +
 field('Quantité', input('qty', o.qty, ' type="number" min="1" step="1"')) +
 field('Prix des produits (DA)', input('price', o.price || '', ' type="number" min="0" step="10" inputmode="numeric"')) +
 field('Livraison', '<select name="mode">' + options(b.modes, o.mode || b.modes[0]) + '</select>') +
 field('Société', '<select name="carrier">' + options(b.carriers, o.carrier, 'Par défaut (' + b.defaultCarrier + ')') + '</select>') +
 field('Frais de livraison (DA)', input('shipping', o.shipping === null || o.shipping === undefined ? '' : o.shipping, ' type="number" min="0" step="10" inputmode="numeric" placeholder="Calcul automatique"')) +
-field('Notes', '<textarea name="notes">' + h(o.notes) + '</textarea>', 'full') +
+field('Notes', '<textarea name="notes" dir="auto">' + h(o.notes) + '</textarea>', 'full') +
 '</div>' +
 '<datalist id="d-product-list">' + (b.products || []).map(function (p) { return '<option value="' + h(p.name) + '">'; }).join('') + '</datalist>' +
 '<p class="small" style="margin-top:6px">Prix et frais se recalculent seuls (quantité, produit, wilaya, livraison, société) ; si vous les tapez à la main, votre montant est gardé.</p>' +
 '<div class="sum" id="d-sum"></div>' +
 '</div>' +
-'<div class="card"><h3>Résultat de l’appel</h3>' +
+'</div>' +
+'<div class="card outcome-card"><h3>Résultat de l’appel</h3>' +
 '<div class="outcomes">' +
-'<button type="button" class="btn primary big" data-act="confirm">' + icon('check') + 'Confirmer</button>' +
-'<button type="button" class="btn big" data-act="no_answer">' + icon('noanswer') + 'Pas de réponse</button>' +
-'<button type="button" class="btn warn big" data-act="show-callback">' + icon('calendar') + 'Rappeler plus tard</button>' +
-'<button type="button" class="btn danger big" data-act="show-cancel">' + icon('x') + 'Annuler</button>' +
+'<button type="button" class="btn primary big" data-act="confirm">' + icon('check') + 'Confirmer<kbd>C</kbd></button>' +
+'<button type="button" class="btn big" data-act="no_answer">' + icon('noanswer') + 'Pas de réponse<kbd>P</kbd></button>' +
+'<button type="button" class="btn warn big" data-act="show-callback">' + icon('calendar') + 'Rappeler<span class="opt"> plus tard</span><kbd>R</kbd></button>' +
+'<button type="button" class="btn danger big" data-act="show-cancel">' + icon('x') + 'Annuler<kbd>A</kbd></button>' +
 '</div><div id="d-panel"></div>' +
 '</div>' +
 '<div class="card"><h3>Message WhatsApp</h3><p class="message" id="d-msg"></p>' +
@@ -1940,6 +2088,23 @@ if (!S.current || !$('#d-form')) return;
 var o = S.current.order;
 var a = confirmAmounts();
 var f = a.f;
+var brief = $('#d-brief');
+if (brief) {
+var unknown = (S.current.stock || []).filter(function (it) { return !it.matched; });
+brief.innerHTML =
+'<div class="brief-line"><span class="lab">Livraison</span><span>' +
+(f.commune ? '<span dir="auto">' + h(f.commune) + '</span>' : '') + (f.commune && f.address ? ', ' : '') + (f.address ? '<span dir="auto">' + h(f.address) + '</span>' : '') +
+(f.commune || f.address ? '<br>' : '') + '<strong>' + h(wilayaName(f.wilaya) || 'Wilaya à choisir') + '</strong> · ' + h(f.mode) + ' · ' + h(a.carrier) + '</span></div>' +
+'<div class="brief-line"><span class="lab">Produit</span><span><strong dir="auto">' + h(f.product || 'Produit à indiquer') + '</strong> × ' + a.qty +
+' <span class="muted">· ' + money(a.price) + ' + livraison ' + money(a.shipping) + '</span></span></div>' +
+(String(f.notes || '').trim() ? '<div class="brief-line"><span class="lab">Note</span><span dir="auto">' + h(f.notes) + '</span></div>' : '') +
+'<div class="brief-total"><span>Total à encaisser</span><b>' + money(a.total) + '</b></div>' +
+'<div class="brief-foot">' +
+(o.alertLevel === 'new' && o.alert ? '<span class="pill" style="background:#E6EEFB;color:#1E4FA8">' + h(o.alert) + '</span>' : '') +
+(unknown.length && S.boot.user.admin ? '<span class="pill" style="background:#EEF0F3;color:#3D4350" title="Produit absent de l’onglet Produits : stock et bénéfice non suivis">Produit hors catalogue</span>' : '') +
+'<button type="button" class="btn d-edit-btn" data-act="toggle-edit" aria-expanded="' + (!!S.editOpen) + '">' + icon('edit') + (S.editOpen ? 'Masquer le détail' : 'Modifier la commande') + '</button>' +
+'</div>';
+}
 $('#d-sum').innerHTML =
 '<div><span>' + h(f.product || o.product || 'Produits') + ' ×' + a.qty + '</span><span>' + money(a.price) + '</span></div>' +
 '<div class="muted"><span>Livraison ' + h(f.mode) + ' · ' + h(a.carrier) + (a.fee === null && !a.shipTouched ? ' (tarif non renseigné)' : '') + '</span><span>' + money(a.shipping) + '</span></div>' +
@@ -1991,20 +2156,26 @@ field('Motif d’annulation', '<select id="cancel-reason">' + options(S.boot.can
 var first = p.querySelector('button, select, input');
 if (first) first.focus();
 }
+var UNDO_MS = 5000;
 function submit(outcome, extra) {
-if (S.busy || !S.currentId || Date.now() < S.cooldown) return;
+if (S.busy || !S.currentId || !S.current || Date.now() < S.cooldown) return;
+flushPending();
 var id = S.currentId;
 var payload = { fields: confirmFields() };
 Object.keys(extra || {}).forEach(function (k) { payload[k] = extra[k]; });
 var blacklist = outcome === 'cancel' && $('#cancel-black') && $('#cancel-black').checked;
-var phone = S.current.order.phone;
+var job = { id: id, outcome: outcome, payload: payload, phone: S.current.order.phone, blacklist: blacklist, detail: S.current, where: null, sent: false,
+confirmed: outcome === 'confirm', leaves: outcome === 'confirm' || outcome === 'cancel' };
+['due', 'later', 'waiting'].forEach(function (b) {
+var list = (S.queue && S.queue[b]) || [];
+for (var i = 0; i < list.length; i++) if (list[i].id === id) job.where = { block: b, index: i, item: list[i] };
+});
 var next = nextDueAfter(id);
 var ready = next && S.prefetch && S.prefetch.id === next.id && S.prefetch.data ? S.prefetch.data : null;
-var waitingFor = next && !ready ? next.id : null;
 S.pending[id] = true;
 setQueue(S.queue);
-if (outcome === 'confirm') S.queue.stats.confirmedToday++;
-if (outcome === 'confirm' || outcome === 'cancel') S.pendingTotal = Math.max((S.pendingTotal || 0) - 1, 0);
+if (job.confirmed) S.queue.stats.confirmedToday++;
+if (job.leaves) S.pendingTotal = Math.max((S.pendingTotal || 0) - 1, 0);
 setQueueCount(S.queue.due.length);
 S.cooldown = Date.now() + 800;
 renderQueue();
@@ -2012,13 +2183,23 @@ if (ready) {
 S.currentId = next.id; S.current = ready; S.prefetch = null;
 markCurrent(); renderDetail();
 } else if (next) {
-S.currentId = next.id; S.current = null; ++S.detailToken;
-markCurrent();
-$('#detail').innerHTML = '<div class="card"><p class="loading">Chargement…</p></div>';
+S.current = null;
+openInDetail(next.id);
 } else {
 renderEmptyDetail();
 }
-call('api_recordCall', id, outcome, payload, { next: waitingFor, queue: true }).then(function (o) {
+job.timer = setTimeout(function () { sendCall(job); }, UNDO_MS);
+S.lastCall = job;
+showUndo(job);
+}
+function sendCall(job) {
+if (job.sent) return;
+job.sent = true;
+clearTimeout(job.timer);
+if (S.lastCall === job) { S.lastCall = null; hideUndo(); }
+var id = job.id;
+var outcome = job.outcome;
+call('api_recordCall', id, outcome, job.payload, { queue: true }).then(function (o) {
 delete S.pending[id];
 var msgs = {
 confirm: 'Commande ' + o.id + ' confirmée',
@@ -2029,21 +2210,67 @@ callback: 'Rappel programmé ' + fmtDate(o.callback),
 cancel: 'Commande ' + o.id + ' annulée'
 };
 toast(msgs[outcome]);
-if (blacklist) call('api_setBlacklist', phone, true).catch(function (e) { toast(errText(e), true); });
+if (job.blacklist) call('api_setBlacklist', job.phone, true).catch(function (e) { toast(errText(e), true); });
 applyCounts(o.counts);
 if (S.route !== 'confirmation') return;
 if (o.queue) { setQueue(o.queue); setQueueCount(S.queue.due.length); renderQueue(); }
-if (waitingFor && S.currentId === waitingFor && !S.current) {
-if (o.next) { S.current = o.next; renderDetail(); } else openInDetail(waitingFor);
-}
 }).catch(function (e) {
 delete S.pending[id];
 toast('Commande ' + id + ' non enregistrée : ' + errText(e), true);
 if (S.route !== 'confirmation') return;
 loadQueue(!S.currentId);
-if (waitingFor && S.currentId === waitingFor && !S.current) openInDetail(waitingFor);
 });
 }
+function flushPending() {
+if (S.lastCall && !S.lastCall.sent) sendCall(S.lastCall);
+}
+function undoLast() {
+var job = S.lastCall;
+if (!job || job.sent) return;
+job.sent = true;
+clearTimeout(job.timer);
+S.lastCall = null;
+hideUndo();
+delete S.pending[job.id];
+if (S.queue) {
+if (job.where && !S.queue[job.where.block].some(function (x) { return x.id === job.id; })) {
+S.queue[job.where.block].splice(Math.min(job.where.index, S.queue[job.where.block].length), 0, job.where.item);
+}
+if (job.confirmed) S.queue.stats.confirmedToday = Math.max((S.queue.stats.confirmedToday || 0) - 1, 0);
+if (job.leaves) S.pendingTotal = (S.pendingTotal || 0) + 1;
+setQueue(S.queue);
+setQueueCount(S.queue.due.length);
+}
+toast('Annulé : la commande ' + job.id + ' n’a pas été modifiée.');
+if (S.route !== 'confirmation') return;
+renderQueue();
+++S.detailToken;
+S.currentId = job.id;
+S.current = job.detail;
+markCurrent();
+renderDetail();
+}
+function showUndo(job) {
+var labels = { confirm: 'confirmée', no_answer: 'pas de réponse', callback: 'rappel programmé', cancel: 'annulée' };
+var bar = $('#undo-bar');
+if (!bar) {
+bar = document.createElement('div');
+bar.id = 'undo-bar';
+bar.setAttribute('role', 'status');
+document.body.appendChild(bar);
+}
+bar.innerHTML = icon('check') + '<span class="grow">Commande <b>' + h(job.id) + '</b> : ' + labels[job.outcome] + '</span>' +
+'<button type="button" data-act="undo-call">Annuler</button><span class="undo-time" style="animation-duration:' + UNDO_MS + 'ms"></span>';
+bar.className = '';
+void bar.offsetWidth; // relance l'animation du temps restant
+bar.className = 'show';
+}
+function hideUndo() {
+var bar = $('#undo-bar');
+if (bar) bar.className = '';
+}
+document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') flushPending(); });
+window.addEventListener('pagehide', flushPending);
 function pageShipping() {
 view.innerHTML =
 '<div class="page-head"><div><h1>Expéditions</h1><p class="sub">Envoi à Ecotrack, bordereaux et validation de l’expédition</p></div>' +
@@ -2582,8 +2809,8 @@ html += '<p class="empty" style="padding:18px 0">Rien à traiter : vos colis ava
 html += d.alerts.map(function (a) {
 var lv = LEVELS[a.level] || LEVELS.info;
 var wa = waLink(a.phone);
-return '<div class="result-row"><span class="pill" style="min-width:96px;text-align:center;background:' + lv.bg + ';color:' + lv.fg + '">' + lv.label + '</span>' +
-'<span class="grow"><strong>' + h(a.title) + '</strong> · <button type="button" class="link-btn" data-act="open-order" data-id="' + h(a.id) + '">' + h(a.id) + '</button> · ' + h(a.client) + ' · ' + h(wilayaName(a.wilaya)) +
+return '<div class="result-row track-alert lv-' + h(a.level) + '"><span class="pill" style="min-width:96px;text-align:center;background:' + lv.bg + ';color:' + lv.fg + '">' + lv.label + '</span>' +
+'<span class="grow"><strong>' + h(a.title) + '</strong> · <button type="button" class="link-btn" data-act="open-order" data-id="' + h(a.id) + '">' + h(a.id) + '</button> · <span dir="auto">' + h(a.client) + '</span> · ' + h(wilayaName(a.wilaya)) +
 (a.tagLabel ? ' ' + tagPill(a.tag, a.tagLabel) : '') +
 '<br><span class="small" style="color:var(--ink-2)">' + h(a.detail) + '</span>' +
 (a.courierNote ? '<br><span class="small courier-note">' + icon('courier') + 'Livreur : ' + h(a.courierNote) + '</span>' : '') +
@@ -2593,13 +2820,16 @@ return '<div class="result-row"><span class="pill" style="min-width:96px;text-al
 '<button type="button" class="btn danger" style="min-height:40px" data-act="follow-return" data-id="' + h(a.id) + '">Demander le retour</button>' +
 '<button type="button" class="btn" style="min-height:40px" data-act="follow-quick" data-result="informed" data-id="' + h(a.id) + '">Laisser le livreur réessayer</button></span>' : '') +
 '</span>' +
-'<span class="quick">' +
-(/^0\d{8,9}$/.test(String(a.phone).replace(/\D/g, '')) ? '<a class="btn" style="min-height:40px" href="tel:' + h(a.phone) + '" target="_top">' + icon('confirmation') + 'Appeler</a>' : '') +
-(wa ? '<a class="btn" style="min-height:40px" href="' + h(wa) + '" target="_blank" rel="noopener">' + icon('whatsapp') + 'WhatsApp</a>' : '') +
-'<button type="button" class="btn" style="min-height:40px" data-act="track-history" data-id="' + h(a.id) + '">' + icon('clock') + 'Chronologie</button>' +
+'<span class="quick track-actions">' +
+(/^0\d{8,9}$/.test(String(a.phone).replace(/\D/g, '')) ? '<a class="btn icon-only" href="tel:' + h(a.phone) + '" target="_top" title="Appeler" aria-label="Appeler">' + icon('confirmation') + '</a>' : '') +
 (a.callable
 ? '<button type="button" class="btn primary" style="min-height:40px" data-act="follow-open" data-id="' + h(a.id) + '">Résultat de l’appel</button>'
 : '<button type="button" class="btn" style="min-height:40px" data-act="track-done" data-id="' + h(a.id) + '">Marquer comme traité</button>') +
+'<details class="more-menu"><summary class="btn icon-only" title="Plus d’actions" aria-label="Plus d’actions">⋯</summary><div class="menu">' +
+(wa ? '<a href="' + h(wa) + '" target="_blank" rel="noopener">' + icon('whatsapp') + 'WhatsApp</a>' : '') +
+'<button type="button" data-act="track-history" data-id="' + h(a.id) + '">' + icon('clock') + 'Chronologie</button>' +
+(a.callable ? '<button type="button" data-act="track-done" data-id="' + h(a.id) + '">' + icon('check') + 'Marquer comme traité</button>' : '') +
+'</div></details>' +
 '</span></div>';
 }).join('');
 }
@@ -2953,6 +3183,14 @@ refreshCount();
 'refresh-queue': function () { loadQueue(false, true); },
 'q-open': function (el) { if (!S.busy) openInDetail(el.getAttribute('data-id')); },
 'toggle-queue': function () { $('#queue').classList.toggle('open'); },
+'toggle-edit': function () {
+S.editOpen = !S.editOpen;
+var box = $('#d-edit');
+if (box) box.hidden = !S.editOpen;
+updateSummary();
+if (S.editOpen && box) { var first = box.querySelector('input, select'); if (first) first.focus({ preventScroll: true }); box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+},
+'undo-call': function () { undoLast(); },
 'confirm': function () { submit('confirm'); },
 'no_answer': function () { submit('no_answer'); },
 'show-callback': function () { showPanel('callback'); },
@@ -3032,6 +3270,9 @@ refreshCount();
 };
 DZ.ACTIONS = ACTIONS;
 document.addEventListener('click', function (e) {
+$all('details.more-menu[open]').forEach(function (d) {
+if (!d.contains(e.target) || (e.target.closest && e.target.closest('.menu [data-act], .menu a'))) d.removeAttribute('open');
+});
 if (e.target.classList && e.target.classList.contains('modal-backdrop')) { closeModal(); return; }
 if (e.target.closest && e.target.closest('[data-label-download]')) { markLabelsPrinted(); return; }
 var stop = e.target.closest && e.target.closest('[data-stop]');
@@ -3113,7 +3354,14 @@ else if (e.target.closest('#order-form') && !$('#order-form').getAttribute('data
 else if (e.target.closest('#d-form')) updateSummary();
 });
 document.addEventListener('keydown', function (e) {
-if (e.key === 'Escape' && modalOpen()) closeModal();
+if (e.key === 'Escape' && modalOpen()) { closeModal(); return; }
+if (S.route !== 'confirmation' || !S.current || modalOpen() || e.ctrlKey || e.metaKey || e.altKey) return;
+var t = e.target;
+if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+var act = { c: 'confirm', p: 'no_answer', r: 'show-callback', a: 'show-cancel' }[String(e.key).toLowerCase()];
+if (!act || !ACTIONS[act]) return;
+e.preventDefault();
+ACTIONS[act]($('[data-act="' + act + '"]'));
 });
 function preloadPages() {
 var specs = [];

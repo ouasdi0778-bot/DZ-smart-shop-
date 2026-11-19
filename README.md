@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.6
+## Ce que fait la version 1.7
 
 | Écran | Contenu |
 |---|---|
@@ -308,6 +308,18 @@ Page **Bénéfices** (menu de gauche ; sur téléphone : **☰ Plus**), visible 
 - **Liste des commandes sur téléphone** : cartes compactes de 2 lignes (client, total ; statut, wilaya, n°) avec une **bande de la couleur du statut**.
 - **Confirmation sur téléphone** : les 4 boutons (Confirmer, Pas de réponse, Rappeler, Annuler) sont **fixés en bas**, sous le pouce.
 - Écrans vides avec une icône, chiffres alignés dans les tableaux, transition douce entre les pages (désactivée si le téléphone demande moins d'animations).
+
+### Version 1.7 : page Confirmation et lisibilité
+
+- **Couleurs de la file** : **bleu** pour une nouvelle commande, **orange** pour « Pas de réponse » et « Injoignable », **violet** pour un rappel demandé par le client (bord de la carte et étiquette, avec une petite légende). Quand l'heure d'un rappel arrive, la carte remonte avec « À rappeler maintenant » et un point qui clignote. Des points ●●○ montrent les appels sans réponse du jour. Les mêmes couleurs sont utilisées dans la page Commandes.
+- **Fiche résumée** : livraison (commune, adresse, wilaya, mode, société), produit et **total à encaisser en grand**. Le formulaire complet s'ouvre avec **« Modifier la commande »** (ouvert d'office s'il manque la wilaya, le produit ou un bon numéro). « Nouveau client » est discret ; les vraies alertes (liste noire, doublon, risque) restent en couleur.
+- **Boutons du résultat toujours visibles** (fixés en bas de l'écran, aussi sur ordinateur), avec un **raccourci clavier** : **C** confirmer, **P** pas de réponse, **R** rappeler, **A** annuler (hors saisie).
+- **Annulation en 5 secondes** : après un résultat, un bandeau « Annuler » permet de rattraper un mauvais clic ; rien n'est envoyé avant 5 secondes (ou dès l'action suivante, ou si l'application est fermée).
+- **Téléphone** : « Appeler » en grand sur toute la largeur, la file et WhatsApp en petites icônes, titre plus petit.
+- **Textes en arabe** (noms, communes, adresses) affichés dans le bon sens, dans la file, la fiche et la liste des commandes.
+- **Tableau de bord** : les montants tiennent sur une ligne ; sur téléphone, les chiffres clés sont deux par deux (aussi dans Bénéfices, Statistiques et Stock).
+- **Commandes** : l'état de Releasit, Shopify et des SMS tient sur de petites lignes ; la couleur du statut est sur le bord de chaque ligne.
+- **Suivi** : couleur d'urgence sur le bord (rouge urgent, orange à surveiller) ; un bouton principal, « Appeler » en icône, WhatsApp, Chronologie et « Marquer comme traité » dans le menu « ⋯ ».
 
 ## Statistiques
 

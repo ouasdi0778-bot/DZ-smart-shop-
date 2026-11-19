@@ -564,6 +564,11 @@
   function statusCard(inner) {
     return '<div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px;padding:12px 16px">' + inner + '</div>';
   }
+  /** Petite ligne d'état (arrivée des commandes, SMS) : discrète, avec son action en lien. */
+  function srcLine(ok, inner, act, actLabel) {
+    return '<div class="src-line"><span class="src-dot ' + (ok ? 'ok' : 'warn') + '"></span><span>' + inner + '</span>' +
+      (act ? ' · <button type="button" class="link-btn" data-act="' + act + '">' + h(actLabel) + '</button>' : '') + '</div>';
+  }
 
   function loadShopStatus() {
     call('api_importStatus').then(renderShopStatus).catch(function () {});
@@ -577,9 +582,8 @@
       var s = st.shopify;
       var html = '';
       if (r.found) {
-        html += statusCard('<span><strong>Releasit</strong> · ' + (r.lastRun ? 'dernière lecture ' + h(ago(r.lastRun)) : 'pas encore lu') +
-          ' · transfert automatique chaque minute</span>' +
-          '<button type="button" class="btn" style="min-height:40px" data-act="releasit-transfer">Transférer maintenant</button>');
+        html += srcLine(!r.lastError, '<strong>Releasit</strong> : arrivée automatique chaque minute' + (r.lastRun ? ' · dernière lecture ' + h(ago(r.lastRun)) : ''),
+          'releasit-transfer', 'transférer maintenant');
         if (r.missing.length) {
           html += '<div class="error-box" role="alert" style="margin-bottom:14px;background:#FFF3DC;color:#8A5200">Onglet RELEASIT : colonne(s) absente(s) : ' +
             h(r.missing.join(', ')) + '. Ajoutez-les dans les réglages Google Sheets de Releasit.</div>';
@@ -587,17 +591,15 @@
         if (r.lastError) html += '<div style="margin-bottom:14px">' + errorBox(r.lastError) + '</div>';
       }
       if (s.configured) {
-        html += statusCard('<span><strong>Shopify</strong> · ' + h(s.shop) + ' · ' + (s.lastRun ? 'dernière importation ' + h(ago(s.lastRun)) : 'pas encore importé') +
-          ' · importation automatique toutes les 5 minutes</span>' +
-          '<button type="button" class="btn" style="min-height:40px" data-act="shop-import">Importer maintenant</button>') +
+        html += srcLine(!s.lastError, '<strong>Shopify</strong> : importation toutes les 5 minutes' + (s.lastRun ? ' · dernière ' + h(ago(s.lastRun)) : ''),
+          'shop-import', 'importer maintenant') +
           (s.lastError ? '<div style="margin-bottom:14px">' + errorBox(s.lastError) + '</div>' : '');
       }
       var sm = st.sms;
       if (sm && sm.configured) {
-        html += statusCard('<span><strong>SMS</strong> · depuis le ' + h(sm.from) + ' · ' + h(sm.hours) + ' · ' +
-          (sm.waiting ? sm.waiting + ' en attente' : 'aucun en attente') + (sm.lastRun ? ' · dernier passage ' + h(ago(sm.lastRun)) : '') +
-          '<br><span class="small">Statuts avec SMS : ' + h(sm.statuses.join(', ') || 'aucun') + '</span></span>' +
-          (S.boot.user.admin && sm.waiting ? '<button type="button" class="btn" style="min-height:40px" data-act="sms-send">Envoyer maintenant</button>' : '')) +
+        html += srcLine(!sm.lastError, '<strong>SMS</strong> : depuis le ' + h(sm.from) + ' · ' + (sm.waiting ? sm.waiting + ' en attente' : 'aucun en attente') +
+          '<span class="src-more" title="' + h('Statuts avec SMS : ' + (sm.statuses.join(', ') || 'aucun')) + '"> · ' + plural(sm.statuses.length, 'statut avec SMS', 'statuts avec SMS') + '</span>',
+          S.boot.user.admin && sm.waiting ? 'sms-send' : '', 'envoyer maintenant') +
           (sm.lastError ? '<div style="margin-bottom:14px">' + errorBox(sm.lastError) + '</div>' : '');
       }
       if (!r.found && !s.configured) {
@@ -696,15 +698,15 @@
       var stc = (S.boot.styles[o.status] || {}).fg || '#CFD4DB';
       html += '<tr class="clickable compact' + (selOn ? ' selectable' : '') + '" style="--st:' + stc + '" data-act="open-order" data-id="' + h(o.id) + '">' +
         (selOn ? selCell('orders', o.id) : '') +
-        '<td class="m-sum" data-label=""><span class="l1"><span>' + (selOn ? '<span data-stop class="m-sel">' + selBox('orders', o.id) + '</span>' : '') + h(o.client || '—') + '</span><span class="num">' + money(o.total) + '</span></span>' +
+        '<td class="m-sum" data-label=""><span class="l1"><span>' + (selOn ? '<span data-stop class="m-sel">' + selBox('orders', o.id) + '</span>' : '') + '<span dir="auto">' + h(o.client || '—') + '</span></span><span class="num">' + money(o.total) + '</span></span>' +
           '<span class="l2">' + pill(o.status) + '<span>' + h(wilayaName(o.wilaya)) + '</span><span>· ' + h(o.id) + '</span>' +
           (o.locked ? '<span class="lock-icon">' + icon('lock') + '</span>' : '') +
           (o.alertLevel === 'bad' || o.alertLevel === 'warn' ? alertPill(o.alert, o.alertLevel) : '') +
           (o.status === 'Annulée' && o.cancelReason ? '<span style="color:#A12626">Motif : ' + h(o.cancelReason) + '</span>' : '') + '</span></td>' +
         '<td data-label="N°" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button>' +
           (o.locked ? ' <span class="lock-icon" title="Verrouillée" aria-label="Verrouillée">' + icon('lock') + '</span>' : '') + '<div class="small">' + fmtDate(o.date) + '</div></td>' +
-        '<td data-label="Client" class="multi">' + h(o.client) + '<div class="small">' + h(fmtPhone(o.phone)) + '</div></td>' +
-        '<td data-label="Wilaya" class="multi">' + h(o.wilaya) + '<div class="small">' + h(o.commune) + '</div></td>' +
+        '<td data-label="Client" class="multi"><span dir="auto">' + h(o.client) + '</span><div class="small">' + h(fmtPhone(o.phone)) + '</div></td>' +
+        '<td data-label="Wilaya" class="multi">' + h(o.wilaya) + '<div class="small" dir="auto">' + h(o.commune) + '</div></td>' +
         '<td data-label="Produit">' + h(o.product) + (o.qty > 1 ? ' ×' + o.qty : '') + '</td>' +
         '<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
         '<td data-label="Statut">' + pill(o.status) +
@@ -1041,14 +1043,14 @@
   }
 
   /** Avertissement de stock pour les articles d'une commande. */
-  function stockNote(items) {
+  function stockNote(items, compact) {
     if (!items || !items.length) return '';
     var short = items.filter(function (it) { return it.short; });
     var html = short.map(function (it) {
       return '<div class="stock-warn">' + icon('alert') + 'Stock insuffisant : ' + h(it.model || it.product) + ' — disponible ' + Math.max(it.available, 0) +
         (it.reserved ? ' (' + it.reserved + ' réservé' + (it.reserved > 1 ? 's' : '') + ')' : '') + ', demandé ' + it.qty + '</div>';
     }).join('');
-    if (!short.length && S.boot.user.admin) {
+    if (!short.length && S.boot.user.admin && !compact) {
       var unknown = items.filter(function (it) { return !it.matched; });
       if (unknown.length) html += '<div class="stock-warn info">Produit absent de l’onglet Produits : stock et bénéfice non suivis (' + h(unknown.map(function (u) { return u.label; }).join(', ')) + ').</div>';
     }
@@ -1198,7 +1200,7 @@
 
   function pageConfirm() {
     view.innerHTML =
-      '<div class="page-head"><div><h1>Centre de confirmation</h1><p class="sub">Connecté(e) : ' + h(S.boot.user.name) + '</p></div>' +
+      '<div class="page-head confirm-head"><div><h1>Centre de confirmation</h1><p class="sub">Connecté(e) : ' + h(S.boot.user.name) + '</p></div>' +
       '<div class="stats" id="cstats"></div></div>' +
       '<div class="confirm">' +
         '<section class="queue" id="queue" aria-label="File d’appels"><p class="loading">Chargement…</p></section>' +
@@ -1284,10 +1286,11 @@
     q.waiting = q.waiting || [];
     $('#cstats').innerHTML =
       '<span>À appeler : <strong>' + q.stats.due + '</strong></span>' +
-      '<span>Rappels à venir : <strong>' + q.stats.later + '</strong></span>' +
-      '<span>En attente : <strong>' + q.waiting.length + '</strong></span>' +
+      '<span class="st-cb">Rappels à venir : <strong>' + q.stats.later + '</strong></span>' +
+      '<span class="st-na">En attente : <strong>' + q.waiting.length + '</strong></span>' +
       '<span style="background:#E3F2EC;color:#0B6B4C;border-color:#BFE0D2">Mes confirmations aujourd’hui : <strong>' + q.stats.confirmedToday + '</strong></span>';
-    var html = '<div class="q-top"><span class="queue-title">À appeler maintenant · ' + q.due.length + '</span>' +
+    var html = '<div class="q-legend" aria-hidden="true"><span><i class="q-new"></i>Nouvelle</span><span><i class="q-na"></i>Pas de réponse · Injoignable</span><span><i class="q-cb"></i>Rappel demandé</span></div>' +
+      '<div class="q-top"><span class="queue-title">À appeler maintenant · ' + q.due.length + '</span>' +
       '<button type="button" class="btn" style="min-height:36px;padding:0 10px" data-act="refresh-queue">' + icon('refresh') + 'Actualiser</button></div>';
     html += q.due.length ? q.due.map(function (x) { return queueCard(x, 'due'); }).join('') : '<p class="small">Personne à appeler pour le moment.</p>';
     html += '<span class="queue-title">Rappels à venir · ' + q.later.length + '</span>' +
@@ -1309,20 +1312,45 @@
     }).join(' → ') + '</span>';
   }
 
+  /** Couleur d'une commande de la file : nouvelle (bleu), pas de réponse ou injoignable (orange), rappel demandé (violet). */
+  function queueKind(x) {
+    if (x.status === 'Rappeler') return 'cb';
+    if (x.status === 'Pas de réponse' || x.status === 'Injoignable') return 'na';
+    if (x.status === 'À confirmer' || !x.status) return 'new';
+    return 'other';
+  }
+  /** Appels du jour : ●●○ (au plus APPELS_PAR_JOUR), et le total s'il est plus grand. */
+  function callDots(x, kind) {
+    if (kind !== 'na' && kind !== 'cb') return '';
+    var max = S.boot.callsPerDay || 3;
+    var n = Math.min(x.callsToday || 0, max);
+    if (kind === 'cb' && !n) return ''; // rappel demandé sans appel manqué aujourd'hui : rien à compter
+    var dots = '';
+    for (var i = 0; i < max; i++) dots += '<i' + (i < n ? ' class="on"' : '') + '></i>';
+    return '<span class="q-dots" title="Appels aujourd’hui">' + dots + '<em>' + n + '/' + max + ' aujourd’hui' +
+      (x.attempts > n ? ' · ' + plural(x.attempts, 'appel', 'appels') + ' en tout' : '') + '</em></span>';
+  }
   function queueCard(x, block) {
+    var kind = queueKind(x);
     var when = block === 'later' ? 'rappel ' + fmtDate(x.callback)
       : x.status === 'À confirmer' || !x.status ? 'reçue ' + ago(x.date)
       : x.recall ? 'rappel prévu ' + fmtDate(x.callback) : (x.callback ? 'rappel ' + fmtDate(x.callback) : ago(x.date));
-    var cls = 'q-item' + (x.recall ? ' q-recall' : '') + (x.late && block !== 'later' ? ' q-late' : '') + (block === 'waiting' ? ' q-waiting' : '');
+    var cls = 'q-item q-' + kind + (x.recall ? ' q-recall' : '') + (block === 'waiting' ? ' q-waiting' : '');
     var act = x.callable === false ? 'open-order' : 'q-open';
+    var status = kind === 'new' ? '<span class="q-st">' + icon('inbox') + 'Nouvelle</span>'
+      : kind === 'cb' ? '<span class="q-st">' + icon('calendar') + 'Rappel demandé</span>'
+      : kind === 'na' ? '<span class="q-st">' + icon(x.status === 'Injoignable' ? 'alert' : 'noanswer') + h(x.status) + '</span>'
+      : pill(x.status);
+    // « Nouveau client » reste discret : les vraies alertes (liste noire, doublon, risque…) ressortent.
+    var alert = x.alertLevel === 'new' ? (x.alert ? '<span class="q-quiet">' + h(x.alert) + '</span>' : '') : alertPill(x.alert, x.alertLevel);
     return '<button type="button" class="' + cls + '" data-act="' + act + '" data-id="' + h(x.id) + '" aria-current="' + (x.id === S.currentId) + '">' +
-      '<span class="q-top"><strong>' + h(x.client || 'Sans nom') + '</strong><span class="small">' + h(when) + '</span></span>' +
+      '<span class="q-top"><strong dir="auto">' + h(x.client || 'Sans nom') + '</strong><span class="small">' + h(when) + '</span></span>' +
       '<span class="small" style="color:var(--ink-2)">' + h(x.id) + ' · ' + h(wilayaName(x.wilaya)) + ' · ' + money(x.total) + '</span>' +
-      (x.recall ? '<span class="q-motif">' + icon('clock') + 'À rappeler maintenant</span>' : '') +
+      (x.recall ? '<span class="q-now"><span class="q-pulse"></span>À rappeler maintenant</span>' : '') +
       (x.reason ? '<span class="q-motif">' + icon('alert') + h(x.reason) + '</span>' : '') +
-      '<span class="q-tags">' + alertPill(x.alert, x.alertLevel) + (x.status && x.status !== 'À confirmer' ? pill(x.status) : '') +
-        (x.attempts ? '<span class="pill" style="background:#EEF0F3;color:#3D4350">' + plural(x.attempts, 'appel', 'appels') + '</span>' : '') +
-        (x.late && block !== 'later' ? '<span class="pill" style="background:#FBE7E7;color:#A12626">en retard · attend depuis ' + h(hoursText(x.waitHours)) + '</span>' : '') +
+      '<span class="q-tags">' + status + alert +
+        (x.late && block !== 'later' ? '<span class="pill q-latepill">' + icon('clock') + 'en retard · ' + h(hoursText(x.waitHours)) + '</span>' : '') +
+        callDots(x, kind) +
       '</span>' + callsLine(x.calls) + '</button>';
   }  function markCurrent() {
     $all('#queue .q-item').forEach(function (b) {
@@ -1364,46 +1392,54 @@
       : 'Première commande avec ce numéro';
     var dueCount = S.queue ? S.queue.due.length : 0;
     var callBtn = d.phoneValid
-      ? '<a class="btn primary" href="tel:' + h(o.phone) + '" target="_top">' + icon('confirmation') + 'Appeler</a>'
+      ? '<a class="btn primary d-call" href="tel:' + h(o.phone) + '" target="_top">' + icon('confirmation') + 'Appeler</a>'
       : '<span class="btn" aria-disabled="true">Numéro invalide</span>';
     var waBtn = d.intlPhone
-      ? '<a class="btn" id="d-wa" href="#" target="_blank" rel="noopener">' + icon('whatsapp') + 'WhatsApp</a>'
+      ? '<a class="btn" id="d-wa" href="#" target="_blank" rel="noopener" title="WhatsApp">' + icon('whatsapp') + '<span class="lbl">WhatsApp</span></a>'
       : '';
+    // La fiche s'ouvre en résumé ; le formulaire complet seulement avec « Modifier » (ou s'il manque quelque chose).
+    var mustEdit = !d.phoneValid || !String(o.wilaya || '').trim() || !String(o.product || '').trim();
+    S.editOpen = mustEdit;
+    var important = o.alertLevel && o.alertLevel !== 'new';
 
     $('#detail').innerHTML =
       '<div class="card">' +
-        '<div class="detail-head"><div><h2>' + h(o.client || 'Client sans nom') + ' · ' + h(o.id) + '</h2>' +
+        '<div class="detail-head"><div><h2><span dir="auto">' + h(o.client || 'Client sans nom') + '</span> · ' + h(o.id) + '</h2>' +
           '<p class="muted">' + h(fmtPhone(o.phone)) + ' · reçue ' + h(ago(o.date)) + (o.attempts ? ' · ' + plural(o.attempts, 'appel', 'appels') : '') +
             ' · jour ' + Math.min(o.callDay, S.boot.callDays) + '/' + S.boot.callDays + ' · ' + o.callsToday + '/' + S.boot.callsPerDay + ' appels aujourd’hui</p></div>' +
-          '<div class="quick"><button type="button" class="btn queue-toggle" data-act="toggle-queue">File (' + dueCount + ')</button>' + callBtn + waBtn + '</div>' +
+          '<div class="quick d-actions"><button type="button" class="btn queue-toggle" data-act="toggle-queue" title="File d’appels">' + icon('menu') + dueCount + '</button>' + callBtn + waBtn + '</div>' +
         '</div>' +
-        '<div class="history" style="background:' + a.bg + '"><span class="strong" style="color:' + a.fg + '">' + h(o.alert || 'Nouveau client') + '</span><span>' + h(histText) + '</span></div>' +
-        stockNote(d.stock) +
+        (important ? '<div class="history" style="background:' + a.bg + '"><span class="strong" style="color:' + a.fg + '">' + h(o.alert) + '</span><span>' + h(histText) + '</span></div>' : '') +
+        stockNote(d.stock, true) +
+        '<div class="brief" id="d-brief"></div>' +
         callHistory(o) +
+        '<div class="edit-box" id="d-edit"' + (mustEdit ? '' : ' hidden') + '>' +
         '<div class="form-grid" id="d-form">' +
-          field('Client', input('client', o.client)) +
+          field('Client', input('client', o.client, ' dir="auto"')) +
           field('Téléphone', input('phone', o.phone, ' inputmode="tel"')) +
           field('Wilaya', '<select name="wilaya">' + options(b.wilayas, o.wilaya, 'Choisir…') + '</select>') +
-          field('Commune', input('commune', o.commune)) +
-          field('Adresse', input('address', o.address), 'full') +
-          field('Produit', input('product', o.product, ' list="d-product-list"'), 'full') +
+          field('Commune', input('commune', o.commune, ' dir="auto"')) +
+          field('Adresse', input('address', o.address, ' dir="auto"'), 'full') +
+          field('Produit', input('product', o.product, ' list="d-product-list" dir="auto"'), 'full') +
           field('Quantité', input('qty', o.qty, ' type="number" min="1" step="1"')) +
           field('Prix des produits (DA)', input('price', o.price || '', ' type="number" min="0" step="10" inputmode="numeric"')) +
           field('Livraison', '<select name="mode">' + options(b.modes, o.mode || b.modes[0]) + '</select>') +
           field('Société', '<select name="carrier">' + options(b.carriers, o.carrier, 'Par défaut (' + b.defaultCarrier + ')') + '</select>') +
           field('Frais de livraison (DA)', input('shipping', o.shipping === null || o.shipping === undefined ? '' : o.shipping, ' type="number" min="0" step="10" inputmode="numeric" placeholder="Calcul automatique"')) +
-          field('Notes', '<textarea name="notes">' + h(o.notes) + '</textarea>', 'full') +
+          field('Notes', '<textarea name="notes" dir="auto">' + h(o.notes) + '</textarea>', 'full') +
         '</div>' +
         '<datalist id="d-product-list">' + (b.products || []).map(function (p) { return '<option value="' + h(p.name) + '">'; }).join('') + '</datalist>' +
         '<p class="small" style="margin-top:6px">Prix et frais se recalculent seuls (quantité, produit, wilaya, livraison, société) ; si vous les tapez à la main, votre montant est gardé.</p>' +
         '<div class="sum" id="d-sum"></div>' +
+        '</div>' +
       '</div>' +
-      '<div class="card"><h3>Résultat de l’appel</h3>' +
+      // Boutons du résultat : fixés en bas de l'écran (ordinateur et téléphone), avec leur raccourci clavier.
+      '<div class="card outcome-card"><h3>Résultat de l’appel</h3>' +
         '<div class="outcomes">' +
-          '<button type="button" class="btn primary big" data-act="confirm">' + icon('check') + 'Confirmer</button>' +
-          '<button type="button" class="btn big" data-act="no_answer">' + icon('noanswer') + 'Pas de réponse</button>' +
-          '<button type="button" class="btn warn big" data-act="show-callback">' + icon('calendar') + 'Rappeler plus tard</button>' +
-          '<button type="button" class="btn danger big" data-act="show-cancel">' + icon('x') + 'Annuler</button>' +
+          '<button type="button" class="btn primary big" data-act="confirm">' + icon('check') + 'Confirmer<kbd>C</kbd></button>' +
+          '<button type="button" class="btn big" data-act="no_answer">' + icon('noanswer') + 'Pas de réponse<kbd>P</kbd></button>' +
+          '<button type="button" class="btn warn big" data-act="show-callback">' + icon('calendar') + 'Rappeler<span class="opt"> plus tard</span><kbd>R</kbd></button>' +
+          '<button type="button" class="btn danger big" data-act="show-cancel">' + icon('x') + 'Annuler<kbd>A</kbd></button>' +
         '</div><div id="d-panel"></div>' +
       '</div>' +
       '<div class="card"><h3>Message WhatsApp</h3><p class="message" id="d-msg"></p>' +
@@ -1492,6 +1528,23 @@
     var o = S.current.order;
     var a = confirmAmounts();
     var f = a.f;
+    var brief = $('#d-brief');
+    if (brief) {
+      var unknown = (S.current.stock || []).filter(function (it) { return !it.matched; });
+      brief.innerHTML =
+        '<div class="brief-line"><span class="lab">Livraison</span><span>' +
+          (f.commune ? '<span dir="auto">' + h(f.commune) + '</span>' : '') + (f.commune && f.address ? ', ' : '') + (f.address ? '<span dir="auto">' + h(f.address) + '</span>' : '') +
+          (f.commune || f.address ? '<br>' : '') + '<strong>' + h(wilayaName(f.wilaya) || 'Wilaya à choisir') + '</strong> · ' + h(f.mode) + ' · ' + h(a.carrier) + '</span></div>' +
+        '<div class="brief-line"><span class="lab">Produit</span><span><strong dir="auto">' + h(f.product || 'Produit à indiquer') + '</strong> × ' + a.qty +
+          ' <span class="muted">· ' + money(a.price) + ' + livraison ' + money(a.shipping) + '</span></span></div>' +
+        (String(f.notes || '').trim() ? '<div class="brief-line"><span class="lab">Note</span><span dir="auto">' + h(f.notes) + '</span></div>' : '') +
+        '<div class="brief-total"><span>Total à encaisser</span><b>' + money(a.total) + '</b></div>' +
+        '<div class="brief-foot">' +
+          (o.alertLevel === 'new' && o.alert ? '<span class="pill" style="background:#E6EEFB;color:#1E4FA8">' + h(o.alert) + '</span>' : '') +
+          (unknown.length && S.boot.user.admin ? '<span class="pill" style="background:#EEF0F3;color:#3D4350" title="Produit absent de l’onglet Produits : stock et bénéfice non suivis">Produit hors catalogue</span>' : '') +
+          '<button type="button" class="btn d-edit-btn" data-act="toggle-edit" aria-expanded="' + (!!S.editOpen) + '">' + icon('edit') + (S.editOpen ? 'Masquer le détail' : 'Modifier la commande') + '</button>' +
+        '</div>';
+    }
     $('#d-sum').innerHTML =
       '<div><span>' + h(f.product || o.product || 'Produits') + ' ×' + a.qty + '</span><span>' + money(a.price) + '</span></div>' +
       '<div class="muted"><span>Livraison ' + h(f.mode) + ' · ' + h(a.carrier) + (a.fee === null && !a.shipTouched ? ' (tarif non renseigné)' : '') + '</span><span>' + money(a.shipping) + '</span></div>' +
@@ -1548,22 +1601,34 @@
     if (first) first.focus();
   }
 
+  /**
+   * Résultat d'un appel : la commande quitte la file tout de suite, la suivante s'affiche ; l'envoi au
+   * serveur part 5 secondes plus tard. D'ici là, « Annuler » (bandeau en bas) remet tout comme avant.
+   * Une deuxième action, ou quitter l'application, envoie aussitôt l'action en attente.
+   */
+  var UNDO_MS = 5000;
+
   function submit(outcome, extra) {
-    if (S.busy || !S.currentId || Date.now() < S.cooldown) return;
+    if (S.busy || !S.currentId || !S.current || Date.now() < S.cooldown) return;
+    flushPending();
     var id = S.currentId;
     var payload = { fields: confirmFields() };
     Object.keys(extra || {}).forEach(function (k) { payload[k] = extra[k]; });
     var blacklist = outcome === 'cancel' && $('#cancel-black') && $('#cancel-black').checked;
-    var phone = S.current.order.phone;
+    var job = { id: id, outcome: outcome, payload: payload, phone: S.current.order.phone, blacklist: blacklist, detail: S.current, where: null, sent: false,
+      confirmed: outcome === 'confirm', leaves: outcome === 'confirm' || outcome === 'cancel' };
+    ['due', 'later', 'waiting'].forEach(function (b) {
+      var list = (S.queue && S.queue[b]) || [];
+      for (var i = 0; i < list.length; i++) if (list[i].id === id) job.where = { block: b, index: i, item: list[i] };
+    });
     var next = nextDueAfter(id);
     var ready = next && S.prefetch && S.prefetch.id === next.id && S.prefetch.data ? S.prefetch.data : null;
-    var waitingFor = next && !ready ? next.id : null;
 
     // 1. La commande traitée quitte la file, la suivante s'affiche tout de suite.
     S.pending[id] = true;
     setQueue(S.queue);
-    if (outcome === 'confirm') S.queue.stats.confirmedToday++;
-    if (outcome === 'confirm' || outcome === 'cancel') S.pendingTotal = Math.max((S.pendingTotal || 0) - 1, 0);
+    if (job.confirmed) S.queue.stats.confirmedToday++;
+    if (job.leaves) S.pendingTotal = Math.max((S.pendingTotal || 0) - 1, 0);
     setQueueCount(S.queue.due.length);
     S.cooldown = Date.now() + 800;
     renderQueue();
@@ -1571,15 +1636,27 @@
       S.currentId = next.id; S.current = ready; S.prefetch = null;
       markCurrent(); renderDetail();
     } else if (next) {
-      S.currentId = next.id; S.current = null; ++S.detailToken;
-      markCurrent();
-      $('#detail').innerHTML = '<div class="card"><p class="loading">Chargement…</p></div>';
+      S.current = null;
+      openInDetail(next.id);
     } else {
       renderEmptyDetail();
     }
 
-    // 2. Enregistrement : un seul aller-retour (résultat, commande suivante si besoin, file, compteurs).
-    call('api_recordCall', id, outcome, payload, { next: waitingFor, queue: true }).then(function (o) {
+    // 2. Envoi dans 5 secondes (annulable).
+    job.timer = setTimeout(function () { sendCall(job); }, UNDO_MS);
+    S.lastCall = job;
+    showUndo(job);
+  }
+
+  /** Envoie l'action au serveur (un seul aller-retour : résultat, file, compteurs). */
+  function sendCall(job) {
+    if (job.sent) return;
+    job.sent = true;
+    clearTimeout(job.timer);
+    if (S.lastCall === job) { S.lastCall = null; hideUndo(); }
+    var id = job.id;
+    var outcome = job.outcome;
+    call('api_recordCall', id, outcome, job.payload, { queue: true }).then(function (o) {
       delete S.pending[id];
       var msgs = {
         confirm: 'Commande ' + o.id + ' confirmée',
@@ -1590,21 +1667,72 @@
         cancel: 'Commande ' + o.id + ' annulée'
       };
       toast(msgs[outcome]);
-      if (blacklist) call('api_setBlacklist', phone, true).catch(function (e) { toast(errText(e), true); });
+      if (job.blacklist) call('api_setBlacklist', job.phone, true).catch(function (e) { toast(errText(e), true); });
       applyCounts(o.counts);
       if (S.route !== 'confirmation') return;
       if (o.queue) { setQueue(o.queue); setQueueCount(S.queue.due.length); renderQueue(); }
-      if (waitingFor && S.currentId === waitingFor && !S.current) {
-        if (o.next) { S.current = o.next; renderDetail(); } else openInDetail(waitingFor);
-      }
     }).catch(function (e) {
       delete S.pending[id];
       toast('Commande ' + id + ' non enregistrée : ' + errText(e), true);
       if (S.route !== 'confirmation') return;
       loadQueue(!S.currentId);
-      if (waitingFor && S.currentId === waitingFor && !S.current) openInDetail(waitingFor);
     });
   }
+
+  /** Une action encore en attente part tout de suite (nouvelle action, application quittée). */
+  function flushPending() {
+    if (S.lastCall && !S.lastCall.sent) sendCall(S.lastCall);
+  }
+
+  /** « Annuler » : rien n'est envoyé, la commande revient à sa place et sa fiche se rouvre. */
+  function undoLast() {
+    var job = S.lastCall;
+    if (!job || job.sent) return;
+    job.sent = true;
+    clearTimeout(job.timer);
+    S.lastCall = null;
+    hideUndo();
+    delete S.pending[job.id];
+    if (S.queue) {
+      if (job.where && !S.queue[job.where.block].some(function (x) { return x.id === job.id; })) {
+        S.queue[job.where.block].splice(Math.min(job.where.index, S.queue[job.where.block].length), 0, job.where.item);
+      }
+      if (job.confirmed) S.queue.stats.confirmedToday = Math.max((S.queue.stats.confirmedToday || 0) - 1, 0);
+      if (job.leaves) S.pendingTotal = (S.pendingTotal || 0) + 1;
+      setQueue(S.queue);
+      setQueueCount(S.queue.due.length);
+    }
+    toast('Annulé : la commande ' + job.id + ' n’a pas été modifiée.');
+    if (S.route !== 'confirmation') return;
+    renderQueue();
+    ++S.detailToken;
+    S.currentId = job.id;
+    S.current = job.detail;
+    markCurrent();
+    renderDetail();
+  }
+
+  function showUndo(job) {
+    var labels = { confirm: 'confirmée', no_answer: 'pas de réponse', callback: 'rappel programmé', cancel: 'annulée' };
+    var bar = $('#undo-bar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'undo-bar';
+      bar.setAttribute('role', 'status');
+      document.body.appendChild(bar);
+    }
+    bar.innerHTML = icon('check') + '<span class="grow">Commande <b>' + h(job.id) + '</b> : ' + labels[job.outcome] + '</span>' +
+      '<button type="button" data-act="undo-call">Annuler</button><span class="undo-time" style="animation-duration:' + UNDO_MS + 'ms"></span>';
+    bar.className = '';
+    void bar.offsetWidth; // relance l'animation du temps restant
+    bar.className = 'show';
+  }
+  function hideUndo() {
+    var bar = $('#undo-bar');
+    if (bar) bar.className = '';
+  }
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') flushPending(); });
+  window.addEventListener('pagehide', flushPending);
 
   /* ================================================================ */
   /* Expéditions (Ecotrack)                                           */
@@ -2214,8 +2342,8 @@
       html += d.alerts.map(function (a) {
         var lv = LEVELS[a.level] || LEVELS.info;
         var wa = waLink(a.phone);
-        return '<div class="result-row"><span class="pill" style="min-width:96px;text-align:center;background:' + lv.bg + ';color:' + lv.fg + '">' + lv.label + '</span>' +
-          '<span class="grow"><strong>' + h(a.title) + '</strong> · <button type="button" class="link-btn" data-act="open-order" data-id="' + h(a.id) + '">' + h(a.id) + '</button> · ' + h(a.client) + ' · ' + h(wilayaName(a.wilaya)) +
+        return '<div class="result-row track-alert lv-' + h(a.level) + '"><span class="pill" style="min-width:96px;text-align:center;background:' + lv.bg + ';color:' + lv.fg + '">' + lv.label + '</span>' +
+          '<span class="grow"><strong>' + h(a.title) + '</strong> · <button type="button" class="link-btn" data-act="open-order" data-id="' + h(a.id) + '">' + h(a.id) + '</button> · <span dir="auto">' + h(a.client) + '</span> · ' + h(wilayaName(a.wilaya)) +
           (a.tagLabel ? ' ' + tagPill(a.tag, a.tagLabel) : '') +
           '<br><span class="small" style="color:var(--ink-2)">' + h(a.detail) + '</span>' +
           (a.courierNote ? '<br><span class="small courier-note">' + icon('courier') + 'Livreur : ' + h(a.courierNote) + '</span>' : '') +
@@ -2225,13 +2353,16 @@
             '<button type="button" class="btn danger" style="min-height:40px" data-act="follow-return" data-id="' + h(a.id) + '">Demander le retour</button>' +
             '<button type="button" class="btn" style="min-height:40px" data-act="follow-quick" data-result="informed" data-id="' + h(a.id) + '">Laisser le livreur réessayer</button></span>' : '') +
           '</span>' +
-          '<span class="quick">' +
-            (/^0\d{8,9}$/.test(String(a.phone).replace(/\D/g, '')) ? '<a class="btn" style="min-height:40px" href="tel:' + h(a.phone) + '" target="_top">' + icon('confirmation') + 'Appeler</a>' : '') +
-            (wa ? '<a class="btn" style="min-height:40px" href="' + h(wa) + '" target="_blank" rel="noopener">' + icon('whatsapp') + 'WhatsApp</a>' : '') +
-            '<button type="button" class="btn" style="min-height:40px" data-act="track-history" data-id="' + h(a.id) + '">' + icon('clock') + 'Chronologie</button>' +
+          '<span class="quick track-actions">' +
+            (/^0\d{8,9}$/.test(String(a.phone).replace(/\D/g, '')) ? '<a class="btn icon-only" href="tel:' + h(a.phone) + '" target="_top" title="Appeler" aria-label="Appeler">' + icon('confirmation') + '</a>' : '') +
             (a.callable
               ? '<button type="button" class="btn primary" style="min-height:40px" data-act="follow-open" data-id="' + h(a.id) + '">Résultat de l’appel</button>'
               : '<button type="button" class="btn" style="min-height:40px" data-act="track-done" data-id="' + h(a.id) + '">Marquer comme traité</button>') +
+            '<details class="more-menu"><summary class="btn icon-only" title="Plus d’actions" aria-label="Plus d’actions">⋯</summary><div class="menu">' +
+              (wa ? '<a href="' + h(wa) + '" target="_blank" rel="noopener">' + icon('whatsapp') + 'WhatsApp</a>' : '') +
+              '<button type="button" data-act="track-history" data-id="' + h(a.id) + '">' + icon('clock') + 'Chronologie</button>' +
+              (a.callable ? '<button type="button" data-act="track-done" data-id="' + h(a.id) + '">' + icon('check') + 'Marquer comme traité</button>' : '') +
+            '</div></details>' +
           '</span></div>';
       }).join('');
     }
@@ -2624,6 +2755,14 @@
     'refresh-queue': function () { loadQueue(false, true); },
     'q-open': function (el) { if (!S.busy) openInDetail(el.getAttribute('data-id')); },
     'toggle-queue': function () { $('#queue').classList.toggle('open'); },
+    'toggle-edit': function () {
+      S.editOpen = !S.editOpen;
+      var box = $('#d-edit');
+      if (box) box.hidden = !S.editOpen;
+      updateSummary();
+      if (S.editOpen && box) { var first = box.querySelector('input, select'); if (first) first.focus({ preventScroll: true }); box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+    },
+    'undo-call': function () { undoLast(); },
     'confirm': function () { submit('confirm'); },
     'no_answer': function () { submit('no_answer'); },
     'show-callback': function () { showPanel('callback'); },
@@ -2705,6 +2844,9 @@
   DZ.ACTIONS = ACTIONS;
 
   document.addEventListener('click', function (e) {
+    $all('details.more-menu[open]').forEach(function (d) {
+      if (!d.contains(e.target) || (e.target.closest && e.target.closest('.menu [data-act], .menu a'))) d.removeAttribute('open');
+    });
     if (e.target.classList && e.target.classList.contains('modal-backdrop')) { closeModal(); return; }
     if (e.target.closest && e.target.closest('[data-label-download]')) { markLabelsPrinted(); return; }
     // Case à cocher dans une ligne cliquable : cocher sans ouvrir la commande.
@@ -2788,7 +2930,15 @@
     else if (e.target.closest('#d-form')) updateSummary();
   });
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && modalOpen()) closeModal();
+    if (e.key === 'Escape' && modalOpen()) { closeModal(); return; }
+    // Confirmation : C confirmer, P pas de réponse, R rappeler, A annuler (hors saisie).
+    if (S.route !== 'confirmation' || !S.current || modalOpen() || e.ctrlKey || e.metaKey || e.altKey) return;
+    var t = e.target;
+    if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+    var act = { c: 'confirm', p: 'no_answer', r: 'show-callback', a: 'show-cancel' }[String(e.key).toLowerCase()];
+    if (!act || !ACTIONS[act]) return;
+    e.preventDefault();
+    ACTIONS[act]($('[data-act="' + act + '"]'));
   });
 
   /**

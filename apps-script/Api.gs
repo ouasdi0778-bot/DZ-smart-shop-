@@ -403,6 +403,7 @@ function queueItem_(o, now, settings) {
     date: iso_(o.date),
     status: String(o.status == null ? '' : o.status),
     attempts: toNumber_(o.attempts),
+    callsToday: parseDayCalls_(o.dayCalls).day === dayKey_(now) ? parseDayCalls_(o.dayCalls).n : 0,
     callback: iso_(o.callback),
     // Rappel dont l'heure est arrivée (pas de réponse ou rappel demandé).
     recall: !!cb && cb <= now && (o.status === STATUS.NO_ANSWER || o.status === STATUS.CALLBACK),

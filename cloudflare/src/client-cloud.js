@@ -80,7 +80,8 @@
           fetch('/api/' + name, {
             method: 'POST',
             headers: { 'content-type': 'application/json', authorization: 'Bearer ' + session.t },
-            body: JSON.stringify(args)
+            body: JSON.stringify(args),
+            keepalive: name === 'api_recordCall' // envoyé même si l'application est fermée juste après
           }).then(function (r) { return r.json(); }).then(function (r) {
             if (r && r.ok) {
               if (name === 'api_bootstrap' && r.data && r.data.cloud) applyStep(r.data.cloud);
