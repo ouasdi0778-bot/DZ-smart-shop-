@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.8
+## Ce que fait la version 1.8.1
 
 | Écran | Contenu |
 |---|---|
@@ -128,6 +128,8 @@ Chaque page correspond à une étape. Une commande passe toute seule à la suiva
 
 - **Tout se corrige pendant l'appel** : client, téléphone, wilaya, commune, adresse, **produit**, quantité, **prix des produits**, livraison, **société**, **frais de livraison** et notes. Le prix suit la quantité (et le prix du catalogue quand vous choisissez un autre produit) ; les frais suivent la wilaya, la livraison et la société. Un prix ou des frais **tapés à la main** sont gardés tels quels (remise, livraison offerte…).
 - **Historique des appels** : chaque résultat (pas de réponse, rappel demandé, confirmée, annulée) est noté avec l'heure et la confirmatrice dans la colonne **« Historique appels »** (les 12 derniers). Il s'affiche sur la carte (« 10:05 pas de réponse → 14:30 pas de réponse ») et dans la fiche, avec le prochain rappel.
+- **Un client rappelle** : ouvrez sa commande dans « Rappels à venir » ou « En attente » (un appui sur la carte) et confirmez-la tout de suite, sans attendre l'heure du rappel. **Sur téléphone** (v1.8.1), les compteurs du haut (À appeler, Rappels à venir, En attente) ouvrent la liste au bon bloc ; quand personne n'est à appeler, la liste reste ouverte sous le message « Personne à appeler maintenant ».
+- **Noms** : un tiret ou un point seul est enlevé du nom du client à l'arrivée (Releasit écrit « Malouche - » quand le nom de famille manque).
 - L'ancien réglage `MAX_TENTATIVES` n'est plus utilisé.
 
 ## Envoyer les colis à Ecotrack

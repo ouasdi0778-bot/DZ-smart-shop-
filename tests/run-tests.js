@@ -2410,6 +2410,11 @@ test('Releasit : une ligne devient une commande prête à confirmer (onglet RELE
   assert.strictEqual(o.date, new Date(2026, 10, 13, 18, 1, 14).toISOString(), 'heure d’Algérie, à la seconde');
   assert.ok(logActions().indexOf('Transfert Releasit') >= 0);
   assert.strictEqual(api_queue().due[0].id, '#1038', 'directement dans la file de confirmation');
+  // Nom de famille absent : Releasit écrit « Malouche - » ; le tiret seul est enlevé (pas celui d'un nom composé).
+  releasitAdd({ id: '#1039', date: '2026-11-13 18:05:00', client: 'Malouche -', qty: 1, line: 1800, sub: 1800, ship: 450, total: 2250 });
+  transferReleasitOrders_();
+  assert.strictEqual(order('#1039').client, 'Malouche');
+  assert.deepStrictEqual(['Jean-Pierre Kaci', '- Amina .', 'سعد -', 'Nadia'].map(cleanClientName_), ['Jean-Pierre Kaci', 'Amina', 'سعد', 'Nadia']);
 });
 
 test('Releasit : pas de doublon, lecture rapide si rien n’a changé, nouvelles lignes au passage suivant', function () {

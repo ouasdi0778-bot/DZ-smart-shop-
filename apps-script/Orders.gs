@@ -560,6 +560,12 @@ function hasNewRows_() {
   return false;
 }
 
+/** Nom du client sans tiret ou point isolé (Releasit écrit « Malouche - » quand le nom de famille manque). */
+function cleanClientName_(value) {
+  var s = String(value == null ? '' : value);
+  return s.replace(/(^|\s)[-–—_.]+(?=\s|$)/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 /** Prépare tout de suite les lignes sans statut (après une importation, ou depuis le menu). */
 function processNewRowsNow_() {
   return withLock_(function () {
@@ -577,6 +583,8 @@ function processNewRowsNow_() {
       if (!(o.date instanceof Date)) f.date = d || env.now;
       var p = normalizePhone(o.phone);
       if (p.phone !== String(o.phone)) f.phone = p.phone;
+      var name = cleanClientName_(o.client);
+      if (name !== String(o.client == null ? '' : o.client)) f.client = name;
       if (!isBlank_(o.wilaya)) {
         var w = matchWilaya_(o.wilaya, env.wilayas);
         if (w && w !== o.wilaya) f.wilaya = w;

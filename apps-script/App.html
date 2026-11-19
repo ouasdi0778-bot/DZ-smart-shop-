@@ -1294,19 +1294,20 @@
   function renderQueue() {
     var q = S.queue;
     q.waiting = q.waiting || [];
+    // Compteurs : un appui ouvre la liste au bon bloc (sur téléphone, la liste est repliée).
     $('#cstats').innerHTML =
-      '<span>À appeler : <strong>' + q.stats.due + '</strong></span>' +
-      '<span class="st-cb">Rappels à venir : <strong>' + q.stats.later + '</strong></span>' +
-      '<span class="st-na">En attente : <strong>' + q.waiting.length + '</strong></span>' +
-      '<span style="background:#E3F2EC;color:#0B6B4C;border-color:#BFE0D2">Mes confirmations aujourd’hui : <strong>' + q.stats.confirmedToday + '</strong></span>';
+      '<button type="button" data-act="queue-jump" data-b="due">À appeler : <strong>' + q.stats.due + '</strong></button>' +
+      '<button type="button" class="st-cb" data-act="queue-jump" data-b="later">Rappels à venir : <strong>' + q.stats.later + '</strong></button>' +
+      '<button type="button" class="st-na" data-act="queue-jump" data-b="waiting">En attente : <strong>' + q.waiting.length + '</strong></button>' +
+      '<span class="st-mine">Mes confirmations aujourd’hui : <strong>' + q.stats.confirmedToday + '</strong></span>';
     var html = '<div class="q-legend" aria-hidden="true"><span><i class="q-new"></i>Nouvelle</span><span><i class="q-na"></i>Pas de réponse · Injoignable</span><span><i class="q-cb"></i>Rappel demandé</span></div>' +
-      '<div class="q-top"><span class="queue-title">À appeler maintenant · ' + q.due.length + '</span>' +
+      '<div class="q-top"><span class="queue-title" id="qb-due">À appeler maintenant · ' + q.due.length + '</span>' +
       '<button type="button" class="btn" style="min-height:36px;padding:0 10px" data-act="refresh-queue">' + icon('refresh') + 'Actualiser</button></div>';
     html += q.due.length ? q.due.map(function (x) { return queueCard(x, 'due'); }).join('') : '<p class="small">Personne à appeler pour le moment.</p>';
-    html += '<span class="queue-title">Rappels à venir · ' + q.later.length + '</span>' +
+    html += '<span class="queue-title" id="qb-later">Rappels à venir · ' + q.later.length + '</span>' +
       (q.later.length ? q.later.map(function (x) { return queueCard(x, 'later'); }).join('') : '<p class="small">Aucun rappel programmé.</p>');
     if (q.waiting.length) {
-      html += '<span class="queue-title">En attente · ' + q.waiting.length + '</span>' +
+      html += '<span class="queue-title" id="qb-waiting">En attente · ' + q.waiting.length + '</span>' +
         '<p class="small" style="margin:0">Ni confirmées ni annulées : elles restent ici jusqu’à une décision.</p>' +
         q.waiting.map(function (x) { return queueCard(x, 'waiting'); }).join('');
     }
@@ -1368,18 +1369,41 @@
     });
   }
 
+  /**
+   * Personne à appeler maintenant : la liste reste ouverte (sur téléphone aussi), pour qu'un client
+   * qui rappelle se retrouve dans « Rappels à venir » ou « En attente ».
+   */
   function renderEmptyDetail() {
     S.currentId = null;
     S.current = null;
-    var next = S.queue && S.queue.later[0];
-    $('#detail').innerHTML = '<div class="card"><h2>La file est vide</h2><p class="sub">Les nouvelles commandes arrivent automatiquement (toutes les 5 minutes).' +
-      (next ? ' Prochain rappel : ' + h(next.client) + ', ' + fmtDate(next.callback) + '.' : '') + '</p></div>';
+    var q = S.queue || { later: [], waiting: [] };
+    var next = q.later[0];
+    var others = q.later.length + (q.waiting || []).length;
+    var box = $('#detail');
+    box.classList.add('is-empty');
+    box.innerHTML = '<div class="card"><h2>Personne à appeler maintenant</h2>' +
+      '<p class="sub">Les nouvelles commandes arrivent toutes seules, en général moins d’une minute après la commande.' +
+      (next ? ' Prochain rappel : <span dir="auto">' + h(next.client) + '</span>, ' + fmtDate(next.callback) + '.' : '') + '</p>' +
+      (others ? '<p class="small" style="margin-top:8px">Un client rappelle ? Touchez sa commande dans « Rappels à venir » ou « En attente » : vous pouvez la confirmer tout de suite.</p>' : '') +
+      '</div>';
+    var list = $('#queue');
+    if (list) list.classList.add('open');
+  }
+
+  /** Compteur touché : la liste s'ouvre sur ce bloc. */
+  function jumpToBlock(el) {
+    var list = $('#queue');
+    if (!list) return;
+    list.classList.add('open');
+    var title = $('#qb-' + el.getAttribute('data-b'));
+    if (title) title.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   function openInDetail(id) {
     S.currentId = id;
     markCurrent();
     $('#queue').classList.remove('open');
+    $('#detail').classList.remove('is-empty');
     $('#detail').innerHTML = '<div class="card"><p class="loading">Chargement…</p></div>';
     var t = ++S.detailToken;
     call('api_getOrder', id).then(function (data) {
@@ -1392,6 +1416,13 @@
   }
 
   function renderDetail() {
+    var dbox = $('#detail');
+    // On sortait de « Personne à appeler » : la liste, ouverte pour l'occasion, se replie (téléphone).
+    if (dbox && dbox.classList.contains('is-empty')) {
+      dbox.classList.remove('is-empty');
+      var list = $('#queue');
+      if (list) list.classList.remove('open');
+    }
     var d = S.current;
     var o = d.order;
     var b = S.boot;
@@ -2766,6 +2797,7 @@
     'refresh-queue': function () { loadQueue(false, true); },
     'q-open': function (el) { if (!S.busy) openInDetail(el.getAttribute('data-id')); },
     'toggle-queue': function () { $('#queue').classList.toggle('open'); },
+    'queue-jump': jumpToBlock,
     'toggle-edit': function () {
       S.editOpen = !S.editOpen;
       var box = $('#d-edit');

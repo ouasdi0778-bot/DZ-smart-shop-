@@ -418,8 +418,19 @@ body:has(.outcomes) #toast { bottom: calc(150px + env(safe-area-inset-bottom)); 
 .q-dots i { width: 8px; height: 8px; border-radius: 50%; background: #DADDE3; display: inline-block; }
 .q-na .q-dots i.on { background: #E8730C; } .q-cb .q-dots i.on { background: #7C4DDB; }
 .q-dots em { font-style: normal; font-size: 11.5px; color: var(--muted); margin-left: 4px; }
-#cstats span.st-cb { background: #F3EDFF; border-color: #DCCDFB; color: #5B21B6; }
-#cstats span.st-na { background: #FFF1E2; border-color: #FAD7B3; color: #9A4A06; }
+#cstats button { padding: 8px 12px; border-radius: 8px; background: var(--surface); border: 1px solid var(--line); font: inherit; color: inherit; cursor: pointer; white-space: nowrap; }
+#cstats button:hover { border-color: var(--line-2); }
+#cstats .st-cb { background: #F3EDFF; border-color: #DCCDFB; color: #5B21B6; }
+#cstats .st-na { background: #FFF1E2; border-color: #FAD7B3; color: #9A4A06; }
+#cstats .st-mine { background: #E3F2EC; color: #0B6B4C; border-color: #BFE0D2; }
+@media (max-width: 860px) {
+#cstats { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 6px; width: 100%; scrollbar-width: none; }
+#cstats::-webkit-scrollbar { display: none; }
+#cstats button, #cstats span { padding: 6px 10px; font-size: 12.5px; flex: none; }
+#cstats .st-mine { display: none; }
+.confirm .detail.is-empty { order: -1; }
+.queue-title { scroll-margin-top: 70px; }
+}
 [dir="auto"] { unicode-bidi: plaintext; }
 .brief { display: grid; gap: 10px; margin-bottom: 10px; }
 .brief-line { display: flex; gap: 12px; align-items: flex-start; font-size: 15px; color: var(--ink-2); }
@@ -750,7 +761,7 @@ border: 0; background: var(--brand); color: #FFFFFF; box-shadow: 0 8px 20px rgba
   var STEP_KEY = 'dz-smart-shop:step';
   /** Pages restées dans l'application Google (étape 3) : ouvertes là-bas. */
   var EXTERNAL = ['benefices', 'stock', 'stats', 'admin'];
-  var VERSION = '1.8.0';
+  var VERSION = '1.8.1';
 
   /** Même empreinte que shortHash_ (Api.gs) : clé de la mémoire sur l'appareil, sans l'adresse. */
   function shortHash(text) {
@@ -2025,18 +2036,18 @@ function renderQueue() {
 var q = S.queue;
 q.waiting = q.waiting || [];
 $('#cstats').innerHTML =
-'<span>À appeler : <strong>' + q.stats.due + '</strong></span>' +
-'<span class="st-cb">Rappels à venir : <strong>' + q.stats.later + '</strong></span>' +
-'<span class="st-na">En attente : <strong>' + q.waiting.length + '</strong></span>' +
-'<span style="background:#E3F2EC;color:#0B6B4C;border-color:#BFE0D2">Mes confirmations aujourd’hui : <strong>' + q.stats.confirmedToday + '</strong></span>';
+'<button type="button" data-act="queue-jump" data-b="due">À appeler : <strong>' + q.stats.due + '</strong></button>' +
+'<button type="button" class="st-cb" data-act="queue-jump" data-b="later">Rappels à venir : <strong>' + q.stats.later + '</strong></button>' +
+'<button type="button" class="st-na" data-act="queue-jump" data-b="waiting">En attente : <strong>' + q.waiting.length + '</strong></button>' +
+'<span class="st-mine">Mes confirmations aujourd’hui : <strong>' + q.stats.confirmedToday + '</strong></span>';
 var html = '<div class="q-legend" aria-hidden="true"><span><i class="q-new"></i>Nouvelle</span><span><i class="q-na"></i>Pas de réponse · Injoignable</span><span><i class="q-cb"></i>Rappel demandé</span></div>' +
-'<div class="q-top"><span class="queue-title">À appeler maintenant · ' + q.due.length + '</span>' +
+'<div class="q-top"><span class="queue-title" id="qb-due">À appeler maintenant · ' + q.due.length + '</span>' +
 '<button type="button" class="btn" style="min-height:36px;padding:0 10px" data-act="refresh-queue">' + icon('refresh') + 'Actualiser</button></div>';
 html += q.due.length ? q.due.map(function (x) { return queueCard(x, 'due'); }).join('') : '<p class="small">Personne à appeler pour le moment.</p>';
-html += '<span class="queue-title">Rappels à venir · ' + q.later.length + '</span>' +
+html += '<span class="queue-title" id="qb-later">Rappels à venir · ' + q.later.length + '</span>' +
 (q.later.length ? q.later.map(function (x) { return queueCard(x, 'later'); }).join('') : '<p class="small">Aucun rappel programmé.</p>');
 if (q.waiting.length) {
-html += '<span class="queue-title">En attente · ' + q.waiting.length + '</span>' +
+html += '<span class="queue-title" id="qb-waiting">En attente · ' + q.waiting.length + '</span>' +
 '<p class="small" style="margin:0">Ni confirmées ni annulées : elles restent ici jusqu’à une décision.</p>' +
 q.waiting.map(function (x) { return queueCard(x, 'waiting'); }).join('');
 }
@@ -2094,14 +2105,31 @@ b.setAttribute('aria-current', String(b.getAttribute('data-id') === S.currentId)
 function renderEmptyDetail() {
 S.currentId = null;
 S.current = null;
-var next = S.queue && S.queue.later[0];
-$('#detail').innerHTML = '<div class="card"><h2>La file est vide</h2><p class="sub">Les nouvelles commandes arrivent automatiquement (toutes les 5 minutes).' +
-(next ? ' Prochain rappel : ' + h(next.client) + ', ' + fmtDate(next.callback) + '.' : '') + '</p></div>';
+var q = S.queue || { later: [], waiting: [] };
+var next = q.later[0];
+var others = q.later.length + (q.waiting || []).length;
+var box = $('#detail');
+box.classList.add('is-empty');
+box.innerHTML = '<div class="card"><h2>Personne à appeler maintenant</h2>' +
+'<p class="sub">Les nouvelles commandes arrivent toutes seules, en général moins d’une minute après la commande.' +
+(next ? ' Prochain rappel : <span dir="auto">' + h(next.client) + '</span>, ' + fmtDate(next.callback) + '.' : '') + '</p>' +
+(others ? '<p class="small" style="margin-top:8px">Un client rappelle ? Touchez sa commande dans « Rappels à venir » ou « En attente » : vous pouvez la confirmer tout de suite.</p>' : '') +
+'</div>';
+var list = $('#queue');
+if (list) list.classList.add('open');
+}
+function jumpToBlock(el) {
+var list = $('#queue');
+if (!list) return;
+list.classList.add('open');
+var title = $('#qb-' + el.getAttribute('data-b'));
+if (title) title.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 function openInDetail(id) {
 S.currentId = id;
 markCurrent();
 $('#queue').classList.remove('open');
+$('#detail').classList.remove('is-empty');
 $('#detail').innerHTML = '<div class="card"><p class="loading">Chargement…</p></div>';
 var t = ++S.detailToken;
 call('api_getOrder', id).then(function (data) {
@@ -2113,6 +2141,12 @@ if (t === S.detailToken) $('#detail').innerHTML = '<div class="card">' + errorBo
 });
 }
 function renderDetail() {
+var dbox = $('#detail');
+if (dbox && dbox.classList.contains('is-empty')) {
+dbox.classList.remove('is-empty');
+var list = $('#queue');
+if (list) list.classList.remove('open');
+}
 var d = S.current;
 var o = d.order;
 var b = S.boot;
@@ -3337,6 +3371,7 @@ refreshCount();
 'refresh-queue': function () { loadQueue(false, true); },
 'q-open': function (el) { if (!S.busy) openInDetail(el.getAttribute('data-id')); },
 'toggle-queue': function () { $('#queue').classList.toggle('open'); },
+'queue-jump': jumpToBlock,
 'toggle-edit': function () {
 S.editOpen = !S.editOpen;
 var box = $('#d-edit');
