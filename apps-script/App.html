@@ -1042,11 +1042,21 @@
     }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
   }
 
+  /** Photo du produit (page Stock › Modifier, ou reprise de Shopify) : la première des articles de la commande. */
+  function productPhoto(items) {
+    var it = (items || []).filter(function (x) { return x.photo; })[0];
+    return it ? '<img class="prod-photo" src="' + h(it.photo) + '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">' : '';
+  }
+
   /** Avertissement de stock pour les articles d'une commande. */
   function stockNote(items, compact) {
     if (!items || !items.length) return '';
     var short = items.filter(function (it) { return it.short; });
     var html = short.map(function (it) {
+      if (it.pack) {
+        return '<div class="stock-warn">' + icon('alert') + 'Stock insuffisant pour le pack ' + h(it.model || it.product) + ' : ' + h((it.lacking || []).join(', ')) +
+          (it.available !== null ? ' (packs disponibles : ' + Math.max(it.available, 0) + ', demandé ' + it.qty + ')' : '') + '</div>';
+      }
       return '<div class="stock-warn">' + icon('alert') + 'Stock insuffisant : ' + h(it.model || it.product) + ' — disponible ' + Math.max(it.available, 0) +
         (it.reserved ? ' (' + it.reserved + ' réservé' + (it.reserved > 1 ? 's' : '') + ')' : '') + ', demandé ' + it.qty + '</div>';
     }).join('');
@@ -1535,8 +1545,8 @@
         '<div class="brief-line"><span class="lab">Livraison</span><span>' +
           (f.commune ? '<span dir="auto">' + h(f.commune) + '</span>' : '') + (f.commune && f.address ? ', ' : '') + (f.address ? '<span dir="auto">' + h(f.address) + '</span>' : '') +
           (f.commune || f.address ? '<br>' : '') + '<strong>' + h(wilayaName(f.wilaya) || 'Wilaya à choisir') + '</strong> · ' + h(f.mode) + ' · ' + h(a.carrier) + '</span></div>' +
-        '<div class="brief-line"><span class="lab">Produit</span><span><strong dir="auto">' + h(f.product || 'Produit à indiquer') + '</strong> × ' + a.qty +
-          ' <span class="muted">· ' + money(a.price) + ' + livraison ' + money(a.shipping) + '</span></span></div>' +
+        '<div class="brief-line"><span class="lab">Produit</span><span class="brief-prod">' + productPhoto(S.current.stock) + '<span><strong dir="auto">' + h(f.product || 'Produit à indiquer') + '</strong> × ' + a.qty +
+          ' <span class="muted">· ' + money(a.price) + ' + livraison ' + money(a.shipping) + '</span></span></span></div>' +
         (String(f.notes || '').trim() ? '<div class="brief-line"><span class="lab">Note</span><span dir="auto">' + h(f.notes) + '</span></div>' : '') +
         '<div class="brief-total"><span>Total à encaisser</span><b>' + money(a.total) + '</b></div>' +
         '<div class="brief-foot">' +
@@ -2645,6 +2655,7 @@
   DZ['errText'] = errText;
   DZ['errorBox'] = errorBox;
   DZ['money'] = money;
+  DZ['productPhoto'] = productPhoto;
   DZ['pct'] = pct;
   DZ['plural'] = plural;
   DZ['fmtDate'] = fmtDate;

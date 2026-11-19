@@ -16,12 +16,15 @@
     clientSecret: 'client-secret-1234567890',
     issuedTokens: [],      // jetons délivrés par la demande « client credentials »
     orders: [],
+    products: [],          // catalogue : [{ title, featuredImage: { url }, variants: { nodes: [{ title, image }] } }]
+    denyProducts: false,   // true : permission read_products absente
     calls: [],
     queue: [],             // réponses forcées, utilisées dans l'ordre
     currency: 'DZD',
     denyOrders: false,     // true : permission read_orders absente
     reset: function () {
       fake.orders = []; fake.calls = []; fake.queue = []; fake.issuedTokens = []; fake.currency = 'DZD'; fake.denyOrders = false;
+      fake.products = []; fake.denyProducts = false;
     },
     count: function (kind) { return fake.calls.filter(function (c) { return !kind || c.kind === kind; }).length; },
     /** Ajoute une commande au format Releasit COD (les champs réels de la boutique). */
@@ -101,6 +104,12 @@
     if (!valid) return respond(401, { errors: '[API] Invalid API key or access token (unrecognized login or wrong password)' });
     var data = {};
     if (/\bshop\b/.test(body.query)) data.shop = { name: 'BE SMART SHOP', myshopifyDomain: 'algerie-smart.myshopify.com', currencyCode: fake.currency };
+    if (/products\(/.test(body.query)) {
+      if (fake.denyProducts) {
+        return respond(200, { errors: [{ message: 'Access denied for products field. Required access: `read_products` access scope.', extensions: { code: 'ACCESS_DENIED' } }] });
+      }
+      data.products = { pageInfo: { hasNextPage: false, endCursor: null }, nodes: fake.products };
+    }
     if (/orders\(/.test(body.query)) {
       if (fake.denyOrders) {
         return respond(200, { errors: [{ message: 'Access denied for orders field. Required access: `read_orders` access scope. Also: The user must have a staff permission.', extensions: { code: 'ACCESS_DENIED' } }] });

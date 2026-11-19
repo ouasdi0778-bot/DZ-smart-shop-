@@ -177,16 +177,25 @@ function logStockMoves_(rows) {
   if (!cfFull_()) return; // étape 2 : faits par Apps Script sur le classeur (voir Cloud.gs)
   rows.forEach(function (r) { REQ.moveRows.push(r); });
 }
-/** Derniers mouvements de stock : lus dans D1 par server.js (REQ.moves, les plus récents d'abord). */
+/** Derniers mouvements de stock : lus dans D1 par server.js (REQ.moves, les plus récents d'abord ; ref = n° dans la base). */
 function readStockMoves_(limit) {
-  return (REQ.moves || []).slice(0, limit || 300).map(function (r) {
-    return {
-      date: iso_(r[0]), product: String(r[1]), model: String(r[2]), key: catalogKey_(r[1], r[2]), type: String(r[3]),
-      qty: toNumber_(r[4]), after: isBlank_(r[5]) || r[5] === '' ? null : toNumber_(r[5]),
-      cost: isBlank_(r[6]) || r[6] === '' ? null : toNumber_(r[6]), order: String(r[7]), by: String(r[8]), note: String(r[9])
-    };
-  });
+  return (REQ.moves || []).slice(0, limit || 300).map(function (x) { return moveFromRow_(x.row, x.seq); });
 }
+/** Mouvements liés à une commande, par modèle : comptés par la base (server.js, REQ.moveCounts). */
+function stockOrderMoveCounts_() {
+  var out = {};
+  (REQ.moveCounts || []).forEach(function (x) { var k = catalogKey_(x.p, x.m); out[k] = (out[k] || 0) + Number(x.n || 0); });
+  return out;
+}
+/** Un mouvement par son n° dans la base (lu par server.js). */
+function stockMoveByRef_(ref) {
+  var m = REQ.oneMove;
+  return m && String(m.seq) === String(ref) ? moveFromRow_(m.row, m.seq) : null;
+}
+function stockUndoNotes_() { return REQ.undoNotes || []; }
+/** Mouvements faits après la date demandée : additionnés par modèle par la base (server.js). */
+function stockMovesSince_() { return REQ.movesSince || []; }
+function readAllMoveRows_() { throw new Error('Mouvements de stock : lus dans la base par la version Cloudflare.'); }
 
 /* Lien avec la version Cloudflare (Cloud.gs) : ici, on EST la version Cloudflare. */
 function cloudLive_() { return false; }

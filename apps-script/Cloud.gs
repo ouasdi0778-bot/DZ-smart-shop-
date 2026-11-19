@@ -633,6 +633,7 @@ function cloudGoFull_() {
   var tabs = {};
   CLOUD.TABS.forEach(function (n) { if (ss_().getSheetByName(n)) tabs[n] = cloudTabValues_(n); });
   cloudFetch_('/bridge/tabs', { tabs: tabs });
+  cloudPushMoves_();
   cloudPushConfig_(); // clés à jour (Shopify compris : lu par Cloudflare à l'étape 3)
   var r = cloudFetch_('/bridge/full', { full: true });
   p.setProperty(CLOUD.PROP_SEQ, String(Math.max(Number(p.getProperty(CLOUD.PROP_SEQ)) || 0, Number(r.seq) || 0)));
@@ -640,6 +641,18 @@ function cloudGoFull_() {
   p.deleteProperty(CLOUD.PROP_TABS_DIRTY);
   p.setProperty(CLOUD.PROP_FULL, new Date().toISOString());
   cloudPushEditors_();
+}
+
+/**
+ * Étape 3 : l'historique de l'onglet « Mouvements stock » est copié dans la base (par paquets),
+ * pour la valeur du stock à une date, les annulations et les suppressions faites dans Cloudflare.
+ */
+function cloudPushMoves_() {
+  var rows = readAllMoveRows_();
+  for (var i = 0; i === 0 || i < rows.length; i += 500) {
+    cloudFetch_('/bridge/moves', { reset: i === 0, rows: rows.slice(i, i + 500).map(function (r) { return r.map(cloudCellOut_); }) });
+  }
+  return rows.length;
 }
 
 /** « Passer à l'étape 3 » (administrateur, après le basculement). */

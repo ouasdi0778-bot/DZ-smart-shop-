@@ -76,6 +76,7 @@ async function fresh(live, full) {
     const tabs = {};
     ['Clients', 'Produits', 'Tarifs', 'Équipe', 'Paramètres', 'Dépenses'].forEach((n) => { if (__mock.ss().getSheetByName(n)) tabs[n] = cloudTabValues_(n); });
     await bridge('/bridge/tabs', { tabs: tabs });
+    await bridge('/bridge/moves', { reset: true, rows: readAllMoveRows_().map((r) => r.map(cloudCellOut_)) });
     await bridge('/bridge/full', { full: true });
     await bridge('/bridge/config', { editors: ['admin@example.com'] });
     await env.DB.prepare("INSERT INTO kv (key, value) VALUES ('cf:nightDay', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(ymd_(new Date())).run();
@@ -571,6 +572,76 @@ test('Étape 3 · Stock : même page que la version Google ; entrée de stock et
   assert.deepStrictEqual(w3.products.map((p) => p.models.map((x) => [x.key, x.stock, x.reserved])), g3.products.map((p) => p.models.map((x) => [x.key, x.stock, x.reserved])));
   assert.strictEqual((await dbOrder(ok[0])).stockMove, sheetOrder(ok[0]).stockMove);
   assert.strictEqual((await dbOrder(ok[0])).stockMove, 'Sorti');
+});
+
+test('Étape 3 · Stock v1.8 : packs, masquer, fusionner, supprimer, annuler un mouvement, valeur à une date — comme la version Google', async () => {
+  await fresh(true, true);
+  const both = async (fn, ...args) => {
+    let w = null;
+    let g = null;
+    try { w = await api(fn, ...args); } catch (e) { w = { error: e.message.replace(fn + ' : ', '') }; }
+    try { g = gas(fn, ...args); } catch (e) { g = { error: e.message }; }
+    assert.deepStrictEqual(w, g, fn);
+    return w;
+  };
+  const model = (d, product, name) => { let out = null; d.products.forEach((p) => p.models.forEach((m) => { if (p.product === product && m.model === (name || '')) out = m; })); return out; };
+  await both('api_addProduct', { product: 'Pack Montre + Écouteurs', price: 6200, pack: [{ label: 'Montre connectée', qty: 1 }, { label: 'Écouteurs sans fil', qty: 2 }] });
+  await both('api_addProduct', { product: 'Coque', models: [{ model: 'A14', stock: 3, cost: 400, price: 1500 }, { model: 'A-14', stock: 2 }, { model: 'A24', stock: 0 }] });
+  let w = await api('api_stockPage');
+  let g = gas('api_stockPage');
+  assert.deepStrictEqual(w.products, g.products, 'même page (pack, réservations, photos)');
+  const pack = model(w, 'Pack Montre + Écouteurs');
+  assert.ok(pack.pack && pack.available !== null && pack.costAuto);
+  // Masquer, fusionner, supprimer.
+  const a24 = model(w, 'Coque', 'A24');
+  await both('api_setCatalogActive', { row: a24.row, key: a24.key, active: false });
+  const dup = model(w, 'Coque', 'A-14');
+  const good = model(w, 'Coque', 'A14');
+  await both('api_mergeCatalogRows', { from: { row: dup.row, key: dup.key }, to: { row: good.row, key: good.key } });
+  w = await api('api_stockPage');
+  g = gas('api_stockPage');
+  assert.deepStrictEqual(w.products, g.products, 'après la fusion');
+  assert.deepStrictEqual([model(w, 'Coque', 'A14').stock, !!model(w, 'Coque', 'A-14')], [5, false]);
+  const used = model(w, 'Montre connectée');
+  const r1 = await both('api_deleteCatalogRow', { row: used.row, key: used.key });
+  assert.ok(/fait partie du pack/.test(r1.error), r1.error);
+  const inPack = ['Montre connectée', 'Écouteurs sans fil'];
+  const shipped = w.products.find((p) => inPack.indexOf(p.product) < 0 && p.models.some((m) => m.reserved > 0));
+  const res = shipped.models.find((m) => m.reserved > 0);
+  const r2 = await both('api_deleteCatalogRow', { row: res.row, key: res.key });
+  assert.ok(/commandes? l’utilise/.test(r2.error), r2.error);
+  const a24b = model(w, 'Coque', 'A24');
+  await both('api_deleteCatalogRow', { row: a24b.row, key: a24b.key });
+  w = await api('api_stockPage');
+  g = gas('api_stockPage');
+  assert.deepStrictEqual(w.products, g.products, 'après la suppression');
+  // Annuler l'entrée « Stock initial » de A14 (chaque version a ses propres références).
+  const wm = w.moves.find((m) => m.type === 'Stock initial' && m.model === 'A14');
+  const gm = g.moves.find((m) => m.type === 'Stock initial' && m.model === 'A14');
+  assert.ok(wm.undoable && gm.undoable);
+  const wu = await api('api_undoStockMove', { ref: wm.ref, key: wm.key, type: wm.type, qty: wm.qty, date: wm.date });
+  const gu = gas('api_undoStockMove', { ref: gm.ref, key: gm.key, type: gm.type, qty: gm.qty, date: gm.date });
+  assert.strictEqual(wu.message, gu.message);
+  await assert.rejects(api('api_undoStockMove', { ref: wm.ref, key: wm.key, type: wm.type, qty: wm.qty, date: wm.date }), /déjà été annulé/);
+  w = await api('api_stockPage');
+  g = gas('api_stockPage');
+  assert.deepStrictEqual(w.products, g.products, 'après l’annulation');
+  assert.ok(w.moves.find((m) => m.ref === wm.ref).undone);
+  // Valeur à une date : aujourd'hui = stock actuel ; hier = sans les mouvements d'aujourd'hui.
+  const today = ymd_(new Date());
+  const wt = await api('api_stockAt', today);
+  const gt = gas('api_stockAt', today);
+  assert.deepStrictEqual([wt.units, wt.value], [gt.units, gt.value]);
+  const y = ymd_(new Date(Date.now() - 86400000));
+  const wy = await api('api_stockAt', y);
+  const gy = gas('api_stockAt', y);
+  assert.deepStrictEqual([wy.units, wy.value], [gy.units, gy.value]);
+  assert.notStrictEqual(wy.units, wt.units, 'les mouvements d’aujourd’hui (colis partis, ajouts) ne comptent pas hier');
+  // Le classeur reçoit l'onglet Produits (ligne supprimée) et les mouvements.
+  const ch = await bridge('/bridge/changes', { after: 0 });
+  const tab = ch.changes.filter((c) => c.kind === 'tab' && c.id === 'Produits').pop();
+  assert.strictEqual(tab.tab.n, __mock.ss().getSheetByName('Produits').getLastRow(), 'même nombre de lignes que l’onglet Google');
+  assert.ok(ch.changes.some((c) => c.kind === 'moves' && /Annulation/.test(c.info)));
 });
 
 test('Étape 3 · Bénéfices et Statistiques : mêmes chiffres que la version Google (résumés par jour), dépenses, prime, recalcul', async () => {

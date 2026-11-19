@@ -1085,6 +1085,8 @@ function needFull(R) {
 /** Onglets lus d'avance par chaque action (sinon lus à la demande, l'action étant alors rejouée). */
 const FN_TABS = {
   api_stockEntry: ['Produits'], api_stockInventory: ['Produits'], api_addProduct: ['Produits'], api_updateCatalogRow: ['Produits'], api_addCatalogItems: ['Produits'],
+  api_setCatalogActive: ['Produits'], api_deleteCatalogRow: ['Produits'], api_mergeCatalogRows: ['Produits'], api_undoStockMove: ['Produits', 'Paramètres'],
+  api_stockAt: ['Produits'], api_shopifyPhotos: ['Produits'],
   api_markReturnDamaged: ['Produits'], api_validateParcels: ['Produits'], api_ecotrackSyncStatuses: ['Produits'], api_updateOrder: [], api_recordCall: [],
   api_addExpense: ['Dépenses'], api_updateExpense: ['Dépenses'], api_deleteExpenses: ['Dépenses'], api_profit: ['Dépenses'], api_stats: ['Dépenses'],
   api_settingsGet: ['Paramètres'], api_settingsSave: ['Paramètres'], api_setPrime: ['Paramètres'],
@@ -1113,10 +1115,45 @@ async function loadStockSet(env, R) {
   const r = await env.DB.batch([
     env.DB.prepare("SELECT json_extract(data, '$.product') AS product, json_extract(data, '$.qty') AS qty, json_extract(data, '$.price') AS price, " +
       "MAX(date) AS date, COUNT(*) AS n FROM orders WHERE archived = 0 AND day >= ? GROUP BY 1, 2, 3").bind(since),
-    env.DB.prepare('SELECT row FROM moves ORDER BY seq DESC LIMIT 300')
+    env.DB.prepare('SELECT seq, row FROM moves ORDER BY seq DESC LIMIT 300')
   ]);
   R.labelRows = (r[0].results || []).map((x) => ({ product: x.product || '', qty: x.qty, price: x.price, date: x.date, __n: x.n }));
-  R.moves = (r[1].results || []).map((x) => JSON.parse(x.row).map(F.cfCellIn_));
+  R.moves = (r[1].results || []).map((x) => ({ seq: x.seq, row: JSON.parse(x.row).map(F.cfCellIn_) }));
+}
+
+/*
+ * Actions rares de la page Stock : la base fait les comptes (une lecture de la table moves,
+ * mais peu de travail pour le moteur), l'outil fait le reste.
+ */
+/** Supprimer un modèle : mouvements liés à une commande (par modèle) et libellés des commandes en cours. */
+async function loadDeleteCheck(env, R) {
+  const r = await env.DB.batch([
+    env.DB.prepare("SELECT json_extract(row, '$[1]') AS p, json_extract(row, '$[2]') AS m, COUNT(*) AS n FROM moves " +
+      "WHERE IFNULL(json_extract(row, '$[7]'), '') != '' GROUP BY 1, 2"),
+    env.DB.prepare("SELECT json_extract(data, '$.product') AS product, json_extract(data, '$.qty') AS qty, COUNT(*) AS n FROM orders WHERE archived = 0 GROUP BY 1, 2")
+  ]);
+  R.moveCounts = (r[0].results || []).map((x) => ({ p: x.p || '', m: x.m || '', n: x.n }));
+  R.labelRows = (r[1].results || []).map((x) => ({ product: x.product || '', qty: x.qty, __n: x.n }));
+}
+/** Annuler un mouvement : ce mouvement, et les annulations déjà faites. */
+async function loadUndoCheck(env, R, args) {
+  const ref = Math.round(Number((args[0] || {}).ref)) || 0;
+  const r = await env.DB.batch([
+    env.DB.prepare('SELECT seq, row FROM moves WHERE seq = ?').bind(ref),
+    env.DB.prepare("SELECT json_extract(row, '$[9]') AS note FROM moves WHERE json_extract(row, '$[3]') = ?").bind(K.STOCK_UNDO_TYPE_)
+  ]);
+  const one = (r[0].results || [])[0];
+  R.oneMove = one ? { seq: one.seq, row: JSON.parse(one.row).map(F.cfCellIn_) } : null;
+  R.undoNotes = (r[1].results || []).map((x) => String(x.note || ''));
+}
+/** Stock à une date : mouvements faits depuis la fin de ce jour (heure d'Algérie), additionnés par modèle. */
+async function loadMovesSince(env, R, args) {
+  const day = String(args[0] || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return;
+  const end = new Date(F.addDayDays_(day, 1) + 'T00:00:00+01:00').toISOString();
+  const r = await env.DB.prepare("SELECT json_extract(row, '$[1]') AS p, json_extract(row, '$[2]') AS m, SUM(json_extract(row, '$[4]')) AS q FROM moves " +
+    'WHERE at > ? GROUP BY 1, 2').bind(end).all();
+  R.movesSince = (r.results || []).map((x) => ({ product: x.p || '', model: x.m || '', qty: Number(x.q) || 0 }));
 }
 
 /** Résumés par jour d'une période (table days) ; les jours à refaire le sont d'abord, au plus `cap` (les plus récents). */
@@ -1204,6 +1241,12 @@ Object.assign(PAGES, {
   api_updateCatalogRow: gasPage('api_updateCatalogRow'),
   api_stockEntry: gasPage('api_stockEntry'),
   api_stockInventory: gasPage('api_stockInventory'),
+  api_setCatalogActive: gasPage('api_setCatalogActive'),
+  api_deleteCatalogRow: gasPage('api_deleteCatalogRow', loadDeleteCheck),
+  api_mergeCatalogRows: gasPage('api_mergeCatalogRows'),
+  api_undoStockMove: gasPage('api_undoStockMove', loadUndoCheck),
+  api_stockAt: gasPage('api_stockAt', loadMovesSince),
+  api_shopifyPhotos: gasPage('api_shopifyPhotos'),
 
   /* Bénéfices : résumés par jour additionnés (période et période d'avant), dépenses de l'onglet Dépenses. */
   async api_profit(env, R, args) {
@@ -1654,6 +1697,17 @@ async function bridge(request, env, path) {
       await flush(env, R);
     }
     return out;
+  }
+
+  // Étape 3 : historique des mouvements de stock du classeur (copié au passage à l'étape 3, sans repartir vers le classeur).
+  if (path === '/bridge/moves') {
+    const now = new Date().toISOString();
+    const rows = (body.rows || []).filter((r) => Array.isArray(r)).map((r) => [r[0] && r[0].$d ? String(r[0].$d) : now, JSON.stringify(r)]);
+    const st = [];
+    if (body.reset) st.push(db.prepare('DELETE FROM moves'));
+    if (rows.length) st.push(db.prepare("INSERT INTO moves (at, row) SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(?)").bind(JSON.stringify(rows)));
+    if (st.length) await db.batch(st);
+    return { saved: rows.length };
   }
 
   // Nouvelles commandes (Releasit, Shopify) déjà préparées par Apps Script : ajoutées si elles n'existent pas.

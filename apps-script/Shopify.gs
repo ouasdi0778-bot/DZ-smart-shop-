@@ -568,3 +568,92 @@ function menuShopifyImport() {
     ui.alert('Shopify : échec', String(e && e.message ? e.message : e), ui.ButtonSet.OK);
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Photos des produits (page Stock)                                   */
+/* ------------------------------------------------------------------ */
+
+var SHOPIFY_PRODUCTS_QUERY_ =
+  'query($first: Int!, $after: String) { products(first: $first, after: $after) { pageInfo { hasNextPage endCursor }' +
+  ' nodes { title featuredImage { url } variants(first: 50) { nodes { title image { url } } } } } }';
+var SHOPIFY_ORDER_IMAGES_QUERY_ =
+  'query($first: Int!, $after: String, $query: String) { orders(first: $first, after: $after, sortKey: CREATED_AT, reverse: true, query: $query) {' +
+  ' pageInfo { hasNextPage endCursor } nodes { lineItems(first: 20) { nodes { title variantTitle image { url } } } } } }';
+
+/**
+ * Photos des produits Shopify : [{ title, variant, url }]. Lues dans le catalogue de la boutique ;
+ * sans la permission « read_products », dans les articles des commandes des 90 derniers jours.
+ */
+function shopifyProductImages_() {
+  var out = [];
+  var after = null;
+  var page;
+  try {
+    for (page = 0; page < 5; page++) {
+      var data = shopifyGraphql_(SHOPIFY_PRODUCTS_QUERY_, { first: 100, after: after });
+      var conn = (data && data.products) || { nodes: [], pageInfo: {} };
+      (conn.nodes || []).forEach(function (p) {
+        var main = p.featuredImage && p.featuredImage.url ? p.featuredImage.url : '';
+        if (main) out.push({ title: String(p.title || ''), variant: '', url: main });
+        ((p.variants && p.variants.nodes) || []).forEach(function (v) {
+          var u = (v.image && v.image.url) || main;
+          if (u && v.title && v.title !== 'Default Title') out.push({ title: String(p.title || ''), variant: String(v.title), url: u });
+        });
+      });
+      if (!(conn.pageInfo && conn.pageInfo.hasNextPage)) break;
+      after = conn.pageInfo.endCursor;
+    }
+    return out;
+  } catch (e) {
+    if (!e || e.code !== 403) throw e; // pas de permission « read_products » : articles des commandes
+  }
+  var since = new Date(Date.now() - 90 * 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  after = null;
+  for (page = 0; page < 4; page++) {
+    var d = shopifyGraphql_(SHOPIFY_ORDER_IMAGES_QUERY_, { first: 100, after: after, query: 'created_at:>=' + since });
+    var c = (d && d.orders) || { nodes: [], pageInfo: {} };
+    (c.nodes || []).forEach(function (o) {
+      ((o.lineItems && o.lineItems.nodes) || []).forEach(function (li) {
+        if (li.image && li.image.url) out.push({ title: String(li.title || ''), variant: li.variantTitle && li.variantTitle !== 'Default Title' ? String(li.variantTitle) : '', url: li.image.url });
+      });
+    });
+    if (!(c.pageInfo && c.pageInfo.hasNextPage)) break;
+    after = c.pageInfo.endCursor;
+  }
+  return out;
+}
+
+/** Page Stock : reprend les photos de Shopify pour les modèles qui n'en ont pas (les liens déjà mis ne changent pas). */
+function api_shopifyPhotos() {
+  cloudGuardAll_();
+  var user = requireStockAccess_();
+  if (!shopifyConfig_().configured) throw new Error('Shopify n’est pas configuré (Administration › Connexions).');
+  var images = shopifyProductImages_();
+  return withLock_(function () {
+    var sh = productsSheet_();
+    var catalog = readCatalogFromSheet_();
+    var exact = {};
+    var byProduct = {};
+    images.forEach(function (im) {
+      var url = cleanPhotoUrl_(im.url);
+      if (!url) return;
+      var row = matchCatalog_(catalog, im.variant ? im.title + ' ' + im.variant : im.title);
+      if (row && !exact[row.row]) exact[row.row] = url;
+      var k = normalizeLoose_(im.title);
+      if (!byProduct[k]) byProduct[k] = url;
+    });
+    var n = 0;
+    catalog.rows.forEach(function (r) {
+      if (r.photo) return;
+      var url = exact[r.row] || byProduct[normalizeLoose_(r.product)];
+      if (!url) return;
+      writeCatalogCells_(sh, catalog, r.row, { photo: url });
+      n++;
+    });
+    if (n) {
+      clearConfigCache_(configKeysFor_(SHEET.PRODUCTS));
+      log_(user, '', 'Produits', n + ' photo(s) reprise(s) de Shopify');
+    }
+    return { added: n, message: n ? n + ' photo(s) reprise(s) de Shopify.' : 'Aucune nouvelle photo : les noms des produits Shopify ne correspondent à aucun modèle sans photo.' };
+  });
+}

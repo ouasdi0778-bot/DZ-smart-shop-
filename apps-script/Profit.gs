@@ -156,7 +156,7 @@ function orderProfit_(o, env, catalog) {
   var s = env.settings;
   var res = { profit: null, revenue: 0, sales: 0, clientShipping: 0, fee: 0, deliveryNet: 0, cost: 0, returnFee: 0, packaging: 0,
     missingCost: false, missingFee: false, items: [] };
-  var items = orderItems_(o);
+  var items = catalogItems_(catalog, o);
   if (o.status === STATUS.DELIVERED) {
     var cost = 0;
     items.forEach(function (it) {
@@ -297,7 +297,7 @@ function profitAccumulate_(orders, env, catalog, acc, detail) {
     }
     if (!detail) return;
     // Par produit : une commande à plusieurs articles est partagée selon les quantités.
-    var items = orderItems_(o);
+    var items = catalogItems_(catalog, o);
     var totalQty = items.reduce(function (a, it) { return a + it.qty; }, 0) || 1;
     items.forEach(function (it) {
       var row = matchCatalog_(catalog, it.label);

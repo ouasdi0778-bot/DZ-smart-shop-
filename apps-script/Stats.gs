@@ -86,7 +86,7 @@ function addOrderToDay_(day, o, env, catalog) {
   var campaign = String(o.campaign || '').replace(/\s+/g, ' ').trim() || '(sans campagne)';
   addToRow_(groupRow_(day.cp, campaign), o, p, 1, null);
 
-  var items = orderItems_(o);
+  var items = catalogItems_(catalog, o);
   var totalQty = items.reduce(function (a, it) { return a + it.qty; }, 0) || 1;
   items.forEach(function (it) {
     var row = matchCatalog_(catalog, it.label);

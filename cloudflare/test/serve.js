@@ -92,6 +92,7 @@ ORDERS_CACHE_ON_ = false;
     const tabs = {};
     ['Clients', 'Produits', 'Tarifs', 'Équipe', 'Paramètres', 'Dépenses'].forEach((n) => { if (__mock.ss().getSheetByName(n)) tabs[n] = cloudTabValues_(n); });
     await send('/bridge/tabs', { tabs: tabs });
+    await send('/bridge/moves', { reset: true, rows: readAllMoveRows_().map((r) => r.map(cloudCellOut_)) });
     await send('/bridge/full', { full: true });
     await send('/bridge/config', { editors: ['admin@example.com'] });
     const mod = await import(pathToFileURL(tmp).href);

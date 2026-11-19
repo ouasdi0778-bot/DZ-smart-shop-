@@ -3579,6 +3579,217 @@ test('Stock : rôle Magasinier (stock oui, bénéfices non) ; compteur des comma
   assert.strictEqual(api_queue().stats.pending, 2);
 });
 
+/* ---------------- Version 1.8 : page Stock ---------------- */
+
+function stockModel(product, model) {
+  var out = null;
+  api_stockPage().products.forEach(function (g) { g.models.forEach(function (m) { if (g.product === product && m.model === (model || '')) out = m; }); });
+  return out;
+}
+
+test('Stock v1.8 : packs (réservent, sortent et font rentrer leurs articles ; disponible et coût calculés)', function () {
+  baseSetup();
+  api_addProduct({ product: 'Montre', price: 4300, cost: 2000, stock: 5 });
+  api_addProduct({ product: 'Écouteurs', price: 2600, cost: 1000, stock: 8 });
+  assert.throws(function () { api_addProduct({ product: 'Pack X', pack: [{ label: 'Inconnu', qty: 1 }] }); }, /n’est pas un modèle du catalogue/);
+  var r = api_addProduct({ product: 'Pack Montre + Écouteurs', price: 6200, pack: [{ label: 'Montre', qty: 1 }, { label: 'ecouteurs', qty: 2 }] });
+  assert.ok(/Pack « Pack Montre \+ Écouteurs » ajouté/.test(r.message), r.message);
+  assert.throws(function () { api_addProduct({ product: 'Pack de pack', pack: [{ label: 'Pack Montre + Écouteurs', qty: 1 }] }); }, /un pack ne peut pas contenir un pack/);
+  var cat = readCatalog_();
+  var pack = matchCatalog_(cat, 'Pack Montre + Écouteurs');
+  assert.strictEqual(pack.packText, 'Montre × 1 + Écouteurs × 2');
+  assert.deepStrictEqual([pack.stock, pack.cost, pack.costAuto], [null, 4000, true], 'coût = 2000 + 2 × 1000');
+  var m = stockModel('Pack Montre + Écouteurs');
+  assert.deepStrictEqual([m.available, m.tracked, !!m.pack, m.value], [4, true, true, 0], 'disponible : min(5, 8 / 2)');
+  assert.strictEqual(api_stockPage().totals.models, 2, 'un pack ne compte pas dans les modèles en stock');
+
+  addOrder('#P1', 'Pack Montre + Écouteurs', { 'Quantité': 2, 'Prix': 12400 });
+  addOrder('#P2', 'Pack Montre + Écouteurs', { 'Quantité': 3, 'Prix': 18600 });
+  processNewRows();
+  api_recordCall('#P1', 'confirm', {});
+  assert.deepStrictEqual([stockModel('Montre').reserved, stockModel('Écouteurs').reserved], [2, 4], 'le pack réserve ses articles');
+  m = stockModel('Pack Montre + Écouteurs');
+  assert.deepStrictEqual([m.reserved, m.available], [2, 2]);
+  assert.deepStrictEqual(m.orders.map(function (o) { return [o.id, o.qty]; }), [['#P1', 2]], 'commandes qui réservent le pack');
+  assert.deepStrictEqual(stockModel('Montre').orders.map(function (o) { return o.id; }), ['#P1'], 'et chacun de ses articles');
+  var info = api_getOrder('#P2').stock[0];
+  assert.deepStrictEqual([info.pack, info.short, info.available], [true, true, 2], '3 packs demandés, 2 possibles');
+  assert.deepStrictEqual(info.lacking, ['Écouteurs'], 'montres : 5 − 2 réservées = 3, assez ; écouteurs : 8 − 4 = 4, il en faut 6');
+  assert.strictEqual(api_getOrder('#P1').stock[0].short, false, 'sa propre réservation ne compte pas contre elle');
+
+  api_updateOrder('#P1', { status: 'Expédiée', carrier: 'Yalidine', tracking: 'Y1' });
+  assert.deepStrictEqual([catalogStock(''), readCatalogFromSheet_().rows.filter(function (x) { return x.product === 'Écouteurs'; })[0].stock], [3, 4]);
+  var out = movesOf('Colis parti');
+  assert.strictEqual(out.length, 2);
+  assert.ok(out.every(function (x) { return x.note === 'Pack : Pack Montre + Écouteurs' && x.order === '#P1'; }));
+  api_updateOrder('#P1', { status: 'Retour' });
+  assert.strictEqual(catalogRow('').stock, 5, 'retour : les articles remontent');
+  api_markReturnDamaged('#P1');
+  assert.strictEqual(movesOf('Retour abîmé').length, 2, 'abîmé : chaque article est retiré');
+  // Bénéfice : le coût du pack est celui de ses articles.
+  var p = orderProfit_({ status: 'Livrée', carrier: 'Yalidine', wilaya: '16 - Alger', product: 'Pack Montre + Écouteurs', qty: 1, total: 6650, price: 6200, shipping: 450 },
+    makeEnv_(readOrders_()), readCatalog_());
+  assert.deepStrictEqual([p.cost, p.missingCost], [4000, false]);
+});
+
+test('Stock v1.8 : masquer, réafficher ; modifier garde l’état ; photo (lien vérifié, fiche de commande)', function () {
+  baseSetup();
+  api_addProduct({ product: 'Coque', models: [{ model: 'A14', stock: 2 }, { model: 'A24', stock: 3 }], photo: 'https://cdn.example.com/coque.jpg' });
+  var a14 = catalogRow('A14');
+  assert.ok(/masqué/.test(api_setCatalogActive({ row: a14.row, key: a14.key, active: false }).message));
+  assert.strictEqual(catalogRow('A14').active, false);
+  assert.strictEqual(api_stockPage().totals.inactive, 1);
+  api_updateCatalogRow({ row: a14.row, key: a14.key, price: 1500 });
+  assert.strictEqual(catalogRow('A14').active, false, 'modifier le prix ne réaffiche pas');
+  assert.ok(logActions().indexOf('Produits') >= 0);
+  api_setCatalogActive({ row: a14.row, key: a14.key, active: true });
+  assert.strictEqual(catalogRow('A14').active, true);
+  assert.throws(function () { api_updateCatalogRow({ row: a14.row, key: a14.key, photo: 'javascript:alert(1)' }); }, /Lien de photo invalide/);
+  api_updateCatalogRow({ row: a14.row, key: a14.key, photo: 'https://cdn.example.com/a14.png' });
+  assert.strictEqual(catalogRow('A14').photo, 'https://cdn.example.com/a14.png');
+  assert.strictEqual(catalogRow('A24').photo, 'https://cdn.example.com/coque.jpg');
+  assert.strictEqual(api_stockPage().products[0].photo, 'https://cdn.example.com/a14.png', 'photo du produit : celle d’un de ses modèles');
+  addOrder('#F1', 'Coque - A14');
+  processNewRows();
+  assert.strictEqual(api_getOrder('#F1').stock[0].photo, 'https://cdn.example.com/a14.png', 'photo dans la fiche de commande');
+  // Une photo tapée à la main dans le classeur : seulement un lien http(s).
+  var col = headerOf('Produits').indexOf('Photo') + 1;
+  sheet('Produits').getRange(catalogRow('A24').row, col).setValue('<img src=x onerror=alert(1)>');
+  userEdit('Produits');
+  assert.strictEqual(catalogRow('A24').photo, '');
+});
+
+test('Stock v1.8 : supprimer un modèle ajouté par erreur (seulement s’il n’a jamais servi)', function () {
+  baseSetup();
+  api_addProduct({ product: 'Coque', cost: 400, models: [{ model: 'A14', stock: 3 }, { model: 'A24', stock: 0 }, { model: 'A34', stock: 5 }] });
+  api_addProduct({ product: 'Pack Coques', pack: [{ label: 'Coque - A34', qty: 2 }] });
+  addOrder('#D1', 'Coque - A24');
+  processNewRows();
+  var a24 = catalogRow('A24');
+  assert.throws(function () { api_deleteCatalogRow({ row: a24.row, key: a24.key }); }, /1 commande l’utilise/);
+  var a34 = catalogRow('A34');
+  assert.throws(function () { api_deleteCatalogRow({ row: a34.row, key: a34.key }); }, /fait partie du pack « Pack Coques »/);
+  // Déjà parti dans un colis puis archivé : son mouvement le garde.
+  api_recordCall('#D1', 'confirm', {});
+  api_updateOrder('#D1', { status: 'Expédiée', carrier: 'Yalidine', tracking: 'Y1' });
+  sheet('Commandes').deleteRow(orderRowIds().indexOf('#D1') + 2); // archivée depuis
+  assert.throws(function () { api_deleteCatalogRow({ row: a24.row, key: a24.key }); }, /mouvement lié à une commande/);
+  // Ajouté par erreur, avec un stock de départ : supprimé, son stock est noté sorti.
+  var a14 = catalogRow('A14');
+  assert.throws(function () { api_deleteCatalogRow({ row: a14.row, key: 'autre' }); }, /modifié entre-temps/);
+  var r = api_deleteCatalogRow({ row: a14.row, key: a14.key });
+  assert.ok(/Coque — A14 a été supprimé/.test(r.message));
+  assert.ok(!catalogRow('A14'));
+  assert.ok(catalogRow('A34'), 'les autres modèles restent');
+  var mv = movesOf('Modèle supprimé')[0];
+  assert.deepStrictEqual([mv.model, mv.qty, mv.after], ['A14', -3, 0]);
+  assert.ok(logActions().indexOf('Produits') >= 0);
+});
+
+test('Stock v1.8 : fusionner un doublon (stock, autres noms, commandes et historique suivent)', function () {
+  baseSetup();
+  api_addProduct({ product: 'cover iPhone', cost: 600, models: [{ model: 'iphone 13', stock: 10 }] });
+  api_addProduct({ product: 'Cover iPhon', price: 1800, models: [{ model: 'i13', stock: 3 }], photo: 'https://cdn.example.com/c.jpg' });
+  addOrder('#M1', 'Cover iPhon - i13');
+  processNewRows();
+  api_recordCall('#M1', 'confirm', {});
+  var from = catalogRow('i13');
+  var to = catalogRow('iphone 13');
+  assert.throws(function () { api_mergeCatalogRows({ from: { row: from.row, key: from.key }, to: { row: from.row, key: from.key } }); }, /autre modèle/);
+  var r = api_mergeCatalogRows({ from: { row: from.row, key: from.key }, to: { row: to.row, key: to.key } });
+  assert.ok(/fusionné dans cover iPhone — iphone 13 \(3 pièces ajoutées\)/.test(r.message), r.message);
+  assert.ok(!catalogRow('i13'), 'le doublon disparaît');
+  var t = catalogRow('iphone 13');
+  assert.deepStrictEqual([t.stock, t.cost, t.price, t.photo], [13, 600, 1800, 'https://cdn.example.com/c.jpg'], 'stock ajouté ; coût gardé ; prix et photo repris (vides)');
+  assert.ok(t.aliases.indexOf('Cover iPhon — i13') >= 0);
+  assert.strictEqual(api_getOrder('#M1').stock[0].model, 'iphone 13', 'la commande retrouve le bon modèle');
+  assert.strictEqual(stockModel('cover iPhone', 'iphone 13').reserved, 1);
+  var keys = stockModel('cover iPhone', 'iphone 13').keys;
+  var hist = api_stockPage().moves.filter(function (m) { return keys.indexOf(m.key) >= 0; });
+  assert.ok(hist.some(function (m) { return m.product === 'Cover iPhon' && m.type === 'Stock initial'; }), 'l’historique du doublon est dans celui du bon modèle');
+  assert.deepStrictEqual(movesOf('Fusion').map(function (m) { return m.qty; }).sort(), [-3, 3]);
+});
+
+test('Stock v1.8 : annuler une entrée ou un inventaire mal tapé (mouvement inverse, une seule fois)', function () {
+  baseSetup();
+  api_addProduct({ product: 'Sac', cost: 600, models: [{ model: 'Noir', stock: 10 }] });
+  var noir = catalogRow('Noir');
+  api_stockEntry({ items: [{ row: noir.row, key: noir.key, qty: 20, cost: 690 }] });
+  assert.deepStrictEqual([catalogRow('Noir').stock, catalogRow('Noir').cost], [30, 660]);
+  var page = api_stockPage();
+  var entry = page.moves.filter(function (m) { return m.type === 'Entrée'; })[0];
+  assert.strictEqual(entry.undoable, true);
+  assert.throws(function () { api_undoStockMove({ ref: entry.ref, key: entry.key, type: entry.type, qty: 99, date: entry.date }); }, /changé entre-temps/);
+  var r = api_undoStockMove({ ref: entry.ref, key: entry.key, type: entry.type, qty: entry.qty, date: entry.date });
+  assert.ok(/Mouvement annulé : Sac — Noir −20 \(stock 10\)/.test(r.message), r.message);
+  assert.deepStrictEqual([catalogRow('Noir').stock, catalogRow('Noir').cost], [10, 600], 'le coût moyen revient aussi');
+  var undo = movesOf('Annulation')[0];
+  assert.deepStrictEqual([undo.qty, undo.after], [-20, 10]);
+  assert.ok(/^Annule : Entrée \+20 · Sac — Noir du \d\d\/\d\d\/\d{4} \d\d:\d\d:\d\d$/.test(undo.note), undo.note);
+  assert.throws(function () { api_undoStockMove({ ref: entry.ref, key: entry.key, type: entry.type, qty: entry.qty, date: entry.date }); }, /déjà été annulé/);
+  page = api_stockPage();
+  var again = page.moves.filter(function (m) { return m.ref === entry.ref; })[0];
+  assert.deepStrictEqual([again.undoable, again.undone], [false, true]);
+  assert.ok(page.moves.filter(function (m) { return m.type === 'Stock initial'; })[0].undoable, 'les autres mouvements restent annulables');
+  // Inventaire mal tapé : l'écart est remis.
+  api_stockInventory({ items: [{ row: noir.row, key: noir.key, counted: 4 }], reason: 'Comptage' });
+  var inv = api_stockPage().moves.filter(function (m) { return m.type === 'Inventaire'; })[0];
+  api_undoStockMove({ ref: inv.ref, key: inv.key, type: inv.type, qty: inv.qty, date: inv.date });
+  assert.strictEqual(catalogRow('Noir').stock, 10);
+  // Mouvement automatique : pas ici ; stock qui deviendrait négatif : refusé.
+  addOrder('#U1', 'Sac - Noir', { 'Quantité': 8 });
+  processNewRows();
+  api_recordCall('#U1', 'confirm', {});
+  api_updateOrder('#U1', { status: 'Expédiée', carrier: 'Yalidine', tracking: 'Y1' });
+  var parti = api_stockPage().moves.filter(function (m) { return m.type === 'Colis parti'; })[0];
+  assert.strictEqual(parti.undoable, false);
+  assert.throws(function () { api_undoStockMove({ ref: parti.ref, key: parti.key, type: parti.type, qty: parti.qty, date: parti.date }); }, /Seuls les entrées/);
+  var init = api_stockPage().moves.filter(function (m) { return m.type === 'Stock initial'; })[0];
+  assert.throws(function () { api_undoStockMove({ ref: init.ref, key: init.key, type: init.type, qty: init.qty, date: init.date }); }, /passerait à -8/);
+});
+
+test('Stock v1.8 : variantes en grille (prix et coût par variante) ; valeur du stock à une date', function () {
+  baseSetup();
+  var r = api_addProduct({ product: 'Coque magnétique', threshold: 2, models: [
+    { model: 'Noir / iPhone 13', cost: 450, price: 1500, stock: 10 }, { model: 'Noir / iPhone 14', cost: 500, price: 1700, stock: 4 }] });
+  assert.strictEqual(r.added, 2);
+  assert.deepStrictEqual([catalogRow('Noir / iPhone 14').cost, catalogRow('Noir / iPhone 14').price, catalogRow('Noir / iPhone 14').threshold], [500, 1700, 2]);
+  assert.strictEqual(matchCatalog_(readCatalog_(), 'Coque magnétique - Noir / iPhone 13').model, 'Noir / iPhone 13', 'comme les variantes Shopify');
+  var m13 = catalogRow('Noir / iPhone 13');
+  var yesterday = ymd_(new Date(Date.now() - 86400000));
+  api_stockEntry({ items: [{ row: m13.row, key: m13.key, qty: 6 }] });
+  var at = api_stockAt(yesterday);
+  assert.deepStrictEqual([at.units, at.value], [0, 0], 'hier : rien n’était encore en stock');
+  var now = api_stockAt(ymd_(new Date()));
+  assert.deepStrictEqual([now.units, now.value], [20, 16 * 450 + 4 * 500]);
+  assert.throws(function () { api_stockAt('2999-01-01'); }, /date passée/);
+  assert.throws(function () { api_stockAt('hier'); }, /Choisissez une date/);
+  assertSerializable(now, 'api_stockAt');
+});
+
+test('Stock v1.8 : photos reprises de Shopify (catalogue, ou articles des commandes sans « read_products »)', function () {
+  shopSetup();
+  SHOPIFY.reset();
+  api_addProduct({ product: 'cover iPhone', models: [{ model: 'iphone 13', stock: 1 }, { model: 'iphone 15', stock: 1 }] });
+  api_addProduct({ product: 'Montre', stock: 1, photo: 'https://cdn.example.com/mienne.jpg' });
+  SHOPIFY.products = [
+    { title: 'cover iPhone', featuredImage: { url: 'https://cdn.shopify.com/cover.jpg' }, variants: { nodes: [{ title: 'iphone 13', image: { url: 'https://cdn.shopify.com/c13.jpg' } }, { title: 'iphone 15', image: null }] } },
+    { title: 'Montre', featuredImage: { url: 'https://cdn.shopify.com/montre.jpg' }, variants: { nodes: [{ title: 'Default Title', image: null }] } }
+  ];
+  var r = api_shopifyPhotos();
+  assert.strictEqual(r.added, 2, r.message);
+  assert.deepStrictEqual([catalogRow('iphone 13').photo, catalogRow('iphone 15').photo, catalogRow('').photo],
+    ['https://cdn.shopify.com/c13.jpg', 'https://cdn.shopify.com/cover.jpg', 'https://cdn.example.com/mienne.jpg'], 'une photo déjà mise ne change pas');
+  // Sans la permission « read_products » : les photos des articles commandés.
+  api_addProduct({ product: 'Sac', stock: 1 });
+  SHOPIFY.denyProducts = true;
+  SHOPIFY.add({ name: '#5001', items: [{ title: 'Sac', quantity: 1, variantTitle: null, image: { url: 'https://cdn.shopify.com/sac.jpg' } }] });
+  r = api_shopifyPhotos();
+  assert.strictEqual(r.added, 1, r.message);
+  assert.strictEqual(catalogRow('').photo, 'https://cdn.example.com/mienne.jpg');
+  assert.strictEqual(readCatalogFromSheet_().rows.filter(function (x) { return x.product === 'Sac'; })[0].photo, 'https://cdn.shopify.com/sac.jpg');
+});
+
 /* ---------------- Version 1.2 ---------------- */
 
 test('Confirmation : en attente (injoignable, sans statut, statut inconnu), en retard, rappel arrivé, historique des appels', function () {
@@ -4103,6 +4314,7 @@ test('Cloudflare étape 3 : tout dans Cloudflare — onglets envoyés et recopi�
   assert.strictEqual(CF.full, true);
   assert.strictEqual(r.connections.cloud.full.length > 0, true);
   ['Paramètres', 'Produits', 'Tarifs', 'Équipe', 'Clients', 'Dépenses'].forEach(function (n) { assert.ok(Array.isArray(CF.tabs[n]) && CF.tabs[n].length >= 1, 'onglet envoyé : ' + n); });
+  assert.strictEqual((CF.moves || []).length, readAllMoveRows_().length, 'historique des mouvements de stock copié dans la base');
   var dep = CF.tabs['Dépenses'];
   assert.ok(dep.some(function (row) { return row.some(function (c) { return c && c.$d; }); }), 'dates gardées comme des dates');
   assert.ok(CF.editors.indexOf('admin@example.com') >= 0 || CF.editors.length >= 0, 'accès au classeur envoyés');

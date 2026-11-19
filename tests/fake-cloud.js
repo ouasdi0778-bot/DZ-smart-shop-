@@ -71,6 +71,11 @@
         if (body.config || body.props) fake.config = body;
         return respond(200, { ok: true, data: { ok: true } });
       }
+      if (path === '/bridge/moves') {
+        if (body.reset) fake.moves = [];
+        fake.moves = (fake.moves || []).concat(body.rows || []);
+        return respond(200, { ok: true, data: { saved: (body.rows || []).length } });
+      }
       if (path === '/bridge/full') { fake.full = body.full !== false; return respond(200, { ok: true, data: { full: fake.full, seq: 0 } }); }
       if (path === '/bridge/tabs') {
         var out = { saved: [], refused: [] };

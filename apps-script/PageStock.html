@@ -1,5 +1,9 @@
 /**
  * Page Stock (administrateur et magasinier) : chargée seulement quand on ouvre la page (voir App.html, loadModule).
+ *
+ * Une ligne par modèle (disponible en grand et en couleur), recherche, filtres et tri, menu « ⋯ »
+ * (Modifier, Historique, Fusionner, Masquer, Supprimer), commandes qui réservent, packs, photos,
+ * export, et derniers mouvements en frise (une entrée ou un inventaire mal tapé s'annule).
  */
 (function (DZ) {
   'use strict';
@@ -16,7 +20,7 @@
   var money = DZ.money;
   var plural = DZ.plural;
   var fmtDate = DZ.fmtDate;
-  var pill = DZ.pill;
+  var ago = DZ.ago;
   var options = DZ.options;
   var field = DZ.field;
   var input = DZ.input;
@@ -26,8 +30,17 @@
   var modalHead = DZ.modalHead;
   var icon = DZ.icon;
 
+  var UNDO_MS = 5000;
+  var MOVES_STEP = 30;
+  var COLORS = ['#0B6B4C', '#5B21B6', '#B4570A', '#1E4FA8', '#9A3412', '#0E6177', '#7A2E2E', '#4D7C0F'];
+
+  function st() {
+    if (!S.stock.ui) S.stock.ui = { q: '', filter: 'all', sort: 'watch', closed: {}, moveFilter: 'all', moveLimit: MOVES_STEP, hidden: {} };
+    return S.stock.ui;
+  }
+
   /* ================================================================ */
-  /* Stock (administrateur et magasinier)                             */
+  /* Chargement                                                       */
   /* ================================================================ */
 
   function pageStock() {
@@ -51,9 +64,28 @@
     });
   }
 
-  function modelName(g, m) { return g.product + (m.model ? ' — ' + m.model : ''); }
+  /* ================================================================ */
+  /* Outils                                                           */
+  /* ================================================================ */
 
-  /** Tous les modèles, avec leur produit (pour les formulaires). */
+  function fold(s) {
+    return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  }
+  function num(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
+  function modelName(g, m) { return g.product + (m.model ? ' — ' + m.model : ''); }
+  function colorFor(name) {
+    var n = 0;
+    String(name).split('').forEach(function (c) { n = (n * 31 + c.charCodeAt(0)) % 9973; });
+    return COLORS[n % COLORS.length];
+  }
+  /** Photo du produit, ou sa première lettre sur une couleur. */
+  function thumb(name, photo, cls) {
+    var letter = h(String(name || '?').trim().charAt(0).toUpperCase() || '?');
+    return '<span class="sk-ph ' + (cls || '') + '" style="background:' + colorFor(name) + '">' + letter +
+      (photo ? '<img src="' + h(photo) + '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">' : '') + '</span>';
+  }
+
+  /** Tous les modèles, avec leur produit. */
   function allModels(d, activeOnly) {
     var out = [];
     d.products.forEach(function (g) {
@@ -61,130 +93,283 @@
     });
     return out;
   }
-
-  function moveQty(q) {
-    return '<span class="' + (q < 0 ? 'move-out' : 'move-in') + '">' + (q > 0 ? '+' : '') + q + '</span>';
-  }
-
-  function renderStock() {
-    var d = S.stock.data;
-    var box = $('#stock');
-    if (!box || !d) return;
-    var t = d.totals;
-    var html = '<div class="page-head"><div><h1>Stock</h1><p class="sub">Une commande confirmée réserve ses produits ; le stock baisse quand le colis part et remonte quand le retour est reçu.</p></div>' +
-      '<div class="quick"><button type="button" class="btn primary" data-act="product-new">' + icon('plus') + 'Produit</button>' +
-      '<button type="button" class="btn" data-act="stock-entry">Entrée de marchandise</button>' +
-      '<button type="button" class="btn" data-act="stock-inventory">Inventaire</button></div></div><div class="stack">';
-    html += '<section class="grid-kpi" aria-label="Chiffres du stock">' + [
-      ['Valeur du stock', money(t.value), 'Stock × coût d’achat'],
-      ['Pièces en stock', t.units, plural(t.models, 'modèle actif', 'modèles actifs')],
-      ['Stock bas', t.low, 'Disponible au seuil d’alerte ou moins'],
-      ['En rupture', t.rupture, 'Plus rien de disponible']
-    ].map(function (k) {
-      return '<div class="card kpi"><span class="label">' + h(k[0]) + '</span><span class="value">' + h(k[1]) + '</span><span class="note">' + h(k[2]) + '</span></div>';
-    }).join('') + '</section>';
-
-    if (!d.products.length) {
-      html += '<div class="card"><p class="empty">Aucun produit. Cliquez sur « + Produit », ou ajoutez ci-dessous les modèles vus dans vos commandes.</p></div>';
-    }
-    d.products.forEach(function (g) {
-      html += '<section class="card"><h2>' + h(g.product) + '</h2>' +
-        '<p class="sub" style="margin:-4px 0 10px">' + (g.tracked ? 'Stock ' + g.stock + ' · réservé ' + g.reserved + ' · <strong>disponible ' + g.available + '</strong> · valeur ' + money(g.value) : 'Stock non suivi') + '</p>' +
-        '<div class="table-wrap" style="border:0"><table class="data cards"><thead><tr>' +
-        ['Modèle', 'Stock', 'Réservé', 'Disponible', 'Coût d’achat', 'Prix de vente', ''].map(function (x) { return '<th scope="col">' + x + '</th>'; }).join('') +
-        '</tr></thead><tbody>' + g.models.map(function (m) {
-          var tag = !m.active ? '<span class="pill" style="background:#EEF0F3;color:#3D4350">désactivé</span>'
-            : m.rupture ? '<span class="pill" style="background:#FBE7E7;color:#A12626">rupture</span>'
-            : m.low ? '<span class="pill" style="background:#FFF3DC;color:#8A5200">stock bas</span>' : '';
-          return '<tr class="model-row' + (m.low && m.active ? ' low' : '') + (!m.active ? ' off' : '') + '">' +
-            '<td data-label="Modèle">' + h(m.model || '—') + ' ' + tag + (m.aliases ? '<div class="small">Autres noms : ' + h(m.aliases) + '</div>' : '') + '</td>' +
-            '<td data-label="Stock" class="num">' + (m.tracked ? m.stock : '—') + '</td>' +
-            '<td data-label="Réservé" class="num">' + m.reserved + '</td>' +
-            '<td data-label="Disponible" class="num strong">' + (m.tracked ? m.available : '—') + '</td>' +
-            '<td data-label="Coût d’achat" class="num">' + (m.cost === null ? '<span class="neg">à remplir</span>' : money(m.cost)) + '</td>' +
-            '<td data-label="Prix de vente" class="num">' + (m.price === null ? '—' : money(m.price)) + '</td>' +
-            '<td data-label=""><span class="quick">' +
-              '<button type="button" class="btn" style="min-height:36px" data-act="model-edit" data-key="' + h(m.key) + '">' + icon('edit') + 'Modifier</button>' +
-              '<button type="button" class="btn" style="min-height:36px" data-act="model-history" data-key="' + h(m.key) + '">Historique</button></span></td></tr>';
-        }).join('') + '</tbody></table></div></section>';
-    });
-    if (d.unknown.length) {
-      html += '<section class="card"><h2>Modèles vus dans les commandes, absents du catalogue</h2>' +
-        table(['Produit', 'Modèle', 'Commandes', ''], d.unknown.map(function (u) {
-          return [h(u.product), h(u.model || '—'), u.orders, '<button type="button" class="btn" style="min-height:36px" data-act="catalog-add" data-label="' + h(u.label) + '">Ajouter</button>'];
-        }), [2]) +
-        '<p style="margin-top:12px"><button type="button" class="btn primary" data-act="catalog-add">Tout ajouter</button></p>' +
-        '<p class="small" style="margin-top:8px">Ensuite, indiquez leur coût d’achat (Modifier) et leur stock (Entrée de marchandise).</p></section>';
-    }
-    html += '<section class="card"><h2>Derniers mouvements</h2>' + (d.moves.length ? movesTable(d.moves.slice(0, 30)) : '<p class="empty">Aucun mouvement pour l’instant.</p>') +
-      '<p class="small" style="margin-top:10px">Historique complet : onglet « Mouvements stock » du classeur.</p></section></div>';
-    box.innerHTML = html;
-  }
-
-  function movesTable(list) {
-    return table(['Date', 'Modèle', 'Mouvement', 'Quantité', 'Stock après', 'Détail'], list.map(function (x) {
-      return [h(fmtDate(x.date)), h(x.product + (x.model ? ' — ' + x.model : '')), h(x.type), moveQty(x.qty), x.after === null ? '—' : x.after,
-        h([x.order ? 'Commande ' + x.order : '', x.cost ? 'coût ' + x.cost + ' DA' : '', x.note, x.by ? 'par ' + x.by : ''].filter(Boolean).join(' · '))];
-    }), [3, 4]);
-  }
-
   function findModel(key) {
     var found = null;
     allModels(S.stock.data).forEach(function (x) { if (x.m.key === key) found = x; });
     return found;
   }
 
-  function askNewProduct() {
-    showModal(modalHead('Nouveau produit') +
-      '<div class="form-grid" id="product-form">' +
-        field('Nom du produit', input('product', '', ' placeholder="Ex. cover iPhone"'), 'full') +
-        field('Prix de vente (DA)', input('price', '', ' type="number" min="0" step="10"')) +
-        field('Coût d’achat (DA)', input('cost', '', ' type="number" min="0" step="10"')) +
-        field('Seuil d’alerte', input('threshold', '', ' type="number" min="0" step="1" placeholder="Réglage général"')) +
-        field('Modèles et stock de départ : un par ligne, « modèle = quantité »', '<textarea name="models" rows="5" placeholder="iphone 13 = 10&#10;iphone 15 PRO MAX = 4"></textarea>', 'full') +
-        field('Stock de départ (produit sans modèle)', input('stock', '', ' type="number" min="0" step="1"')) +
-      '</div><p class="small" style="margin-top:8px">Le nom doit être écrit comme dans vos commandes (ex. « cover iPhone - iphone 13 ») pour que le stock suive tout seul. Sinon, ajoutez des « autres noms » avec Modifier.</p>' +
-      '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Annuler</button>' +
-      '<button type="button" class="btn primary" data-act="product-save">Ajouter le produit</button></div>');
+  /** État d'un modèle : rupture, stock bas, masqué, non suivi. */
+  function stateOf(m) {
+    if (!m.active) return 'off';
+    if (!m.tracked) return 'none';
+    if (m.rupture) return 'out';
+    if (m.low) return 'low';
+    return 'ok';
+  }
+  function availPill(m) {
+    var s = stateOf(m);
+    if (s === 'none') return '<span class="sk-av none">' + (m.pack ? 'à compléter' : 'non suivi') + '</span>';
+    var word = s === 'out' ? 'rupture' : s === 'low' ? 'stock bas' : s === 'off' ? 'masqué' : (m.pack ? 'packs' : 'disponibles');
+    return '<span class="sk-av ' + s + '"><b>' + m.available + '</b> <small>' + word + '</small></span>';
+  }
+  function watchRank(m) { var s = stateOf(m); return s === 'out' ? 0 : s === 'low' ? 1 : 2; }
+
+  function matches(g, m, q) {
+    if (!q) return true;
+    return fold(g.product + ' ' + m.model + ' ' + m.aliases + ' ' + (m.pack ? m.pack.text : '')).indexOf(q) >= 0;
+  }
+  function passFilter(m, f) {
+    if (f === 'off') return !m.active;
+    if (!m.active) return false;
+    if (f === 'low') return m.low;
+    if (f === 'out') return m.rupture;
+    return true;
   }
 
-  function saveNewProduct(btn) {
-    var f = readForm($('#product-form'));
-    var models = String(f.models || '').split('\n').map(function (line) {
-      var m = line.match(/^(.*?)(?:\s*[=:;]\s*(\d+))?\s*$/);
-      return m && m[1].trim() ? { model: m[1].trim(), stock: m[2] || '' } : null;
-    }).filter(Boolean);
-    btn.disabled = true;
-    call('api_addProduct', { product: f.product, price: f.price, cost: f.cost, threshold: f.threshold, stock: f.stock, models: models }).then(function (r) {
-      closeModal();
-      toast(r.message);
-      loadStockPage();
-    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  /* ================================================================ */
+  /* Page                                                             */
+  /* ================================================================ */
+
+  function renderStock() {
+    var d = S.stock.data;
+    var box = $('#stock');
+    if (!box || !d) return;
+    var t = d.totals;
+    var u = st();
+    var html = '<div class="page-head"><div><h1>Stock</h1><p class="sub">Le stock baisse quand le colis part et remonte quand le retour est reçu.</p></div>' +
+      '<div class="quick sk-top"><button type="button" class="btn primary" data-act="product-new">' + icon('plus') + 'Produit</button>' +
+      '<button type="button" class="btn" data-act="stock-entry">Entrée</button>' +
+      '<button type="button" class="btn" data-act="stock-inventory">Inventaire</button>' +
+      '<button type="button" class="btn" data-act="stock-export">Exporter</button></div></div><div class="stack">';
+    html += '<section class="sk-kpis" aria-label="Chiffres du stock">' +
+      '<div class="sk-kpi"><span class="l">Valeur du stock</span><span class="v">' + h(money(t.value)) + '</span><span class="s">au coût d’achat</span></div>' +
+      '<div class="sk-kpi"><span class="l">Pièces en stock</span><span class="v">' + num(t.units) + '</span><span class="s">' + h(plural(t.models, 'modèle actif', 'modèles actifs')) + '</span></div>' +
+      '<button type="button" class="sk-kpi' + (t.low ? ' warn' : '') + (u.filter === 'low' ? ' on' : '') + '" data-act="sk-filter" data-f="low"><span class="l">Stock bas</span><span class="v">' + t.low + '</span><span class="s">' + (t.low ? 'voir la liste ›' : 'rien à commander') + '</span></button>' +
+      '<button type="button" class="sk-kpi' + (t.rupture ? ' bad' : '') + (u.filter === 'out' ? ' on' : '') + '" data-act="sk-filter" data-f="out"><span class="l">En rupture</span><span class="v">' + t.rupture + '</span><span class="s">' + (t.rupture ? 'voir la liste ›' : 'aucune rupture') + '</span></button>' +
+      '</section>';
+    html += '<div class="sk-tools"><label class="sk-search">' + icon('search') + '<input id="sk-q" type="search" autocomplete="off" placeholder="Rechercher un produit, un modèle…" value="' + h(u.q) + '" aria-label="Rechercher dans le stock"></label>' +
+      '<div class="sk-chips" role="group" aria-label="Filtrer">' +
+        chip('all', 'Tous') + chip('low', 'Stock bas · ' + t.low) + chip('out', 'Rupture · ' + t.rupture) + chip('off', 'Inactifs · ' + (t.inactive || 0)) +
+      '</div>' +
+      '<label class="sk-sort">Trier <select id="sk-sort" aria-label="Trier">' +
+        [['watch', 'à surveiller d’abord'], ['name', 'par nom'], ['avail', 'disponible (le moins d’abord)'], ['value', 'valeur (la plus haute d’abord)']].map(function (o) {
+          return '<option value="' + o[0] + '"' + (u.sort === o[0] ? ' selected' : '') + '>' + h(o[1]) + '</option>';
+        }).join('') + '</select></label></div>';
+    if (d.unknown.length) {
+      var names = d.unknown.slice(0, 3).map(function (x) { return x.label; }).join(', ') + (d.unknown.length > 3 ? '…' : '');
+      html += '<div class="sk-banner">' + icon('info') + '<span>' + h(plural(d.unknown.length, 'modèle vendu n’est', 'modèles vendus ne sont')) + ' pas dans le catalogue (' + h(names) + ').</span>' +
+        '<button type="button" class="linkbtn" data-act="catalog-unknown">Voir et ajouter</button></div>';
+    }
+    html += '<section class="sk-list card" id="sk-list" aria-label="Produits et modèles"></section>';
+    html += '<section class="card sk-moves" id="sk-moves"></section></div>' +
+      '<button type="button" class="sk-fab" data-act="sk-fab" aria-label="Ajouter : produit, entrée, inventaire, export">' + icon('plus') + '</button>';
+    box.innerHTML = html;
+    renderList();
+    renderMoves();
+  }
+
+  function chip(f, label) {
+    var on = st().filter === f;
+    return '<button type="button" class="sk-chip' + (on ? ' on' : '') + '" data-act="sk-filter" data-f="' + f + '" aria-pressed="' + on + '">' + h(label) + '</button>';
+  }
+
+  /** La liste (recalculée seule pendant la recherche : le champ garde la main). */
+  function renderList() {
+    var d = S.stock.data;
+    var box = $('#sk-list');
+    if (!box || !d) return;
+    var u = st();
+    var q = fold(u.q.trim());
+    if (!d.products.length) {
+      box.innerHTML = '<p class="empty">Aucun produit. Cliquez sur « + Produit », ou ajoutez les modèles vus dans vos commandes.</p>';
+      return;
+    }
+    var groups = [];
+    d.products.forEach(function (g) {
+      var models = g.models.filter(function (m) { return !u.hidden[m.key] && passFilter(m, u.filter) && matches(g, m, q); });
+      if (models.length) groups.push({ g: g, models: models });
+    });
+    var sorters = {
+      watch: function (a, b) { return rankOf(a) - rankOf(b) || a.g.product.localeCompare(b.g.product, 'fr'); },
+      name: function (a, b) { return a.g.product.localeCompare(b.g.product, 'fr'); },
+      avail: function (a, b) { return minAvail(a) - minAvail(b) || a.g.product.localeCompare(b.g.product, 'fr'); },
+      value: function (a, b) { return valueOf(b) - valueOf(a) || a.g.product.localeCompare(b.g.product, 'fr'); }
+    };
+    groups.sort(sorters[u.sort] || sorters.watch);
+    var html = '<div class="sk-colh" aria-hidden="true"><span></span><span>Modèle</span><span>Disponible</span><span class="r">Stock</span><span class="r">Réservé</span><span class="r">Coût</span><span class="r">Prix</span><span></span></div>';
+    if (!groups.length) {
+      html += '<p class="empty">' + (q ? 'Aucun modèle ne correspond à « ' + h(u.q.trim()) + ' ».' : u.filter === 'off' ? 'Aucun modèle masqué.' : u.filter === 'out' ? 'Aucune rupture.' : 'Aucun modèle en stock bas.') + '</p>';
+    }
+    groups.forEach(function (x) { html += groupHtml(x.g, x.models, u); });
+    // Modèles masqués : repliés en bas (sauf avec le filtre « Inactifs »).
+    if (u.filter !== 'off') {
+      var off = [];
+      d.products.forEach(function (g) { g.models.forEach(function (m) { if (!m.active && !u.hidden[m.key] && matches(g, m, q)) off.push({ g: g, m: m }); }); });
+      if (off.length) {
+        html += '<details class="sk-offlist"' + (u.offOpen ? ' open' : '') + '><summary>' + h('Inactifs (' + off.length + ')') + ' <span class="small">' +
+          h(off.slice(0, 4).map(function (x) { return modelName(x.g, x.m); }).join(', ') + (off.length > 4 ? '…' : '')) + '</span></summary>' +
+          off.map(function (x) { return rowHtml(x.g, x.m, true); }).join('') + '</details>';
+      }
+    }
+    box.innerHTML = html;
+  }
+  function rankOf(x) { return x.models.reduce(function (r, m) { return Math.min(r, watchRank(m)); }, 2); }
+  function minAvail(x) { return x.models.reduce(function (r, m) { return m.tracked ? Math.min(r, m.available) : r; }, 1e9); }
+  function valueOf(x) { return x.models.reduce(function (r, m) { return r + (m.value || 0); }, 0); }
+
+  function isSingle(g) { return g.models.length === 1 && !g.models[0].model; }
+
+  function groupHtml(g, models, u) {
+    var gk = fold(g.product);
+    if (isSingle(g)) return '<div class="sk-grp">' + rowHtml(g, models[0], true) + '</div>';
+    var closed = !!u.closed[gk] && !u.q;
+    if (u.sort === 'watch') models = models.slice().sort(function (a, b) { return watchRank(a) - watchRank(b); });
+    var bad = models.filter(function (m) { var s = stateOf(m); return s === 'out' || s === 'low'; }).length;
+    var head = '<button type="button" class="sk-ghead" data-act="sk-fold" data-g="' + h(gk) + '" aria-expanded="' + !closed + '">' + thumb(g.product, g.photo) +
+      '<span class="sk-gtext"><span class="sk-gname">' + h(g.product) + (g.pack ? ' <span class="sk-tag">PACK</span>' : '') + '</span>' +
+      '<span class="sk-gsub">' + h(plural(g.models.length, 'modèle', 'modèles')) + (g.tracked ? ' · disponible ' + num(g.available) + ' · valeur ' + money(g.value) : '') +
+      (bad ? ' · <b class="neg">' + h(plural(bad, 'à surveiller', 'à surveiller')) + '</b>' : '') + '</span></span>' +
+      '<span class="sk-chev" aria-hidden="true">' + (closed ? '▸' : '▾') + '</span></button>';
+    return '<div class="sk-grp">' + head + (closed ? '' : models.map(function (m) { return rowHtml(g, m, false); }).join('')) + '</div>';
+  }
+
+  /** Une ligne : un modèle (ou un produit à un seul modèle, avec sa photo). */
+  function rowHtml(g, m, withProduct) {
+    var s = stateOf(m);
+    var name = withProduct ? h(g.product) + (m.model ? ' <span class="muted">— ' + h(m.model) + '</span>' : '') : h(m.model || '—');
+    var sub = [];
+    if (m.pack) sub.push(h(m.pack.items.map(function (i) { return i.qty + ' × ' + i.label; }).join(' + ')) + (m.pack.missing.length ? ' · <span class="neg">introuvable : ' + h(m.pack.missing.join(', ')) + '</span>' : ''));
+    if (m.aliases) sub.push('Autres noms : ' + h(m.aliases));
+    var res = m.reserved ? '<button type="button" class="sk-res" data-act="sk-res" data-key="' + h(m.key) + '" title="Voir les commandes qui réservent">' + m.reserved + ' ›</button>' : '0';
+    var cost = m.cost === null ? '<span class="neg">à remplir</span>' : num(m.cost) + (m.costAuto ? '<small>calculé</small>' : '');
+    return '<div class="sk-row st-' + s + (withProduct ? ' prod' : '') + '" data-key="' + h(m.key) + '">' +
+      (withProduct ? thumb(g.product, m.photo || g.photo) : '<span class="sk-dot" aria-hidden="true"></span>') +
+      '<span class="sk-name"><span class="n">' + name + (m.pack ? ' <span class="sk-tag">PACK</span>' : '') + '</span>' + (sub.length ? '<small>' + sub.join(' · ') + '</small>' : '') + '</span>' +
+      availPill(m) +
+      '<span class="r sk-c">' + (m.stock === null ? '—' : num(m.stock)) + '</span>' +
+      '<span class="r sk-c">' + res + '</span>' +
+      '<span class="r sk-c">' + cost + '</span>' +
+      '<span class="r sk-c">' + (m.price === null ? '—' : num(m.price)) + '</span>' +
+      '<button type="button" class="sk-more" data-act="sk-menu" data-key="' + h(m.key) + '" aria-label="Actions pour ' + h(modelName(g, m)) + '" aria-haspopup="menu">⋯</button>' +
+      '<span class="sk-sub">' + (m.pack ? 'pack' : 'stock ' + (m.stock === null ? '—' : num(m.stock))) + ' · réservé ' + (m.reserved ? '<button type="button" class="sk-res" data-act="sk-res" data-key="' + h(m.key) + '">' + m.reserved + ' ›</button>' : '0') +
+        ' · coût ' + (m.cost === null ? '<span class="neg">à remplir</span>' : num(m.cost)) + ' · prix ' + (m.price === null ? '—' : num(m.price) + ' DA') + '</span>' +
+      '</div>';
+  }
+
+  /* ================================================================ */
+  /* Menus (⋯) et commandes qui réservent                             */
+  /* ================================================================ */
+
+  var popOpenedAt = 0;
+  function closePop() {
+    $all('.sk-pop').forEach(function (el) { el.remove(); });
+    $all('[data-act="sk-menu"][aria-expanded="true"]').forEach(function (el) { el.setAttribute('aria-expanded', 'false'); });
+  }
+  /** Fenêtre flottante placée sous le bouton (gardée dans l'écran). */
+  function popAt(btn, html, width, cls) {
+    closePop();
+    var r = btn.getBoundingClientRect();
+    var pop = document.createElement('div');
+    pop.className = 'sk-pop ' + (cls || '');
+    pop.style.width = width + 'px';
+    pop.innerHTML = html;
+    document.body.appendChild(pop);
+    var vw = document.documentElement.clientWidth;
+    var vh = window.innerHeight;
+    var left = Math.max(8, Math.min(r.right - width, vw - width - 8));
+    var top = r.bottom + 6;
+    if (top + pop.offsetHeight > vh - 8) top = Math.max(8, r.top - pop.offsetHeight - 6);
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
+    popOpenedAt = Date.now();
+    return pop;
+  }
+
+  function openMenu(btn) {
+    var key = btn.getAttribute('data-key');
+    var x = findModel(key);
+    if (!x) return;
+    if (btn.getAttribute('aria-expanded') === 'true') { closePop(); return; }
+    var m = x.m;
+    var item = function (act, label, cls) { return '<button type="button" role="menuitem" class="' + (cls || '') + '" data-act="' + act + '" data-key="' + h(key) + '">' + label + '</button>'; };
+    popAt(btn, '<div role="menu">' +
+      item('model-edit', icon('edit') + 'Modifier') +
+      item('model-history', icon('clock') + 'Historique') +
+      (m.pack ? '' : item('model-merge', icon('refresh') + 'Fusionner avec…')) +
+      (m.active ? item('model-hide', icon('eye') + 'Masquer (n’est plus vendu)') : item('model-show', icon('eye') + 'Réafficher')) +
+      '<hr>' + item('model-delete', icon('trash') + 'Supprimer', 'danger') + '</div>', 250, 'sk-menu');
+    btn.setAttribute('aria-expanded', 'true');
+  }
+
+  function showReservers(btn) {
+    var x = findModel(btn.getAttribute('data-key'));
+    if (!x) return;
+    var list = x.m.orders || [];
+    popAt(btn, '<h4>' + h('Réservé par ' + plural(list.length, 'commande confirmée', 'commandes confirmées')) + '</h4>' +
+      (list.length ? list.map(function (o) {
+        return '<button type="button" class="it" data-act="open-order" data-id="' + h(o.id) + '"><span><b>' + h(o.id) + '</b> · <span dir="auto">' + h(o.client || 'sans nom') + '</span>' +
+          (o.wilaya ? ' · ' + h(String(o.wilaya).replace(/^\d+\s*-\s*/, '')) : '') + (o.qty > 1 ? ' · ×' + o.qty : '') + '</span>' +
+          '<span class="small">' + (o.at ? 'confirmée ' + h(ago(o.at)) : '') + '</span></button>';
+      }).join('') : '<p class="small">Aucune commande trouvée.</p>') +
+      '<p class="small" style="margin-top:6px">Elles sortiront du stock au départ des colis (page Expédier).</p>', 360, 'sk-resv');
+  }
+
+  /* ================================================================ */
+  /* Modifier, masquer, fusionner, supprimer                          */
+  /* ================================================================ */
+
+  /** Ce qui empêche de supprimer, d'après ce que la page connaît (le serveur vérifie tout). */
+  function deleteBlocker(x) {
+    var m = x.m;
+    if (m.reserved || (m.orders && m.orders.length)) return 'des commandes confirmées le réservent';
+    var keys = m.keys || [m.key];
+    var used = (S.stock.data.moves || []).filter(function (mv) { return mv.order && keys.indexOf(mv.key) >= 0; }).length;
+    if (used) return 'il a déjà ' + plural(used, 'mouvement lié à une commande', 'mouvements liés à des commandes');
+    var pack = allModels(S.stock.data).filter(function (y) { return y.m.pack && y.m.pack.items.some(function (i) { return i.key === m.key; }); })[0];
+    if (pack) return 'il fait partie du pack « ' + modelName(pack.g, pack.m) + ' »';
+    return '';
   }
 
   function askEditModel(key) {
+    closePop();
     var x = findModel(key);
     if (!x) return;
     var m = x.m;
-    showModal(modalHead('Modifier ' + h(modelName(x.g, m))) +
+    var d = S.stock.data;
+    var blocker = deleteBlocker(x);
+    showModal(modalHead('Modifier : ' + h(modelName(x.g, m))) +
+      '<div class="sk-photo-row">' + thumb(x.g.product, m.photo || x.g.photo, 'big') +
+        '<div class="grow">' + field('Photo (lien de l’image)', input('photo', m.photo, ' type="url" inputmode="url" placeholder="https://…"')) +
+        (d.shopify ? '<button type="button" class="linkbtn" data-act="shopify-photos">Reprendre les photos de Shopify (modèles sans photo)</button>' : '') + '</div></div>' +
       '<div class="form-grid" id="model-form" data-row="' + m.row + '" data-key="' + h(m.key) + '">' +
         field('Produit', input('product', x.g.product)) +
-        field('Modèle', input('model', m.model)) +
+        field(m.pack ? 'Nom du pack (variante)' : 'Modèle', input('model', m.model, m.pack ? ' placeholder="Facultatif"' : '')) +
         field('Prix de vente (DA)', input('price', m.price === null ? '' : m.price, ' type="number" min="0" step="10"')) +
-        field('Coût d’achat (DA)', input('cost', m.cost === null ? '' : m.cost, ' type="number" min="0" step="10"')) +
+        field('Coût d’achat (DA)', input('cost', m.cost === null || m.costAuto ? '' : m.cost, ' type="number" min="0" step="10"' + (m.pack ? ' placeholder="Vide : calculé (' + (m.costAuto ? num(m.cost) : '—') + ')"' : ''))) +
         field('Seuil d’alerte', input('threshold', m.ownThreshold === null ? '' : m.ownThreshold, ' type="number" min="0" step="1" placeholder="Réglage général"')) +
-        field('Autres noms (séparés par « ; »)', input('aliases', m.aliases, ' placeholder="Écritures de ce modèle dans les commandes"'), 'full') +
-        '<label class="field full" style="flex-direction:row;align-items:center;gap:10px"><input type="checkbox" name="active"' + (m.active ? ' checked' : '') + ' style="width:auto;min-height:0"> Actif (décochez s’il n’est plus vendu)</label>' +
-      '</div><p class="small" style="margin-top:8px">Le stock se change avec « Entrée de marchandise » ou « Inventaire ». Si vous renommez, l’ancien nom est gardé dans « autres noms ».</p>' +
-      '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Annuler</button>' +
+        field('Autres noms (séparés par « ; »)', input('aliases', m.aliases, ' placeholder="Écritures de ce modèle dans les commandes"')) +
+        (m.pack ? '<div class="field full"><span>Contenu du pack</span>' + packEditor(m.pack.items.map(function (i) { return { key: i.key, label: i.label, qty: i.qty }; })) + '</div>' : '') +
+      '</div><p class="small" style="margin-top:8px">Le stock se change avec « Entrée » ou « Inventaire ». Si vous renommez, l’ancien nom est gardé dans « autres noms ».</p>' +
+      '<div class="sk-danger">' +
+        (m.pack ? '' : '<div class="sk-drow"><span>⇄ <b>Fusionner</b> avec un autre modèle (doublon)</span><button type="button" class="btn" data-act="model-merge" data-key="' + h(key) + '">Fusionner…</button></div>') +
+        '<div class="sk-drow"><span>' + (m.active ? '◌ <b>Masquer</b> : n’est plus vendu (historique gardé)' : '◉ <b>Réafficher</b> : il est masqué') + '</span>' +
+          '<button type="button" class="btn" data-act="' + (m.active ? 'model-hide' : 'model-show') + '" data-key="' + h(key) + '">' + (m.active ? 'Masquer' : 'Réafficher') + '</button></div>' +
+        '<div class="sk-drow"><span>🗑 <b>Supprimer</b>' + (blocker ? '<br><span class="small">Impossible : ' + h(blocker) + '. Fusionnez ou masquez-le.</span>' : '<br><span class="small">Seulement s’il a été ajouté par erreur (aucune commande ne l’a utilisé).</span>') + '</span>' +
+          '<button type="button" class="btn danger" data-act="model-delete" data-key="' + h(key) + '"' + (blocker ? ' disabled' : '') + '>Supprimer</button></div>' +
+      '</div>' +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Fermer</button>' +
       '<button type="button" class="btn primary" data-act="model-save">Enregistrer</button></div>');
   }
 
   function saveModel(btn) {
     var form = $('#model-form');
     var f = readForm(form);
+    f.photo = ($('.modal [name="photo"]') || {}).value || '';
     f.row = Number(form.getAttribute('data-row'));
     f.key = form.getAttribute('data-key');
+    var pack = $('.modal .sk-pack-ed');
+    if (pack) f.pack = readPackEditor(pack);
     btn.disabled = true;
     call('api_updateCatalogRow', f).then(function (r) {
       closeModal();
@@ -193,19 +378,354 @@
     }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
   }
 
-  function showHistory(key) {
+  function setActive(key, active, btn) {
+    closePop();
     var x = findModel(key);
     if (!x) return;
-    var list = S.stock.data.moves.filter(function (mv) { return mv.key === key; });
+    if (btn) btn.disabled = true;
+    call('api_setCatalogActive', { row: x.m.row, key: x.m.key, active: active }).then(function (r) {
+      if ($('#model-form')) closeModal();
+      toast(r.message);
+      loadStockPage();
+    }).catch(function (e) { if (btn) btn.disabled = false; toast(errText(e), true); });
+  }
+
+  function askMerge(key) {
+    closePop();
+    var x = findModel(key);
+    if (!x) return;
+    var others = allModels(S.stock.data).filter(function (y) { return y.m.key !== key && !y.m.pack; });
+    if (!others.length) { toast('Aucun autre modèle avec lequel fusionner.', true); return; }
+    // Le plus probable d'abord : même produit.
+    others.sort(function (a, b) { return (b.g.product === x.g.product) - (a.g.product === x.g.product) || modelName(a.g, a.m).localeCompare(modelName(b.g, b.m), 'fr'); });
+    showModal(modalHead('Fusionner « ' + h(modelName(x.g, x.m)) + ' »') +
+      '<p>Choisissez le <b>bon modèle</b> : « ' + h(modelName(x.g, x.m)) + ' » (le doublon) disparaît de la liste et tout va sur le bon modèle.</p>' +
+      '<div class="form-grid" id="merge-form" data-key="' + h(key) + '">' +
+        field('Bon modèle', '<select name="to">' + others.map(function (y) {
+          return '<option value="' + h(y.m.key) + '">' + h(modelName(y.g, y.m)) + (y.m.tracked ? ' · stock ' + y.m.stock : '') + (y.m.active ? '' : ' (masqué)') + '</option>';
+        }).join('') + '</select>', 'full') +
+      '</div><ul class="small sk-list-dots">' +
+        '<li>Le stock du doublon (' + (x.m.stock === null ? 'non suivi' : x.m.stock) + ') s’ajoute au bon modèle.</li>' +
+        '<li>Son nom devient un « autre nom » du bon modèle : les commandes et l’historique le retrouvent.</li>' +
+        '<li>Le coût, le prix et la photo du bon modèle sont gardés (ceux du doublon servent s’ils sont vides).</li></ul>' +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Annuler</button>' +
+      '<button type="button" class="btn primary" data-act="merge-go">Fusionner</button></div>');
+  }
+
+  function doMerge(btn) {
+    var form = $('#merge-form');
+    var from = findModel(form.getAttribute('data-key'));
+    var to = findModel(readForm(form).to);
+    if (!from || !to) return;
+    btn.disabled = true;
+    call('api_mergeCatalogRows', { from: { row: from.m.row, key: from.m.key }, to: { row: to.m.row, key: to.m.key } }).then(function (r) {
+      closeModal();
+      toast(r.message);
+      loadStockPage();
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  }
+
+  /** Supprimer : la ligne disparaît tout de suite, avec 5 secondes pour annuler ; ensuite seulement le serveur supprime. */
+  var pendingDelete = null;
+  function askDelete(key) {
+    closePop();
+    var x = findModel(key);
+    if (!x) return;
+    var blocker = deleteBlocker(x);
+    if (blocker) { toast('Impossible de supprimer ' + modelName(x.g, x.m) + ' : ' + blocker + '. Fusionnez ou masquez-le.', true); return; }
+    if ($('#model-form')) closeModal();
+    flushDelete();
+    var job = { key: key, row: x.m.row, label: modelName(x.g, x.m) };
+    job.timer = setTimeout(function () { sendDelete(job); }, UNDO_MS);
+    pendingDelete = job;
+    st().hidden[key] = true;
+    renderList();
+    var bar = $('#undo-bar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'undo-bar';
+      bar.setAttribute('role', 'status');
+      document.body.appendChild(bar);
+    }
+    bar.innerHTML = icon('check') + '<span class="grow"><b>' + h(job.label) + '</b> supprimé</span>' +
+      '<button type="button" data-act="sk-undo-delete">Annuler</button><span class="undo-time" style="animation-duration:' + UNDO_MS + 'ms"></span>';
+    bar.className = '';
+    void bar.offsetWidth;
+    bar.className = 'show';
+  }
+  function hideBar() { var bar = $('#undo-bar'); if (bar) bar.className = ''; }
+  function undoDelete() {
+    var job = pendingDelete;
+    if (!job) return;
+    clearTimeout(job.timer);
+    pendingDelete = null;
+    delete st().hidden[job.key];
+    hideBar();
+    renderList();
+    toast('Annulé : ' + job.label + ' n’a pas été supprimé.');
+  }
+  function flushDelete() {
+    var job = pendingDelete;
+    if (!job) return;
+    clearTimeout(job.timer);
+    sendDelete(job);
+  }
+  function sendDelete(job) {
+    if (pendingDelete === job) pendingDelete = null;
+    hideBar();
+    call('api_deleteCatalogRow', { row: job.row, key: job.key }).then(function (r) {
+      toast(r.message);
+      delete st().hidden[job.key];
+      if (S.route === 'stock') loadStockPage();
+    }).catch(function (e) {
+      delete st().hidden[job.key];
+      toast(errText(e), true);
+      if (S.route === 'stock') renderList();
+    });
+  }
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') flushDelete(); });
+  window.addEventListener('pagehide', flushDelete);
+
+  /* ================================================================ */
+  /* Historique et derniers mouvements                                */
+  /* ================================================================ */
+
+  var MOVE_KIND = {
+    'Entrée': ['in', '+', '#146C2E'], 'Stock initial': ['in', '+', '#146C2E'],
+    'Colis parti': ['out', '−', '#A12626'],
+    'Retour reçu': ['back', '↩', '#1E4FA8'], 'Colis annulé (rentré)': ['back', '↩', '#1E4FA8'],
+    'Retour abîmé': ['loss', '✕', '#7A2E2E'], 'Inventaire': ['loss', '≈', '#5B6270'], 'Modèle supprimé': ['loss', '🗑', '#7A2E2E'],
+    'Fusion': ['other', '⇄', '#5B21B6'], 'Annulation': ['other', '↶', '#5B6270']
+  };
+  function kindOf(mv) { return MOVE_KIND[mv.type] || ['other', '•', '#5B6270']; }
+
+  function movesList(list, withLabel) {
+    return '<div class="sk-tl">' + list.map(function (mv) {
+      var k = kindOf(mv);
+      var label = mv.product + (mv.model ? ' — ' + mv.model : '');
+      var detail = [mv.by || '', mv.date ? fmtDate(mv.date) : '', mv.order ? 'commande ' + mv.order : '', mv.cost ? 'coût ' + num(mv.cost) + ' DA' : '', mv.after === null ? '' : 'stock après : ' + mv.after, mv.note]
+        .filter(Boolean).join(' · ');
+      return '<div class="sk-mv"><span class="ic" style="background:' + k[2] + '" aria-hidden="true">' + k[1] + '</span>' +
+        '<span class="tx"><b>' + h(mv.type) + '</b>' + (withLabel ? ' · ' + h(label) : '') + '<br><span class="small">' + h(detail) + '</span></span>' +
+        '<span class="q ' + (mv.qty < 0 ? 'm' : 'p') + '">' + (mv.qty > 0 ? '+' : '') + mv.qty + '</span>' +
+        (mv.undoable ? '<button type="button" class="btn sk-undo" data-act="move-undo" data-ref="' + h(mv.ref) + '">Annuler</button>'
+          : mv.undone ? '<span class="small sk-undone">annulé</span>' : '<span></span>') + '</div>';
+    }).join('') + '</div>';
+  }
+
+  function renderMoves() {
+    var d = S.stock.data;
+    var box = $('#sk-moves');
+    if (!box || !d) return;
+    var u = st();
+    var all = d.moves || [];
+    var list = u.moveFilter === 'all' ? all : all.filter(function (mv) {
+      var k = kindOf(mv)[0];
+      return u.moveFilter === 'loss' ? k === 'loss' && mv.qty < 0 : k === u.moveFilter;
+    });
+    // Pertes du mois : abîmés et écarts d'inventaire négatifs (au coût d'achat d'aujourd'hui).
+    var month = new Date();
+    month = new Date(month.getFullYear(), month.getMonth(), 1).getTime();
+    var cost = {};
+    allModels(d).forEach(function (x) { (x.m.keys || [x.m.key]).forEach(function (k) { if (x.m.cost !== null) cost[k] = x.m.cost; }); });
+    var lossQty = 0;
+    var lossValue = 0;
+    all.forEach(function (mv) {
+      if ((mv.type === 'Retour abîmé' || mv.type === 'Inventaire') && mv.qty < 0 && new Date(mv.date).getTime() >= month) {
+        lossQty -= mv.qty;
+        lossValue -= mv.qty * (cost[mv.key] || 0);
+      }
+    });
+    var chipM = function (f, label) {
+      return '<button type="button" class="sk-chip' + (u.moveFilter === f ? ' on' : '') + '" data-act="sk-mfilter" data-f="' + f + '" aria-pressed="' + (u.moveFilter === f) + '">' + label + '</button>';
+    };
+    box.innerHTML = '<div class="sk-mhead"><h2>Derniers mouvements</h2><div class="sk-chips">' +
+      chipM('all', 'Tous') + chipM('in', 'Entrées') + chipM('out', 'Sorties') + chipM('back', 'Retours') + chipM('loss', 'Pertes') + '</div></div>' +
+      (list.length ? movesList(list.slice(0, u.moveLimit), true) : '<p class="empty">Aucun mouvement' + (u.moveFilter === 'all' ? ' pour l’instant' : ' de ce type parmi les derniers') + '.</p>') +
+      (list.length > u.moveLimit ? '<p style="margin-top:10px"><button type="button" class="btn" data-act="sk-more-moves">Voir plus</button></p>' : '') +
+      (lossQty ? '<p class="small" style="margin-top:10px">Pertes du mois (abîmés et écarts d’inventaire) : <b class="neg">' + h(plural(lossQty, 'pièce', 'pièces')) + (lossValue ? ' · ' + money(lossValue) : '') + '</b></p>' : '') +
+      '<p class="small" style="margin-top:10px">Historique complet : onglet « Mouvements stock » du classeur.</p>';
+  }
+
+  function showHistory(key) {
+    closePop();
+    var x = findModel(key);
+    if (!x) return;
+    var keys = x.m.keys || [key];
+    var list = S.stock.data.moves.filter(function (mv) { return keys.indexOf(mv.key) >= 0; });
     showModal(modalHead('Historique · ' + h(modelName(x.g, x.m))) +
-      (list.length ? movesTable(list) : '<p class="empty">Aucun mouvement récent pour ce modèle.</p>') +
+      (list.length ? movesList(list, keys.length > 1) : '<p class="empty">Aucun mouvement récent pour ce modèle.</p>') +
       '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Fermer</button></div>');
   }
 
-  /** Entrée de marchandise ou inventaire : un produit, puis ses modèles. */
+  function findMove(ref) {
+    return (S.stock.data.moves || []).filter(function (mv) { return String(mv.ref) === String(ref); })[0] || null;
+  }
+  function askUndoMove(ref) {
+    var mv = findMove(ref);
+    if (!mv) return;
+    var x = null;
+    allModels(S.stock.data).forEach(function (y) { if ((y.m.keys || [y.m.key]).indexOf(mv.key) >= 0) x = y; });
+    var label = mv.product + (mv.model ? ' — ' + mv.model : '');
+    var now = x && x.m.stock !== null ? x.m.stock : null;
+    showModal(modalHead('Annuler ce mouvement ?') +
+      '<p><b>' + h(mv.type) + ' ' + (mv.qty > 0 ? '+' : '') + mv.qty + '</b> · ' + h(label) + ' · ' + h(fmtDate(mv.date)) + '</p>' +
+      '<p class="small" style="margin-top:6px">' + (now !== null ? 'Le stock passera de ' + now + ' à <b>' + (now - mv.qty) + '</b>. ' : '') +
+      'Un mouvement « Annulation » est ajouté : les deux restent dans l’historique.</p>' +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Garder</button>' +
+      '<button type="button" class="btn primary" data-act="move-undo-go" data-ref="' + h(ref) + '">Annuler ce mouvement</button></div>');
+  }
+  function doUndoMove(btn) {
+    var mv = findMove(btn.getAttribute('data-ref'));
+    if (!mv) return;
+    btn.disabled = true;
+    call('api_undoStockMove', { ref: mv.ref, key: mv.key, type: mv.type, qty: mv.qty, date: mv.date }).then(function (r) {
+      closeModal();
+      toast(r.message);
+      loadStockPage();
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  }
+
+  /* ================================================================ */
+  /* Nouveau produit : un seul modèle, plusieurs variantes, pack       */
+  /* ================================================================ */
+
+  function packOptions(selected) {
+    return allModels(S.stock.data, true).filter(function (x) { return !x.m.pack; }).map(function (x) {
+      var label = modelName(x.g, x.m);
+      return '<option value="' + h(label) + '"' + (label === selected ? ' selected' : '') + '>' + h(label) + (x.m.tracked ? ' · dispo ' + x.m.available : '') + '</option>';
+    }).join('');
+  }
+  function packLine(it) {
+    return '<div class="sk-pline"><input type="number" min="1" step="1" inputmode="numeric" value="' + h(it && it.qty || 1) + '" aria-label="Quantité">' +
+      '<span>×</span><select aria-label="Article"><option value="">Choisir un article…</option>' + packOptions(it ? it.label : '') + '</select>' +
+      '<button type="button" class="btn sk-x" data-act="pack-del" aria-label="Retirer">✕</button></div>';
+  }
+  function packEditor(items) {
+    return '<div class="sk-pack-ed">' + (items && items.length ? items : [null, null]).map(packLine).join('') +
+      '<button type="button" class="linkbtn" data-act="pack-add">+ ajouter un article</button></div>';
+  }
+  function readPackEditor(box) {
+    return $all('.sk-pline', box).map(function (l) {
+      return { qty: $('input', l).value, label: $('select', l).value };
+    }).filter(function (x) { return x.label; });
+  }
+
+  function askNewProduct(kind) {
+    closePop();
+    kind = kind || 'simple';
+    var tabs = '<div class="sk-tabs" role="tablist">' + [['simple', 'Un seul modèle'], ['grid', 'Plusieurs variantes'], ['pack', 'Pack']].map(function (t) {
+      return '<button type="button" role="tab" class="sk-chip' + (t[0] === kind ? ' on' : '') + '" aria-selected="' + (t[0] === kind) + '" data-act="product-new" data-kind="' + t[0] + '">' + t[1] + '</button>';
+    }).join('') + '</div>';
+    var body;
+    if (kind === 'grid') {
+      body = '<div class="form-grid" id="product-form" data-kind="grid">' +
+        field('Nom du produit', input('product', '', ' placeholder="Ex. Coque magnétique"')) +
+        field('Photo (lien, facultatif)', input('photo', '', ' type="url" inputmode="url" placeholder="https://…"')) +
+        field('Option 1 (ex. couleurs), séparées par des virgules', input('opt1', '', ' data-role="grid" placeholder="Noir, Bleu, Rose"'), 'full') +
+        field('Option 2 (ex. tailles ou modèles), facultatif', input('opt2', '', ' data-role="grid" placeholder="iPhone 13, iPhone 14"'), 'full') +
+        field('Seuil d’alerte', input('threshold', '', ' type="number" min="0" step="1" placeholder="Réglage général"')) +
+        '</div><div id="grid-box" class="sk-gridbox"></div>' +
+        '<p class="small" style="margin-top:8px">Chaque variante s’appelle « option 1 / option 2 », comme sur Shopify (ex. « Noir / iPhone 13 »). Les cases vides prennent les valeurs de la première ligne.</p>';
+    } else if (kind === 'pack') {
+      body = '<div class="form-grid" id="product-form" data-kind="pack">' +
+        field('Nom du pack', input('product', '', ' placeholder="Ex. Pack Montre + Écouteurs"'), 'full') +
+        '<div class="field full"><span>Contenu</span>' + packEditor([]) + '</div>' +
+        field('Prix de vente (DA)', input('price', '', ' type="number" min="0" step="10"')) +
+        field('Coût (vide : calculé)', input('cost', '', ' type="number" min="0" step="10" placeholder="Somme des articles"')) +
+        field('Photo (lien, facultatif)', input('photo', '', ' type="url" inputmode="url" placeholder="https://…"'), 'full') +
+        '</div><p class="small" style="margin-top:8px">Le pack n’a pas de stock à lui : son disponible est celui de l’article qui en a le moins. Quand un pack part, le stock de chaque article baisse ; au retour, il remonte. Écrivez son nom comme dans vos commandes.</p>';
+    } else {
+      body = '<div class="form-grid" id="product-form" data-kind="simple">' +
+        field('Nom du produit', input('product', '', ' placeholder="Ex. cover iPhone"')) +
+        field('Modèle (facultatif)', input('model', '', ' placeholder="Ex. iphone 13"')) +
+        field('Prix de vente (DA)', input('price', '', ' type="number" min="0" step="10"')) +
+        field('Coût d’achat (DA)', input('cost', '', ' type="number" min="0" step="10"')) +
+        field('Stock de départ', input('stock', '', ' type="number" min="0" step="1"')) +
+        field('Seuil d’alerte', input('threshold', '', ' type="number" min="0" step="1" placeholder="Réglage général"')) +
+        field('Photo (lien, facultatif)', input('photo', '', ' type="url" inputmode="url" placeholder="https://…"'), 'full') +
+        '</div><p class="small" style="margin-top:8px">Écrivez le nom comme dans vos commandes (ex. « cover iPhone - iphone 13 ») pour que le stock suive tout seul. Sinon, ajoutez des « autres noms » avec Modifier.</p>';
+    }
+    showModal(modalHead(kind === 'pack' ? 'Nouveau pack' : 'Nouveau produit') + tabs + body +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Annuler</button>' +
+      '<button type="button" class="btn primary" data-act="product-save" id="product-save">' + (kind === 'pack' ? 'Créer le pack' : kind === 'grid' ? 'Créer les variantes' : 'Ajouter le produit') + '</button></div>');
+    if (kind === 'grid') renderGrid();
+  }
+
+  function splitList(v) {
+    var seen = {};
+    return String(v || '').split(/[,;\n]/).map(function (x) { return x.replace(/\s+/g, ' ').trim(); }).filter(function (x) {
+      var k = fold(x);
+      if (!x || seen[k]) return false;
+      seen[k] = true;
+      return true;
+    });
+  }
+  function gridNames() {
+    var f = readForm($('#product-form'));
+    var a = splitList(f.opt1);
+    var b = splitList(f.opt2);
+    if (!a.length) return b;
+    if (!b.length) return a;
+    var out = [];
+    a.forEach(function (x) { b.forEach(function (y) { out.push(x + ' / ' + y); }); });
+    return out;
+  }
+  function renderGrid() {
+    var box = $('#grid-box');
+    if (!box) return;
+    var old = {};
+    $all('#grid-box tr[data-v]').forEach(function (tr) { old[tr.getAttribute('data-v')] = $all('input', tr).map(function (i) { return i.value; }); });
+    var names = gridNames().slice(0, 60);
+    var btn = $('#product-save');
+    if (btn) btn.textContent = names.length ? 'Créer ' + plural(names.length, 'variante', 'variantes') : 'Créer les variantes';
+    if (!names.length) { box.innerHTML = '<p class="small">Tapez les options pour voir les variantes.</p>'; return; }
+    box.innerHTML = '<div class="table-wrap"><table class="data sk-grid"><thead><tr><th scope="col">Variante (' + names.length + ')</th><th scope="col">Coût</th><th scope="col">Prix</th><th scope="col">Stock</th></tr></thead><tbody>' +
+      names.map(function (n) {
+        var v = old[n] || ['', '', ''];
+        return '<tr data-v="' + h(n) + '"><td>' + h(n) + '</td>' + ['cost', 'price', 'stock'].map(function (k, i) {
+          return '<td><input type="number" min="0" step="' + (k === 'stock' ? 1 : 10) + '" inputmode="numeric" data-g="' + k + '" value="' + h(v[i]) + '" aria-label="' + h(k + ' ' + n) + '"></td>';
+        }).join('') + '</tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+
+  function saveNewProduct(btn) {
+    var form = $('#product-form');
+    var kind = form.getAttribute('data-kind');
+    var f = readForm(form);
+    var data;
+    if (kind === 'grid') {
+      var rows = $all('#grid-box tr[data-v]');
+      if (!rows.length) { toast('Tapez au moins une option.', true); return; }
+      var first = {};
+      ['cost', 'price', 'stock'].forEach(function (k) { first[k] = ($('[data-g="' + k + '"]', rows[0]) || {}).value || ''; });
+      data = { product: f.product, photo: f.photo, threshold: f.threshold, models: rows.map(function (tr) {
+        var v = function (k) { var x = String(($('[data-g="' + k + '"]', tr) || {}).value || '').trim(); return x === '' ? first[k] : x; };
+        return { model: tr.getAttribute('data-v'), cost: v('cost'), price: v('price'), stock: v('stock') };
+      }) };
+    } else if (kind === 'pack') {
+      data = { product: f.product, price: f.price, cost: f.cost, photo: f.photo, pack: readPackEditor($('.modal .sk-pack-ed')) };
+      if (!data.pack.length) { toast('Choisissez les articles du pack.', true); return; }
+    } else {
+      data = { product: f.product, price: f.price, cost: f.cost, threshold: f.threshold, stock: f.stock, photo: f.photo,
+        models: String(f.model || '').trim() ? [{ model: f.model, stock: f.stock }] : [] };
+    }
+    btn.disabled = true;
+    call('api_addProduct', data).then(function (r) {
+      closeModal();
+      toast(r.message);
+      loadStockPage();
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  }
+
+  /* ================================================================ */
+  /* Entrée de marchandise et inventaire                              */
+  /* ================================================================ */
+
   function askStockForm(kind) {
+    closePop();
     var d = S.stock.data;
-    var products = d.products.filter(function (g) { return g.models.some(function (m) { return m.active; }); });
+    var products = d.products.filter(function (g) { return g.models.some(function (m) { return m.active && !m.pack; }); });
     if (!products.length) { toast('Ajoutez d’abord un produit.', true); return; }
     var entry = kind === 'entry';
     showModal(modalHead(entry ? 'Entrée de marchandise' : 'Inventaire') +
@@ -218,7 +738,8 @@
         field('Note (facultatif)', input('note', ''), 'full') +
       '</div><div class="lines" id="stock-lines"></div>' +
       '<p class="small" style="margin-top:8px">' + (entry ? (d.averageCost ? 'Avec un coût unitaire, le coût d’achat devient la moyenne de l’ancien stock et de cette entrée.' : 'Le coût d’achat ne change pas (réglage COUT_MOYEN = NON).')
-        : 'Tapez la quantité comptée ; laissez vide les modèles non comptés. L’écart est noté avec le motif.') + '</p>' +
+        : 'Tapez la quantité comptée ; laissez vide les modèles non comptés. L’écart est noté avec le motif.') +
+        ' Une erreur de frappe s’annule ensuite dans « Derniers mouvements ».</p>' +
       '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Annuler</button>' +
       '<button type="button" class="btn primary" data-act="stock-save">' + (entry ? 'Enregistrer l’entrée' : 'Enregistrer l’inventaire') + '</button></div>');
     S.stock.formProducts = products;
@@ -230,7 +751,7 @@
     if (!form) return;
     var entry = form.getAttribute('data-kind') === 'entry';
     var g = S.stock.formProducts[Number($('[data-role="stock-product"]').value) || 0];
-    $('#stock-lines').innerHTML = g.models.filter(function (m) { return m.active; }).map(function (m) {
+    $('#stock-lines').innerHTML = g.models.filter(function (m) { return m.active && !m.pack; }).map(function (m) {
       return '<label class="line"><span>' + h(m.model || g.product) + ' <span class="small">· stock ' + (m.tracked ? m.stock : '—') + '</span></span>' +
         '<input type="number" min="0" step="1" inputmode="numeric" data-line-row="' + m.row + '" data-line-key="' + h(m.key) + '" placeholder="' + (entry ? 'Reçu' : (m.tracked ? m.stock : 'Compté')) + '"></label>';
     }).join('');
@@ -254,27 +775,228 @@
     }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
   }
 
+  /* ================================================================ */
+  /* Modèles des commandes absents du catalogue                       */
+  /* ================================================================ */
+
+  function showUnknown() {
+    var d = S.stock.data;
+    showModal(modalHead('Modèles vendus, absents du catalogue') +
+      '<p class="small" style="margin-bottom:10px">Vus dans les commandes des 60 derniers jours. Ajoutez-les pour suivre leur stock et leur bénéfice, ou ajoutez leur nom comme « autre nom » d’un modèle existant (Modifier).</p>' +
+      table(['Produit', 'Modèle', 'Commandes', ''], d.unknown.map(function (x) {
+        return [h(x.product), h(x.model || '—'), x.orders, '<button type="button" class="btn" style="min-height:36px" data-act="catalog-add" data-label="' + h(x.label) + '">Ajouter</button>'];
+      }), [2]) +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Fermer</button>' +
+      '<button type="button" class="btn primary" data-act="catalog-add">Tout ajouter</button></div>');
+  }
+
   function addToCatalog(labels, btn) {
-    var list = labels || (S.stock.data ? S.stock.data.unknown.map(function (u) { return u.label; }) : []);
+    var list = labels || (S.stock.data ? S.stock.data.unknown.map(function (x) { return x.label; }) : []);
     if (!list.length) return;
     btn.disabled = true;
     call('api_addCatalogItems', list).then(function (r) {
+      if (!labels) closeModal(); else { var tr = btn.closest('tr'); if (tr) tr.remove(); }
       toast(r.message);
       loadStockPage();
     }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
   }
 
+  /* ================================================================ */
+  /* Exporter : Excel, feuille d'inventaire, valeur à une date         */
+  /* ================================================================ */
+
+  function today() {
+    var d = new Date();
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+
+  function askExport() {
+    closePop();
+    var y = new Date();
+    y = new Date(y.getFullYear(), y.getMonth(), 0); // fin du mois dernier
+    var lastMonth = y.getFullYear() + '-' + ('0' + (y.getMonth() + 1)).slice(-2) + '-' + ('0' + y.getDate()).slice(-2);
+    showModal(modalHead('Exporter le stock') +
+      '<div class="sk-exp">' +
+        '<button type="button" class="sk-expbtn" data-act="export-csv"><b>📄 Excel : le stock d’aujourd’hui</b><span class="small">Produit, modèle, stock, réservé, disponible, coût, prix, valeur.</span></button>' +
+        '<button type="button" class="sk-expbtn" data-act="export-print"><b>🖨 Feuille d’inventaire à imprimer (PDF)</b><span class="small">Avec une colonne vide pour noter ce que vous comptez.</span></button>' +
+        '<div class="sk-expbtn"><b>📅 Valeur du stock à une date</b><span class="small">Stock d’aujourd’hui moins les mouvements faits depuis ; au coût d’achat actuel.</span>' +
+          '<span class="sk-expdate"><input type="date" id="exp-day" value="' + lastMonth + '" max="' + today() + '" aria-label="Date"><button type="button" class="btn" data-act="export-at">Calculer</button></span>' +
+          '<div id="exp-at"></div></div>' +
+      '</div><div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Fermer</button></div>');
+  }
+
+  function csvCell(v) {
+    var s = String(v == null ? '' : v);
+    return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  /** Fichier CSV (séparateur « ; », avec BOM) : s'ouvre directement dans Excel en français. */
+  function downloadCsv(name, rows) {
+    var text = '﻿' + rows.map(function (r) { return r.map(csvCell).join(';'); }).join('\r\n');
+    var url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+  }
+
+  function exportCsv() {
+    var rows = [['Produit', 'Modèle', 'Pack', 'Stock', 'Réservé', 'Disponible', 'Coût d’achat', 'Prix de vente', 'Valeur', 'Actif']];
+    allModels(S.stock.data).forEach(function (x) {
+      var m = x.m;
+      rows.push([x.g.product, m.model, m.pack ? m.pack.text : '', m.stock === null ? '' : m.stock, m.reserved, m.available === null ? '' : m.available,
+        m.cost === null ? '' : m.cost, m.price === null ? '' : m.price, m.value || 0, m.active ? 'OUI' : 'NON']);
+    });
+    downloadCsv('stock-' + today() + '.csv', rows);
+    toast('Fichier Excel téléchargé.');
+  }
+
+  function exportPrint() {
+    var d = S.stock.data;
+    var rows = allModels(d, true).filter(function (x) { return !x.m.pack; });
+    var html = '<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Inventaire ' + h(today()) + '</title><style>' +
+      'body{font:12px/1.4 Arial,sans-serif;color:#111;margin:18px}h1{font-size:18px;margin:0 0 4px}p{margin:0 0 12px;color:#444}' +
+      'table{width:100%;border-collapse:collapse}th,td{border:1px solid #999;padding:6px 8px;text-align:left}th{background:#eee}td.n{text-align:right;width:70px}td.c{width:90px}' +
+      '@page{margin:12mm}</style></head><body><h1>Feuille d’inventaire</h1><p>' + h(fmtDate(new Date().toISOString())) + ' · ' + rows.length + ' modèles · valeur ' + h(money(d.totals.value)) + '</p>' +
+      '<table><thead><tr><th>Produit</th><th>Modèle</th><th>Stock</th><th>Réservé</th><th>Compté</th><th>Écart</th></tr></thead><tbody>' +
+      rows.map(function (x) {
+        return '<tr><td>' + h(x.g.product) + '</td><td>' + h(x.m.model || '—') + '</td><td class="n">' + (x.m.stock === null ? '—' : x.m.stock) + '</td><td class="n">' + x.m.reserved + '</td><td class="c"></td><td class="c"></td></tr>';
+      }).join('') + '</tbody></table><script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script></body></html>';
+    var url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+    var win = window.open(url, '_blank');
+    if (!win) {
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'inventaire-' + today() + '.html';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast('Le navigateur a bloqué le nouvel onglet : la feuille a été téléchargée (ouvrez-la puis imprimez).', true);
+    }
+  }
+
+  function exportAt(btn) {
+    var day = ($('#exp-day') || {}).value;
+    if (!day) { toast('Choisissez une date.', true); return; }
+    btn.disabled = true;
+    $('#exp-at').innerHTML = '<p class="loading">Calcul…</p>';
+    call('api_stockAt', day).then(function (r) {
+      btn.disabled = false;
+      S.stock.at = r;
+      $('#exp-at').innerHTML = '<p class="sk-atres">Au ' + h(r.day.split('-').reverse().join('/')) + ' (fin de journée) : <b>' + h(plural(r.units, 'pièce', 'pièces')) + '</b> · <b>' + h(money(r.value)) + '</b></p>' +
+        '<button type="button" class="btn" data-act="export-at-csv">Télécharger le détail (Excel)</button>';
+    }).catch(function (e) { btn.disabled = false; $('#exp-at').innerHTML = ''; toast(errText(e), true); });
+  }
+  function exportAtCsv() {
+    var r = S.stock.at;
+    if (!r) return;
+    downloadCsv('stock-au-' + r.day + '.csv', [['Produit', 'Modèle', 'Stock au ' + r.day, 'Coût d’achat', 'Valeur']].concat(r.rows.map(function (x) {
+      return [x.product, x.model, x.stock, x.cost === null ? '' : x.cost, x.value];
+    })).concat([['Total', '', r.units, '', r.value]]));
+  }
+
+  function shopifyPhotos(btn) {
+    btn.disabled = true;
+    toast('Lecture des photos chez Shopify…');
+    call('api_shopifyPhotos').then(function (r) {
+      closeModal();
+      toast(r.message);
+      loadStockPage();
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
+  }
+
+  /** Téléphone : le bouton « + » propose les actions du haut de la page. */
+  function showFab() {
+    showModal(modalHead('Stock') + '<div class="sk-exp">' +
+      '<button type="button" class="sk-expbtn" data-act="product-new"><b>+ Produit</b><span class="small">Un modèle, plusieurs variantes ou un pack.</span></button>' +
+      '<button type="button" class="sk-expbtn" data-act="stock-entry"><b>Entrée de marchandise</b><span class="small">Pièces reçues du fournisseur.</span></button>' +
+      '<button type="button" class="sk-expbtn" data-act="stock-inventory"><b>Inventaire</b><span class="small">Corriger le stock après un comptage.</span></button>' +
+      '<button type="button" class="sk-expbtn" data-act="stock-export"><b>Exporter</b><span class="small">Excel, feuille d’inventaire, valeur à une date.</span></button>' +
+      '</div><div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Fermer</button></div>');
+  }
+
+  /* ================================================================ */
+  /* Événements                                                       */
+  /* ================================================================ */
+
+  var searchTimer = null;
+  document.addEventListener('input', function (e) {
+    if (e.target.id === 'sk-q') {
+      clearTimeout(searchTimer);
+      var v = e.target.value;
+      searchTimer = setTimeout(function () { st().q = v; renderList(); }, 120);
+    } else if (e.target.getAttribute && e.target.getAttribute('data-role') === 'grid') {
+      renderGrid();
+    }
+  });
+  // Un clic ailleurs, la touche Échap ou le défilement ferment les menus.
+  document.addEventListener('click', function (e) {
+    if (!$('.sk-pop')) return;
+    if (e.target.closest('.sk-pop') && !e.target.closest('[data-act]')) return;
+    if (e.target.closest('[data-act="sk-menu"]') || e.target.closest('[data-act="sk-res"]')) return;
+    closePop();
+  }, true);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePop(); });
+  // (sauf juste après l'ouverture : le navigateur fait souvent défiler la page vers le bouton touché)
+  window.addEventListener('scroll', function () { if ($('.sk-pop') && Date.now() - popOpenedAt > 400) closePop(); }, { passive: true });
 
   Object.assign(DZ.ACTIONS, {
     'catalog-add': function (el) { addToCatalog(el.getAttribute('data-label') ? [el.getAttribute('data-label')] : null, el); },
-    'product-new': askNewProduct,
+    'catalog-unknown': showUnknown,
+    'product-new': function (el) { askNewProduct(el && el.getAttribute('data-kind')); },
     'product-save': saveNewProduct,
     'model-edit': function (el) { askEditModel(el.getAttribute('data-key')); },
     'model-save': saveModel,
     'model-history': function (el) { showHistory(el.getAttribute('data-key')); },
+    'model-hide': function (el) { setActive(el.getAttribute('data-key'), false, el); },
+    'model-show': function (el) { setActive(el.getAttribute('data-key'), true, el); },
+    'model-merge': function (el) { askMerge(el.getAttribute('data-key')); },
+    'merge-go': doMerge,
+    'model-delete': function (el) { askDelete(el.getAttribute('data-key')); },
+    'sk-undo-delete': undoDelete,
+    'sk-menu': openMenu,
+    'sk-res': showReservers,
+    'sk-filter': function (el) {
+      var f = el.getAttribute('data-f');
+      var u = st();
+      u.filter = u.filter === f && f !== 'all' ? 'all' : f;
+      renderStock();
+    },
+    'sk-fold': function (el) {
+      var u = st();
+      var g = el.getAttribute('data-g');
+      u.closed[g] = !u.closed[g];
+      renderList();
+    },
+    'sk-mfilter': function (el) { st().moveFilter = el.getAttribute('data-f'); st().moveLimit = MOVES_STEP; renderMoves(); },
+    'sk-more-moves': function () { st().moveLimit += MOVES_STEP; renderMoves(); },
+    'move-undo': function (el) { askUndoMove(el.getAttribute('data-ref')); },
+    'move-undo-go': doUndoMove,
+    'pack-add': function (el) { el.insertAdjacentHTML('beforebegin', packLine(null)); },
+    'pack-del': function (el) { var l = el.closest('.sk-pline'); if (l && $all('.sk-pline', l.parentNode).length > 1) l.remove(); },
     'stock-entry': function () { askStockForm('entry'); },
     'stock-inventory': function () { askStockForm('inventory'); },
-    'stock-save': saveStockForm
+    'stock-save': saveStockForm,
+    'stock-export': askExport,
+    'export-csv': exportCsv,
+    'export-print': exportPrint,
+    'export-at': exportAt,
+    'export-at-csv': exportAtCsv,
+    'shopify-photos': shopifyPhotos,
+    'sk-fab': showFab
   });
-  DZ.modules.stock = { page: pageStock, onChange: function (e) { if (e.target.getAttribute('data-role') !== 'stock-product') return false; renderStockLines(); return true; } };
+  DZ.modules.stock = {
+    page: pageStock,
+    onChange: function (e) {
+      if (e.target.id === 'sk-sort') { st().sort = e.target.value; renderList(); return true; }
+      if (e.target.getAttribute('data-role') === 'stock-product') { renderStockLines(); return true; }
+      if (e.target.tagName === 'DETAILS') return false;
+      return false;
+    }
+  };
+  document.addEventListener('toggle', function (e) {
+    if (e.target.classList && e.target.classList.contains('sk-offlist')) st().offOpen = e.target.open;
+  }, true);
 })(window.DZ);

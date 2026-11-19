@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.7
+## Ce que fait la version 1.8
 
 | Écran | Contenu |
 |---|---|
@@ -15,7 +15,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 | **Centre de confirmation** | Trois blocs : **à appeler maintenant**, **rappels à venir**, **en attente** (injoignable, statut inconnu… avec le motif) ; une commande n'en sort que confirmée ou annulée ; **historique des appels** de chaque commande ; rappel arrivé à l'heure **en orange**, commande en retard en rouge ; fiche client avec historique et alerte, boutons Appeler et WhatsApp (message pré-rempli), **toutes les informations de la commande modifiables** (client, téléphone, wilaya, commune, adresse, produit, quantité, prix, livraison, société, frais, notes) avec recalcul des frais et du total, résultat en un clic : Confirmer, Pas de réponse, Rappeler plus tard, Annuler (avec motif) |
 | **Expéditions** | Commandes confirmées prêtes à partir (avec les problèmes à corriger avant l'envoi), **création des colis chez Ecotrack** en un clic avec n° de suivi écrit dans le classeur, **impression des bordereaux** Ecotrack (A4 ou étiquette 10×15) et **validation de l'expédition** (avec ou sans ramassage) |
 | **Suivi** | Statut de chaque colis relu **toutes les heures** (réglable : 30 min, 1 h ou 2 h), **alertes « à traiter »** (colis suspendu, retour en cours ou bloqué, sans mouvement selon l'étape, argent en retard…), **résultat de l'appel** (remarque au livreur, demande de retour), motif du livreur et **chronologie** de chaque colis (heures d'Algérie) |
-| **Stock** | Catalogue par modèle, entrées, inventaire, historique (administrateur et magasinier) |
+| **Stock** | Une ligne par modèle avec le **disponible en couleur**, recherche, filtres et tri, photos, **packs**, variantes créées d'un coup, commandes qui réservent, fusionner, masquer ou supprimer un modèle, entrées, inventaire, **annuler un mouvement mal tapé**, export Excel / feuille d'inventaire / **valeur du stock à une date** (administrateur et magasinier) |
 | **Bénéfices** | Bénéfice net sur la **période de votre choix** comparé à la période d'avant, **graphiques** (bénéfice par jour, où part l'argent, seuil de rentabilité, simulateur du taux de livraison), produits classés par bénéfice, publicité (coût par livrée, ROAS), **dépenses et gains** sur un jour ou un intervalle, à corriger ou supprimer (administrateur) |
 | **Statistiques** | Commandes et argent par période, comparés à la période d'avant : parcours des commandes, motifs, heures, wilayas, produits, équipe (avec la prime), publicité, **où est l'argent et versements d'Ecotrack** ; export pour Excel (administrateur) |
 | **Administration** | État de l'outil, connexions (Ecotrack, SMS, Shopify, Releasit), réglages en formulaires, équipe, clients, entretien du classeur (administrateur) |
@@ -243,27 +243,49 @@ La page **Suivi** réunit :
 
 Page **Stock** (menu de gauche ; sur téléphone : **☰ Plus**), pour l'**administrateur** et le rôle **« Magasinier »** de l'onglet Équipe. Le magasinier voit le stock et fait les entrées et inventaires, mais ne voit pas les bénéfices.
 
-**Le catalogue** (onglet Produits : Produit | Modèle | Prix de vente | Coût d'achat | Stock | Seuil d'alerte | Autres noms | Actif) :
-- **+ Produit** : nom, prix, coût, seuil, et les modèles avec leur stock de départ (« iphone 13 = 10 », un par ligne).
-- **Modifier** : nom, prix, coût, seuil, **autres noms** (autres écritures du modèle dans les commandes, séparées par « ; »), **actif** (décoché : plus proposé pour les nouvelles commandes, gardé pour l'historique). Si vous renommez un modèle, l'ancien nom est gardé dans « autres noms » : les commandes passées restent reliées.
-- **Modèles vus dans les commandes mais absents du catalogue** : bouton **Ajouter**, avec leur prix de vente moyen.
+**La page (version 1.8)** :
+- **Une ligne par modèle** : le **disponible en grand**, dans une pastille verte (bon), orange (**stock bas**) ou rouge (**rupture**), avec un trait de la même couleur à gauche ; puis stock, réservé, coût et prix. Un produit à un seul modèle tient sur une ligne avec sa photo ; un produit à plusieurs modèles a un titre (photo, total disponible, valeur) qui se replie.
+- **Recherche** (produit, modèle, autres noms), filtres **Tous / Stock bas / Rupture / Inactifs**, tri (**à surveiller d'abord**, nom, disponible, valeur). Les cartes « Stock bas » et « En rupture » du haut sont cliquables.
+- **« réservé 4 › »** : un clic montre les commandes confirmées qui bloquent ce stock (n°, client, wilaya) ; un clic sur une commande l'ouvre.
+- Menu **« ⋯ »** de chaque ligne : Modifier, Historique, Fusionner avec…, Masquer / Réafficher, Supprimer.
+- Les modèles masqués sont repliés en bas (« Inactifs (n) ») ; les modèles vus dans les commandes mais absents du catalogue sont signalés par un petit bandeau (« Voir et ajouter »).
+- **Sur téléphone** : cartes de 2 lignes, recherche et filtres qui restent en haut, et un bouton rond **+** (Produit, Entrée, Inventaire, Exporter).
+
+**Le catalogue** (onglet Produits : Produit | Modèle | Prix de vente | Coût d'achat | Stock | Seuil d'alerte | Autres noms | Actif | Photo | Contenu du pack) :
+- **+ Produit**, trois façons :
+  - **Un seul modèle** : nom, modèle (facultatif), prix, coût, stock de départ, seuil, photo.
+  - **Plusieurs variantes** : tapez l'option 1 (ex. « Noir, Bleu, Rose ») et l'option 2 (ex. « iPhone 13, iPhone 14 ») : toutes les variantes sont créées d'un coup (« Noir / iPhone 13 », comme sur Shopify), chacune avec son coût, son prix et son stock ; les cases vides prennent la première ligne.
+  - **Pack** : choisissez ses articles (ex. 1 × Montre + 1 × Écouteurs). Un pack **n'a pas de stock à lui** : son disponible est celui de l'article qui en a le moins ; une commande confirmée réserve ses articles, le colis parti les fait baisser, le retour les fait remonter, un retour abîmé les retire. Son coût, s'il est vide, est la somme des coûts de ses articles (Bénéfices). Un nom avec « + » reste **un seul article** quand il est dans le catalogue.
+- **Modifier** : nom, prix, coût, seuil, **autres noms** (autres écritures du modèle dans les commandes, séparées par « ; »), **photo** (lien de l'image, `https://…`), contenu d'un pack. Si vous renommez un modèle, l'ancien nom est gardé dans « autres noms » : les commandes passées restent reliées.
+- **Photos** : un lien par modèle (ou un pour le produit), ou **« Reprendre les photos de Shopify »** (dans Modifier) pour tous les modèles qui n'en ont pas : catalogue Shopify (permission `read_products`), sinon photos des articles commandés ces 90 derniers jours. La photo s'affiche aussi dans la **fiche de confirmation**.
+- **Masquer** : le modèle n'est plus vendu (plus proposé pour les nouvelles commandes, pas compté en rupture) ; son historique est gardé. **Réafficher** le remet.
+- **Fusionner** un doublon : son stock s'ajoute au bon modèle, ses noms deviennent des « autres noms » du bon modèle (les commandes et l'historique le retrouvent), puis le doublon disparaît. Le coût, le prix et la photo du bon modèle sont gardés (ceux du doublon servent s'ils sont vides).
+- **Supprimer** un modèle ajouté par erreur : seulement si **aucune commande ne l'a utilisé** (aucune commande en cours, aucun mouvement lié à une commande) et s'il n'est dans aucun pack. La ligne disparaît tout de suite, avec **5 secondes pour « Annuler »**. Les mouvements tapés à la main (stock de départ, entrées, inventaires) ne bloquent pas : le stock restant est noté « Modèle supprimé ». Sinon : masquez-le ou fusionnez-le.
 - Dans **« + Nouvelle commande »**, choisir un produit de la liste remplit le prix (prix de vente × quantité).
 
-**Les mouvements** (onglet « Mouvements stock » : date, modèle, mouvement, quantité, stock après, coût, commande, auteur, note) :
+**Les mouvements** (onglet « Mouvements stock » : date, modèle, mouvement, quantité, stock après, coût, commande, auteur, note), montrés en frise avec une icône et une couleur, et des filtres Entrées / Sorties / Retours / Pertes :
 
 | Mouvement | Comment | Effet |
 |---|---|---|
 | Stock initial | À la création du produit | + |
 | **Entrée** de marchandise | Formulaire : un produit, la quantité reçue par modèle, coût unitaire et fournisseur facultatifs | + ; avec `COUT_MOYEN` = OUI, le coût d'achat devient la moyenne (10 à 600 DA + 20 à 690 DA = 660 DA) |
-| Colis parti | Automatique (Expédiée, En livraison, Livrée) | − |
+| Colis parti | Automatique (Expédiée, En livraison, Livrée) ; pour un pack, chacun de ses articles | − |
 | Retour reçu | Automatique (Ecotrack : « retour reçu » ; société sans connexion : statut Retour) | + |
 | Retour abîmé | Bouton **« Abîmé ? »** dans Suivi › Terminées, sur un retour reçu | − (il ne peut pas être revendu) |
 | **Inventaire** | Formulaire : la quantité comptée par modèle, et un motif (comptage, perte, casse, erreur, cadeau, autre) | L'écart est noté |
+| Fusion | Fusionner un doublon | − sur le doublon, + sur le bon modèle |
+| **Annulation** | Bouton **« Annuler »** sur une entrée, un inventaire ou un stock de départ mal tapé | Le mouvement inverse ; les deux restent dans l'historique (une seule fois ; refusé si le stock deviendrait négatif). Le coût moyen revient à celui d'avant l'entrée |
+| Modèle supprimé | Supprimer un modèle ajouté par erreur | − son stock restant |
 
-- **Réservé** : une commande **confirmée** réserve ses produits ; disponible = stock − réservé. « **Stock insuffisant** » s'affiche à la confirmation si le modèle manque (la confirmation reste possible). Une annulation libère la réservation.
+- **Réservé** : une commande **confirmée** réserve ses produits ; disponible = stock − réservé. « **Stock insuffisant** » s'affiche à la confirmation si le modèle manque (pour un pack : quel article manque) ; la confirmation reste possible. Une annulation libère la réservation.
 - Chaque commande ne compte **qu'une fois** (colonne « Mouvement stock » des commandes : « Sorti », « Rentré », « Rentré (abîmé) »). Les commandes déjà parties avant l'installation du suivi sont marquées « Avant le suivi du stock ».
-- **La page** montre la valeur du stock, les pièces, les modèles en **stock bas** (disponible ≤ seuil de la ligne, sinon `STOCK_SEUIL`) et en **rupture** (aussi au tableau de bord), le stock / réservé / disponible par modèle, et l'**historique** de chaque modèle.
 - **Stock vide** = modèle non suivi. Évitez de modifier la colonne Stock à la main : l'entrée ou l'inventaire gardent une trace.
+- **Pertes du mois** (abîmés et écarts d'inventaire) : sous les mouvements, en pièces et en dinars.
+
+**Exporter** :
+- **Excel** : le stock d'aujourd'hui (fichier `.csv` qui s'ouvre dans Excel : produit, modèle, pack, stock, réservé, disponible, coût, prix, valeur, actif).
+- **Feuille d'inventaire à imprimer (PDF)** : s'ouvre dans un nouvel onglet avec l'impression ; une colonne vide pour noter ce que vous comptez.
+- **Valeur du stock à une date** (fin de journée, heure d'Algérie) : le stock d'aujourd'hui moins les mouvements faits depuis, au coût d'achat d'aujourd'hui ; avec le détail par modèle en Excel.
 
 ## Bénéfices et dépenses
 
@@ -565,7 +587,7 @@ Une case permet d'**effacer d'abord les commandes de test** (onglets Commandes e
 
 ### Étape 3 : tout dans Cloudflare
 
-Un nouveau basculement fait directement l'étape 3. Après un basculement à l'étape 2 : **Administration › Connexions › Cloudflare › Passer à l'étape 3** (dans l'application Google). Les changements en attente sont d'abord recopiés, puis les onglets Paramètres, Tarifs, Produits, Équipe, Clients et Dépenses sont envoyés à Cloudflare.
+Un nouveau basculement fait directement l'étape 3. Après un basculement à l'étape 2 : **Administration › Connexions › Cloudflare › Passer à l'étape 3** (dans l'application Google). Les changements en attente sont d'abord recopiés, puis les onglets Paramètres, Tarifs, Produits, Équipe, Clients et Dépenses sont envoyés à Cloudflare, avec **l'historique de l'onglet « Mouvements stock »** (v1.8 : pour la valeur du stock à une date, l'annulation d'un mouvement et la suppression d'un modèle).
 
 | Où | Quoi |
 |---|---|
@@ -606,7 +628,7 @@ Un nouveau basculement fait directement l'étape 3. Après un basculement à l'�
 
 ```
 npm run cf:build    # cloudflare/dist/worker.js et cloudflare/public/index.html
-npm run cf:test     # 19 tests : la version Cloudflare (base SQLite locale) comparée à la version Google (Stock, Bénéfices, Statistiques compris), Ecotrack, SMS et Shopify contre de faux serveurs
+npm run cf:test     # 20 tests : la version Cloudflare (base SQLite locale) comparée à la version Google (Stock, Bénéfices, Statistiques compris), Ecotrack, SMS et Shopify contre de faux serveurs
 npm run cf:serve    # la version Cloudflare sur http://localhost:8787/connexion, avec les données d'exemple
 node cloudflare/test/serve.js 8787 --etape2   # la même, après le basculement (Expédier, Suivi, faux Ecotrack et SMS)
 node cloudflare/test/serve.js 8787 --etape3   # tout dans Cloudflare (Stock, Bénéfices, Statistiques, Administration)
@@ -635,7 +657,7 @@ apps-script/Cloud.gs  côté Google : relier, copier les données, page de conne
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 139 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 146 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
