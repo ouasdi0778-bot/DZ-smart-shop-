@@ -69,10 +69,20 @@ function build() {
   return parts.join('\n');
 }
 
-module.exports = { build: build, OUT: OUT, minify: minify, HTML: HTML, ORDER: ORDER };
+/** dist/Relais.gs : le petit relais RELEASIT (relay/Relais.gs), qui remplace Code.gs en mode relais (v1.11). */
+var RELAY_SRC = path.join(ROOT, 'relay', 'Relais.gs');
+var RELAY_OUT = path.join(ROOT, 'dist', 'Relais.gs');
+function buildRelay() {
+  var version = (fs.readFileSync(path.join(SRC, 'Config.gs'), 'utf8').match(/APP_VERSION = '([^']+)'/) || [])[1] || '';
+  return fs.readFileSync(RELAY_SRC, 'utf8').replace(/__VERSION__/g, version);
+}
+
+module.exports = { build: build, OUT: OUT, minify: minify, HTML: HTML, ORDER: ORDER, buildRelay: buildRelay, RELAY_OUT: RELAY_OUT };
 
 if (require.main === module) {
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   fs.writeFileSync(OUT, build());
+  fs.writeFileSync(RELAY_OUT, buildRelay());
   console.log('Fichier unique créé : ' + path.relative(ROOT, OUT));
+  console.log('Relais RELEASIT créé : ' + path.relative(ROOT, RELAY_OUT));
 }

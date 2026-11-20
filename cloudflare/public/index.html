@@ -13,6 +13,25 @@
 .cf-btn { display: flex; align-items: center; justify-content: center; min-height: 48px; border-radius: 10px; background: #0B6B4C; color: #FFFFFF; font-weight: 600; text-decoration: none; }
 .cf-msg { background: #FFF3DC; color: #8A5200; padding: 10px 12px; border-radius: 10px; }
 .cf-small { font-size: 13px; color: #5B6170; }
+
+/* v1.11 : connexion par téléphone et mot de passe. */
+.cf-login { overflow-y: auto; align-items: flex-start; padding-top: max(16px, 8vh); }
+.cf-form { display: grid; gap: 12px; }
+.cf-field { display: grid; gap: 6px; font-size: 13px; font-weight: 600; color: #3D4350; }
+.cf-field input { min-height: 48px; border: 1px solid #C9CED6; border-radius: 10px; padding: 0 12px; font: 16px system-ui, sans-serif; color: #15181E; background: #fff; width: 100%; box-sizing: border-box; }
+.cf-field input:focus { outline: 2px solid #0B6B4C; outline-offset: 1px; border-color: #0B6B4C; }
+.cf-pw { position: relative; display: block; }
+.cf-pw input { padding-right: 48px; }
+.cf-eye { position: absolute; right: 4px; top: 4px; width: 40px; height: 40px; border: 0; background: none; font-size: 18px; cursor: pointer; opacity: .6; }
+button.cf-btn { border: 0; width: 100%; font: 600 15px system-ui, sans-serif; cursor: pointer; }
+button.cf-btn:disabled { opacity: .6; cursor: wait; }
+.cf-btn2 { background: #FFFFFF; color: #15181E; border: 1px solid #C9CED6; }
+.cf-link { border: 0; background: none; padding: 0; color: #0B6B4C; font: 600 13px system-ui, sans-serif; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.cf-or { display: flex; align-items: center; gap: 10px; color: #5B6170; font-size: 13px; }
+.cf-or::before, .cf-or::after { content: ""; flex: 1; height: 1px; background: #E2E5EA; }
+.cf-more summary { cursor: pointer; font-weight: 600; font-size: 14px; color: #3D4350; padding: 6px 0; }
+.cf-more .cf-form { margin-top: 10px; }
+.cf-code { font: 700 24px ui-monospace, monospace; letter-spacing: 2px; text-align: center; background: #F2F6FD; border: 1px dashed #9DBEF0; border-radius: 12px; padding: 14px; }
 </style>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -760,6 +779,19 @@ button.st-card { cursor: pointer; }
 .ad-u-row .btn { width: 100%; }
 .ad-line { grid-template-columns: minmax(0, 1fr) 92px auto; }
 }
+.auth-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; background: #E8F0FD; color: #1B3B73; padding: 10px 16px; font-size: 14px; }
+.auth-banner .ic { flex: none; }
+.auth-banner span { flex: 1 1 260px; }
+.auth-banner .btn { min-height: 36px; }
+.rescue-code { font: 700 24px ui-monospace, monospace; letter-spacing: 2px; text-align: center; background: #F2F6FD; border: 1px dashed #9DBEF0; border-radius: 12px; padding: 14px; margin: 12px 0; }
+.cf-full .side-user[data-act], .cf-step3 .side-user[data-act] { cursor: pointer; border-radius: 10px; }
+.cf-step3 .side-user[data-act]:hover { background: rgba(255,255,255,.06); }
+.cf-step3 .mobile-user[data-act] { cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.tm-auth { font-size: 12.5px; }
+.tm-auth .ok { color: #146C2E; font-weight: 600; } .tm-auth .wait { color: #9A5B00; font-weight: 600; } .tm-auth .no { color: #5B6170; }
+.tm-acts { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.tm-acts .btn { min-height: 34px; padding: 0 10px; }
+.wa-btn { background: #1F8F4E; color: #fff; border-color: #1F8F4E; }
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }
 </style>
@@ -824,7 +856,7 @@ button.st-card { cursor: pointer; }
 <a href="#/stats" data-route="stats" data-admin hidden><svg class="ic" aria-hidden="true"><use href="#i-stats"/></svg><span>Statistiques</span></a>
 <a href="#/admin" data-route="admin" data-admin hidden><svg class="ic" aria-hidden="true"><use href="#i-admin"/></svg><span>Administration</span> <span class="badge" data-health-count hidden></span></a>
 </nav>
-<div class="side-user">
+<div class="side-user" data-act="my-account" title="Mon compte">
 <span class="side-user-name" data-user-name></span>
 <span class="side-user-mail" data-user-mail></span>
 </div>
@@ -832,7 +864,7 @@ button.st-card { cursor: pointer; }
 <div class="main">
 <header class="mobile-top">
 <span class="brand-mini"><svg class="logo" aria-hidden="true"><use href="#logo"/></svg><span class="brand-name" data-shop>DZ Smart Shop</span></span>
-<span class="mobile-user" data-user-name></span>
+<span class="mobile-user" data-user-name data-act="my-account"></span>
 </header>
 <div id="health-banner" class="health-banner" role="status" hidden></div>
 <main id="view" class="content" tabindex="-1">
@@ -861,7 +893,7 @@ button.st-card { cursor: pointer; }
   var STEP_KEY = 'dz-smart-shop:step';
   /** Pages restées dans l'application Google (étape 3) : ouvertes là-bas. */
   var EXTERNAL = ['benefices', 'stock', 'stats', 'admin'];
-  var VERSION = '1.10.0';
+  var VERSION = '1.11.0';
 
   /** Même empreinte que shortHash_ (Api.gs) : clé de la mémoire sur l'appareil, sans l'adresse. */
   function shortHash(text) {
@@ -887,7 +919,7 @@ button.st-card { cursor: pointer; }
     try {
       var token = decodeURIComponent(m[1]);
       var data = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-      saveSession({ t: token, e: String(data.e).toLowerCase(), x: data.x, k: shortHash('dz-smart-shop|' + String(data.e).toLowerCase()) });
+      saveSession({ t: token, e: String(data.e).toLowerCase(), x: data.x, k: shortHash('dz-smart-shop|' + String(data.e).toLowerCase()), v: 1 });
     } catch (e) { /* jeton illisible : écran de connexion */ }
     history.replaceState(null, '', location.pathname + location.search + '#/confirmation');
   }
@@ -895,27 +927,153 @@ button.st-card { cursor: pointer; }
   if (session && !(session.x > Date.now())) session = null;
   window.DZ_DEVICE = { key: session ? session.k : '', v: VERSION };
 
-  /* ---------------- Écran de connexion ---------------- */
+  /* ---------------- Connexion (v1.11 : téléphone et mot de passe ; Google en option) ---------------- */
+
+  function setSession(token, x, key) {
+    session = { t: token, e: String(key || '').toLowerCase(), x: x, k: shortHash('dz-smart-shop|' + String(key || '').toLowerCase()), v: 2 };
+    saveSession(session);
+  }
+  function clearSession() {
+    try { window.localStorage.removeItem(KEY); } catch (e) { /* rien */ }
+    session = null;
+  }
+  /** Appel à /auth/… (connexion, mot de passe) ; withToken : avec le jeton de cet appareil. */
+  function authPost(path, body, withToken) {
+    var headers = { 'content-type': 'application/json' };
+    if (withToken && session) headers.authorization = 'Bearer ' + session.t;
+    return fetch(path, { method: 'POST', headers: headers, body: JSON.stringify(body || {}) })
+      .then(function (r) { return r.json(); }, function () { throw new Error('Pas de connexion internet. Réessayez.'); })
+      .then(function (r) {
+        if (r && r.ok) return r.data;
+        var e = new Error(r && r.error ? r.error : 'Erreur du serveur.');
+        e.code = r && r.code;
+        throw e;
+      });
+  }
+  function logout() {
+    var done = function () { clearSession(); location.reload(); };
+    authPost('/auth/logout', {}, true).then(done, done);
+  }
 
   var shown = false;
-  function showLogin(message) {
-    if (shown) return;
-    shown = true;
-    var render = function (info) {
-      var box = document.createElement('div');
+  var loginInfo = null;
+  /** Écran de connexion. mode : 'login' (défaut), 'change' (choisir son mot de passe), 'forgot'. */
+  function showLogin(message, mode) {
+    var box = document.querySelector('.cf-login');
+    if (!box) {
+      if (shown && !mode) return;
+      box = document.createElement('div');
       box.className = 'cf-login';
-      var gw = info && info.gateway ? info.gateway + (info.gateway.indexOf('?') >= 0 ? '&' : '?') + 'cf=1' : '';
-      box.innerHTML = '<div class="cf-card"><h1>' + esc(info && info.shop || 'DZ Smart Shop') + '</h1>' +
-        (message ? '<p class="cf-msg">' + esc(message) + '</p>' : '') +
-        (gw ? '<p>Connectez-vous avec votre compte Google (celui de l’équipe). Vous reviendrez ici tout seul.</p>' +
-          '<a class="cf-btn" href="' + esc(gw) + '">Se connecter avec Google</a>'
-          : '<p>L’application n’est pas encore reliée au classeur. Dans l’ancienne application : <strong>Administration › Connexions › Cloudflare</strong>.</p>') +
-        (info && !info.ready && gw ? '<p class="cf-small">Les données ne sont pas encore copiées : Administration › Connexions › Cloudflare › Copier les données.</p>' : '') +
-        '<p class="cf-small">La connexion dure 30 jours sur cet appareil.</p></div>';
       document.body.appendChild(box);
-    };
-    fetch('/auth/info').then(function (r) { return r.json(); }).then(function (r) { render(r && r.data); }).catch(function () { render(null); });
+    }
+    shown = true;
+    var go = function (info) { loginInfo = info || loginInfo || {}; renderLogin(box, message, mode || 'login'); };
+    if (loginInfo) go(loginInfo);
+    else fetch('/auth/info').then(function (r) { return r.json(); }).then(function (r) { go(r && r.data); }).catch(function () { go(null); });
   }
+
+  function renderLogin(box, message, mode) {
+    var info = loginInfo || {};
+    var gw = info.gateway ? info.gateway + (info.gateway.indexOf('?') >= 0 ? '&' : '?') + 'cf=1' : '';
+    var head = '<h1>' + esc(info.shop || 'DZ Smart Shop') + '</h1>' + (message ? '<p class="cf-msg" role="alert">' + esc(message) + '</p>' : '');
+    var phoneField = '<label class="cf-field">Téléphone (identifiant)<input name="phone" type="tel" inputmode="tel" autocomplete="username" placeholder="0661 22 33 44" required></label>';
+    var pwField = function (name, label, auto) {
+      return '<label class="cf-field">' + label + '<span class="cf-pw"><input name="' + name + '" type="password" autocomplete="' + auto + '" required>' +
+        '<button type="button" class="cf-eye" data-cf-eye aria-label="Afficher le mot de passe">👁</button></span></label>';
+    };
+    var html = '';
+    if (mode === 'change') {
+      html = head + '<p><strong>Choisissez votre mot de passe</strong> (au moins 6 caractères). Il remplace le mot de passe provisoire.</p>' +
+        '<form class="cf-form" data-cf="change">' + pwField('password', 'Nouveau mot de passe', 'new-password') + pwField('again', 'Encore une fois', 'new-password') +
+        '<button class="cf-btn" type="submit">Enregistrer et entrer</button></form>' +
+        '<p class="cf-small"><button type="button" class="cf-link" data-cf-go="logout">Ce n’est pas moi : se déconnecter</button></p>';
+    } else if (mode === 'forgot') {
+      html = head + '<p><strong>Mot de passe oublié</strong></p>' +
+        (info.sms ? '<form class="cf-form" data-cf="sms">' + phoneField + '<button class="cf-btn" type="submit">Recevoir un code par SMS</button></form>' : '') +
+        '<details class="cf-more"' + (info.sms ? '' : ' open') + '><summary>J’ai un code de secours (administrateur)</summary>' +
+        '<form class="cf-form" data-cf="rescue">' + phoneField + '<label class="cf-field">Code de secours<input name="code" autocomplete="off" placeholder="XXXX-XXXX-XXXX" required></label>' +
+        pwField('password', 'Nouveau mot de passe', 'new-password') + pwField('again', 'Encore une fois', 'new-password') +
+        '<button class="cf-btn" type="submit">Changer le mot de passe</button></form></details>' +
+        '<p class="cf-small">Sinon, demandez à l’administrateur un nouveau mot de passe provisoire.</p>' +
+        '<p class="cf-small"><button type="button" class="cf-link" data-cf-go="login">← Retour</button></p>';
+    } else if (mode === 'code') {
+      html = head + '<p>Un code à 6 chiffres vient d’être envoyé par SMS au <strong>' + esc(box.getAttribute('data-phone') || '') + '</strong>.</p>' +
+        '<form class="cf-form" data-cf="sms-check"><input type="hidden" name="phone" value="' + esc(box.getAttribute('data-phone') || '') + '">' +
+        '<label class="cf-field">Code reçu<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required></label>' +
+        pwField('password', 'Nouveau mot de passe', 'new-password') + pwField('again', 'Encore une fois', 'new-password') +
+        '<button class="cf-btn" type="submit">Changer le mot de passe</button></form>' +
+        '<p class="cf-small"><button type="button" class="cf-link" data-cf-go="forgot">← Renvoyer un code</button></p>';
+    } else if (mode === 'rescue') {
+      html = head + '<p><strong>Nouveau code de secours</strong> : l’ancien ne marche plus. Notez celui-ci sur papier, gardé en lieu sûr.</p>' +
+        '<p class="cf-code">' + esc(box.getAttribute('data-rescue') || '') + '</p>' +
+        '<button type="button" class="cf-btn" data-cf-go="enter">C’est noté, entrer</button>';
+    } else {
+      html = head +
+        (info.password ? '<form class="cf-form" data-cf="login">' + phoneField + pwField('password', 'Mot de passe', 'current-password') +
+          '<button class="cf-btn" type="submit">Se connecter</button></form>' +
+          '<p class="cf-small"><button type="button" class="cf-link" data-cf-go="forgot">Mot de passe oublié ?</button></p>' : '') +
+        (gw ? (info.password ? '<p class="cf-or"><span>ou</span></p>' : '<p>Connectez-vous avec votre compte Google (celui de l’équipe). Vous reviendrez ici tout seul.</p>') +
+          '<a class="cf-btn' + (info.password ? ' cf-btn2' : '') + '" href="' + esc(gw) + '">Se connecter avec Google</a>' : '') +
+        (!info.password && !gw ? '<p>L’application n’est pas encore reliée au classeur. Dans l’ancienne application : <strong>Administration › Connexions › Cloudflare</strong>.</p>' : '') +
+        (info && !info.ready && gw ? '<p class="cf-small">Les données ne sont pas encore copiées : Administration › Connexions › Cloudflare › Copier les données.</p>' : '') +
+        '<p class="cf-small">La connexion dure 30 jours sur cet appareil.</p>';
+    }
+    box.innerHTML = '<div class="cf-card">' + html + '</div>';
+    var first = box.querySelector('input:not([type=hidden])');
+    if (first) try { first.focus(); } catch (e) { /* rien */ }
+  }
+
+  function formValues(form) {
+    var out = {};
+    Array.prototype.forEach.call(form.querySelectorAll('input[name]'), function (el) { out[el.name] = el.value; });
+    return out;
+  }
+  function loginMessage(form, text) {
+    var p = form.parentNode.querySelector('.cf-msg');
+    if (!p) { p = document.createElement('p'); p.className = 'cf-msg'; p.setAttribute('role', 'alert'); form.parentNode.insertBefore(p, form.parentNode.children[1] || null); }
+    p.textContent = text;
+  }
+  function enter(data) {
+    setSession(data.token, data.x, data.key);
+    var box = document.querySelector('.cf-login');
+    if (data.rescue && box) { box.setAttribute('data-rescue', data.rescue); renderLogin(box, '', 'rescue'); return; }
+    if (data.change) { renderLogin(box, '', 'change'); return; }
+    location.reload();
+  }
+  document.addEventListener('submit', function (ev) {
+    var form = ev.target;
+    var kind = form && form.getAttribute ? form.getAttribute('data-cf') : '';
+    if (!kind) return;
+    ev.preventDefault();
+    var v = formValues(form);
+    if (v.again !== undefined && v.password !== v.again) { loginMessage(form, 'Les deux mots de passe ne sont pas pareils.'); return; }
+    var btn = form.querySelector('button[type=submit]');
+    if (btn) btn.disabled = true;
+    var fail = function (e) {
+      if (btn) btn.disabled = false;
+      if (e && e.code === 'auth') { clearSession(); renderLogin(document.querySelector('.cf-login'), e.message, 'login'); return; }
+      loginMessage(form, e && e.message ? e.message : String(e));
+    };
+    var box = document.querySelector('.cf-login');
+    if (kind === 'login') authPost('/auth/login', { phone: v.phone, password: v.password }).then(enter, fail);
+    else if (kind === 'change') authPost('/auth/change', { password: v.password }, true).then(function () { location.reload(); }, fail);
+    else if (kind === 'sms') authPost('/auth/sms', { phone: v.phone }).then(function () { box.setAttribute('data-phone', v.phone); renderLogin(box, '', 'code'); }, fail);
+    else if (kind === 'sms-check') authPost('/auth/sms-check', { phone: v.phone, code: v.code, password: v.password }).then(enter, fail);
+    else if (kind === 'rescue') authPost('/auth/rescue', { phone: v.phone, code: v.code, password: v.password }).then(enter, fail);
+  });
+  document.addEventListener('click', function (ev) {
+    var t = ev.target && ev.target.closest ? ev.target.closest('[data-cf-go], [data-cf-eye]') : null;
+    if (!t || !t.closest('.cf-login')) return;
+    if (t.hasAttribute('data-cf-eye')) {
+      var input = t.parentNode.querySelector('input');
+      if (input) input.type = input.type === 'password' ? 'text' : 'password';
+      return;
+    }
+    var go = t.getAttribute('data-cf-go');
+    if (go === 'logout') { logout(); return; }
+    if (go === 'enter') { location.reload(); return; }
+    renderLogin(document.querySelector('.cf-login'), '', go);
+  });
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 
   /* ---------------- google.script.run → /api ---------------- */
@@ -940,7 +1098,8 @@ button.st-card { cursor: pointer; }
               if (handlers.ok) handlers.ok(r.data === undefined ? null : r.data);
               return;
             }
-            if (r && r.code === 'auth') { try { window.localStorage.removeItem(KEY); } catch (e) {} session = null; showLogin(r.error); }
+            if (r && r.code === 'auth') { clearSession(); showLogin(r.error); }
+            if (r && r.code === 'change') showLogin('', 'change');
             fail(new Error(r && r.error ? r.error : 'Erreur du serveur.'));
           }).catch(function () { fail(new Error('Pas de connexion internet. Réessayez.')); });
         };
@@ -964,7 +1123,7 @@ button.st-card { cursor: pointer; }
     root.classList.toggle('cf-step3', step.n >= 3);
   }
   applyStep(null);
-  window.DZ_CLOUD = { applyStep: applyStep };
+  window.DZ_CLOUD = { applyStep: applyStep, authPost: authPost, setSession: setSession, logout: logout, via: function () { return session && session.v === 2 ? 'password' : 'google'; } };
   function googleLink(route) { return step.google ? step.google + '&page=' + route : ''; }
   // Une page de l'application Google demandée ici (lien, menu « Plus ») : ouverte dans l'application Google.
   // Étape 3 : toutes les pages sont ici.
@@ -3362,6 +3521,8 @@ DZ['errText'] = errText;
 DZ['errorBox'] = errorBox;
 DZ['money'] = money;
 DZ['productPhoto'] = productPhoto;
+DZ['phoneText'] = phoneText;
+DZ['showBackupBanner'] = showBackupBanner;
 DZ['pct'] = pct;
 DZ['plural'] = plural;
 DZ['fmtDate'] = fmtDate;
@@ -3412,6 +3573,24 @@ if (el.getAttribute('data-tab')) S.profit.tab = el.getAttribute('data-tab');
 navigate(el.getAttribute('data-route'), el.getAttribute('data-status'));
 },
 'more-menu': showMoreMenu,
+'my-account': myAccount,
+'backup-go': function () { S.adminTab = 'classeur'; navigate('admin'); },
+'mine-save': saveMine,
+'mine-rescue': function (el) {
+el.disabled = true;
+call('api_authRescueNew').then(function (r) { showRescue(r.rescue); }).catch(function (e) { el.disabled = false; toast(errText(e), true); });
+},
+'mine-revoke': function (el) {
+el.disabled = true;
+call('api_authRevoke', S.boot.user.email).then(function (r) { el.disabled = false; toast(r.message); }).catch(function (e) { el.disabled = false; toast(errText(e), true); });
+},
+'mine-logout': function () { if (window.DZ_CLOUD && window.DZ_CLOUD.logout) window.DZ_CLOUD.logout(); },
+'copy-text': function (el) {
+var text = el.getAttribute('data-text') || '';
+var done = function () { toast('Copié.'); };
+if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, function () { toast(text); });
+else toast(text);
+},
 'return-damaged': markDamaged,
 'sms-send': function (el) {
 el.disabled = true;
@@ -3693,13 +3872,90 @@ function applyBoot(b) {
 applyCounts(b.counts);
 $all('[data-shop]').forEach(function (el) { el.textContent = b.shop; });
 $all('[data-user-name]').forEach(function (el) { el.textContent = b.user.name; });
-$all('[data-user-mail]').forEach(function (el) { el.textContent = b.user.email; });
+$all('[data-user-mail]').forEach(function (el) { el.textContent = /^tel:/.test(b.user.email) ? phoneText(b.user.email.slice(4)) : b.user.email; });
 $all('[data-admin]').forEach(function (el) { el.hidden = !b.user.admin; });
 $all('[data-stockrole]').forEach(function (el) { el.hidden = !b.user.stock; });
 $all('[data-more]').forEach(function (el) { el.hidden = !(b.user.admin || b.user.stock); });
 document.documentElement.classList.toggle('cf-live', !!(b.cloud && b.cloud.live));
 document.documentElement.classList.toggle('cf-full', !!(b.cloud && b.cloud.full));
 showHealth(b.health);
+showAuthBanner(b);
+showBackupBanner();
+}
+function showBackupBanner() {
+var b = S.boot;
+var el = $('#backup-banner');
+var a = cloudAuth();
+var last = b && b.cloud ? b.cloud.lastExport : '';
+var late = a && a.relay && b.user.admin && (!last || Date.now() - new Date(last).getTime() > 7 * 86400000);
+if (!late) { if (el) el.remove(); return; }
+if (!el) {
+el = document.createElement('div');
+el.id = 'backup-banner';
+el.className = 'auth-banner';
+var hb = $('#health-banner');
+if (hb && hb.parentNode) hb.parentNode.insertBefore(el, hb.nextSibling);
+}
+el.innerHTML = icon('download') + '<span><strong>Sauvegarde :</strong> ' + (last ? 'dernier export il y a ' + Math.floor((Date.now() - new Date(last).getTime()) / 86400000) + ' jours.' : 'pas encore faite.') +
+' Téléchargez une copie de tout (Excel), chaque semaine.</span><button type="button" class="btn" data-act="backup-go">Exporter</button>';
+}
+function cloudAuth() { return S.boot && S.boot.cloud && S.boot.cloud.auth && window.DZ_CLOUD && window.DZ_CLOUD.authPost ? S.boot.cloud.auth : null; }
+function phoneText(p) { p = String(p || ''); return /^\d{10}$/.test(p) ? p.replace(/(\d{4})(\d{2})(\d{2})(\d{2})/, '$1 $2 $3 $4') : p; }
+function showAuthBanner(b) {
+var a = cloudAuth();
+var el = $('#auth-banner');
+var need = a && a.via === 'google' && !a.hasPassword && b.cloud.step >= 3;
+if (!need) { if (el) el.remove(); return; }
+if (!el) {
+el = document.createElement('div');
+el.id = 'auth-banner';
+el.className = 'auth-banner';
+var hb = $('#health-banner');
+if (hb && hb.parentNode) hb.parentNode.insertBefore(el, hb.nextSibling);
+}
+el.innerHTML = icon('lock') + '<span><strong>Créez votre mot de passe.</strong> Bientôt, l’application s’ouvrira avec votre téléphone et un mot de passe (plus par Google).</span>' +
+'<button type="button" class="btn" data-act="my-account">Créer mon mot de passe</button>';
+}
+function myAccount() {
+var a = cloudAuth();
+if (!a) return;
+var u = S.boot.user;
+var google = a.via === 'google';
+var pw = function (name, label, auto) { return field(label, '<input name="' + name + '" type="password" autocomplete="' + auto + '">'); };
+showModal(modalHead('Mon compte', '<p class="small">' + h(u.name) + ' · ' + h(u.role || '') + (google ? ' · connecté(e) par Google' : ' · connecté(e) par mot de passe') + '</p>') +
+'<div class="form-grid" id="f-mine">' +
+field('Téléphone (identifiant)', '<input name="phone" type="tel" inputmode="tel" value="' + h(phoneText(a.phone)) + '" placeholder="0661 22 33 44"' + (a.phone && !google ? ' readonly' : '') + '>') +
+(a.hasPassword && !google ? pw('old', 'Mot de passe actuel', 'current-password') : '') +
+pw('password', a.hasPassword ? 'Nouveau mot de passe' : 'Mot de passe (au moins 6 caractères)', 'new-password') +
+pw('again', 'Encore une fois', 'new-password') + '</div>' +
+'<div class="quick" style="margin-top:12px"><button type="button" class="btn primary" data-act="mine-save">' + (a.hasPassword ? 'Changer mon mot de passe' : 'Créer mon mot de passe') + '</button></div>' +
+(u.admin && a.hasPassword ? '<p class="small" style="margin-top:14px"><strong>Code de secours</strong> : il permet de choisir un nouveau mot de passe si vous oubliez le vôtre. ' +
+'<button type="button" class="link-btn" data-act="mine-rescue">Créer un nouveau code de secours</button></p>' : '') +
+'<div class="modal-actions">' + (google ? '' : '<button type="button" class="btn" data-act="mine-revoke">Déconnecter mes autres appareils</button>') +
+'<button type="button" class="btn danger" data-act="mine-logout">Se déconnecter</button></div>');
+}
+function showRescue(code, then) {
+showModal(modalHead('Votre code de secours') +
+'<p>Si vous oubliez votre mot de passe : écran de connexion › <strong>Mot de passe oublié</strong> › <strong>J’ai un code de secours</strong>. ' +
+'Il ne sert qu’une fois. <strong>Notez-le sur papier</strong>, en lieu sûr : il ne sera plus affiché.</p>' +
+'<p class="rescue-code">' + h(code) + '</p>' +
+'<div class="modal-actions"><button type="button" class="btn" data-act="copy-text" data-text="' + h(code) + '">Copier</button>' +
+'<button type="button" class="btn primary" data-act="' + (then || 'close-modal') + '">C’est noté</button></div>');
+}
+function saveMine(el) {
+var f = readForm($('#f-mine'));
+if (f.password !== f.again) { toast('Les deux mots de passe ne sont pas pareils.', true); return; }
+el.disabled = true;
+call('api_authMine', { phone: f.phone, old: f.old || '', password: f.password }).then(function (r) {
+el.disabled = false;
+if (r.token) window.DZ_CLOUD.setSession(r.token, r.x, r.key);
+S.boot.cloud.auth.hasPassword = true;
+S.boot.cloud.auth.phone = String(f.phone || '').replace(/\D/g, '').replace(/^213/, '0');
+if (r.token) S.boot.cloud.auth.via = 'password';
+showAuthBanner(S.boot);
+toast(r.message);
+if (r.rescue) showRescue(r.rescue); else closeModal();
+}).catch(function (e) { el.disabled = false; toast(errText(e), true); });
 }
 var CLOUD_ROUTES = ['commandes', 'confirmation', 'expeditions', 'suivi'];
 function cloudMoved(r) {

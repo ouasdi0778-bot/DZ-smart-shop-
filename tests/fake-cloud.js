@@ -24,7 +24,7 @@
     changes: [],           // { seq, id, kind, info, order }
     marks: [],
     config: null,
-    reset: function () { fake.calls = []; fake.secret = ''; fake.refuse = ''; fake.live = false; fake.full = false; fake.tabs = {}; fake.tabSeq = {}; fake.editors = null; fake.orders = {}; fake.changes = []; fake.marks = []; fake.config = null; },
+    reset: function () { fake.relay = false; fake.calls = []; fake.secret = ''; fake.refuse = ''; fake.live = false; fake.full = false; fake.tabs = {}; fake.tabSeq = {}; fake.editors = null; fake.orders = {}; fake.changes = []; fake.marks = []; fake.config = null; },
     /** Ajoute un changement « fait dans Cloudflare ». */
     change: function (kind, id, order, info) {
       var seq = fake.changes.length ? fake.changes[fake.changes.length - 1].seq + 1 : 1;
@@ -97,6 +97,15 @@
         return respond(200, { ok: true, data: { changes: list, last: list.length ? list[list.length - 1].seq : after, more: false } });
       }
       if (path === '/bridge/marks') { fake.marks = fake.marks.concat(body.marks || []); return respond(200, { ok: true, data: { marked: (body.marks || []).length } }); }
+      // Relais RELEASIT (Relais.gs) : toutes les lignes reçues sont « utilisées » ; n° = 1re colonne.
+      if (path === '/bridge/releasit') {
+        if (key !== fake.secret) return respond(403, { ok: false, error: 'Clé refusée.' });
+        if (body.install) fake.relay = true;
+        var rows = body.rows || [];
+        var added = [];
+        rows.forEach(function (r) { var id = String(r[0] == null ? '' : r[0]).trim(); if (id && !fake.orders[id] && added.indexOf(id) < 0) { added.push(id); fake.orders[id] = { id: id }; } });
+        return respond(200, { ok: true, data: { next: (body.from || 0) + rows.length, col: 1, added: added, skipped: 0, ignored: 0, missing: [] } });
+      }
       return respond(404, { ok: false, error: 'Inconnu.' });
     }
   };

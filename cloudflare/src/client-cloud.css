@@ -12,3 +12,22 @@
 .cf-btn { display: flex; align-items: center; justify-content: center; min-height: 48px; border-radius: 10px; background: #0B6B4C; color: #FFFFFF; font-weight: 600; text-decoration: none; }
 .cf-msg { background: #FFF3DC; color: #8A5200; padding: 10px 12px; border-radius: 10px; }
 .cf-small { font-size: 13px; color: #5B6170; }
+
+/* v1.11 : connexion par téléphone et mot de passe. */
+.cf-login { overflow-y: auto; align-items: flex-start; padding-top: max(16px, 8vh); }
+.cf-form { display: grid; gap: 12px; }
+.cf-field { display: grid; gap: 6px; font-size: 13px; font-weight: 600; color: #3D4350; }
+.cf-field input { min-height: 48px; border: 1px solid #C9CED6; border-radius: 10px; padding: 0 12px; font: 16px system-ui, sans-serif; color: #15181E; background: #fff; width: 100%; box-sizing: border-box; }
+.cf-field input:focus { outline: 2px solid #0B6B4C; outline-offset: 1px; border-color: #0B6B4C; }
+.cf-pw { position: relative; display: block; }
+.cf-pw input { padding-right: 48px; }
+.cf-eye { position: absolute; right: 4px; top: 4px; width: 40px; height: 40px; border: 0; background: none; font-size: 18px; cursor: pointer; opacity: .6; }
+button.cf-btn { border: 0; width: 100%; font: 600 15px system-ui, sans-serif; cursor: pointer; }
+button.cf-btn:disabled { opacity: .6; cursor: wait; }
+.cf-btn2 { background: #FFFFFF; color: #15181E; border: 1px solid #C9CED6; }
+.cf-link { border: 0; background: none; padding: 0; color: #0B6B4C; font: 600 13px system-ui, sans-serif; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.cf-or { display: flex; align-items: center; gap: 10px; color: #5B6170; font-size: 13px; }
+.cf-or::before, .cf-or::after { content: ""; flex: 1; height: 1px; background: #E2E5EA; }
+.cf-more summary { cursor: pointer; font-weight: 600; font-size: 14px; color: #3D4350; padding: 6px 0; }
+.cf-more .cf-form { margin-top: 10px; }
+.cf-code { font: 700 24px ui-monospace, monospace; letter-spacing: 2px; text-align: center; background: #F2F6FD; border: 1px dashed #9DBEF0; border-radius: 12px; padding: 14px; }

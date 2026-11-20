@@ -2687,6 +2687,8 @@
   DZ['errorBox'] = errorBox;
   DZ['money'] = money;
   DZ['productPhoto'] = productPhoto;
+  DZ['phoneText'] = phoneText;
+  DZ['showBackupBanner'] = showBackupBanner;
   DZ['pct'] = pct;
   DZ['plural'] = plural;
   DZ['fmtDate'] = fmtDate;
@@ -2738,6 +2740,24 @@
       navigate(el.getAttribute('data-route'), el.getAttribute('data-status'));
     },
     'more-menu': showMoreMenu,
+    'my-account': myAccount,
+    'backup-go': function () { S.adminTab = 'classeur'; navigate('admin'); },
+    'mine-save': saveMine,
+    'mine-rescue': function (el) {
+      el.disabled = true;
+      call('api_authRescueNew').then(function (r) { showRescue(r.rescue); }).catch(function (e) { el.disabled = false; toast(errText(e), true); });
+    },
+    'mine-revoke': function (el) {
+      el.disabled = true;
+      call('api_authRevoke', S.boot.user.email).then(function (r) { el.disabled = false; toast(r.message); }).catch(function (e) { el.disabled = false; toast(errText(e), true); });
+    },
+    'mine-logout': function () { if (window.DZ_CLOUD && window.DZ_CLOUD.logout) window.DZ_CLOUD.logout(); },
+    'copy-text': function (el) {
+      var text = el.getAttribute('data-text') || '';
+      var done = function () { toast('Copié.'); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, function () { toast(text); });
+      else toast(text);
+    },
     'return-damaged': markDamaged,
     'sms-send': function (el) {
       el.disabled = true;
@@ -3037,13 +3057,100 @@
     applyCounts(b.counts);
     $all('[data-shop]').forEach(function (el) { el.textContent = b.shop; });
     $all('[data-user-name]').forEach(function (el) { el.textContent = b.user.name; });
-    $all('[data-user-mail]').forEach(function (el) { el.textContent = b.user.email; });
+    $all('[data-user-mail]').forEach(function (el) { el.textContent = /^tel:/.test(b.user.email) ? phoneText(b.user.email.slice(4)) : b.user.email; });
     $all('[data-admin]').forEach(function (el) { el.hidden = !b.user.admin; });
     $all('[data-stockrole]').forEach(function (el) { el.hidden = !b.user.stock; });
     $all('[data-more]').forEach(function (el) { el.hidden = !(b.user.admin || b.user.stock); });
     document.documentElement.classList.toggle('cf-live', !!(b.cloud && b.cloud.live));
     document.documentElement.classList.toggle('cf-full', !!(b.cloud && b.cloud.full));
     showHealth(b.health);
+    showAuthBanner(b);
+    showBackupBanner();
+  }
+
+  /** Mode relais : rappel de la sauvegarde (Tout exporter) chaque semaine, pour l'administrateur. */
+  function showBackupBanner() {
+    var b = S.boot;
+    var el = $('#backup-banner');
+    var a = cloudAuth();
+    var last = b && b.cloud ? b.cloud.lastExport : '';
+    var late = a && a.relay && b.user.admin && (!last || Date.now() - new Date(last).getTime() > 7 * 86400000);
+    if (!late) { if (el) el.remove(); return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'backup-banner';
+      el.className = 'auth-banner';
+      var hb = $('#health-banner');
+      if (hb && hb.parentNode) hb.parentNode.insertBefore(el, hb.nextSibling);
+    }
+    el.innerHTML = icon('download') + '<span><strong>Sauvegarde :</strong> ' + (last ? 'dernier export il y a ' + Math.floor((Date.now() - new Date(last).getTime()) / 86400000) + ' jours.' : 'pas encore faite.') +
+      ' Téléchargez une copie de tout (Excel), chaque semaine.</span><button type="button" class="btn" data-act="backup-go">Exporter</button>';
+  }
+
+  /* ---------------- Mon compte (version Cloudflare, v1.11 : connexion par téléphone et mot de passe) ---------------- */
+
+  function cloudAuth() { return S.boot && S.boot.cloud && S.boot.cloud.auth && window.DZ_CLOUD && window.DZ_CLOUD.authPost ? S.boot.cloud.auth : null; }
+  function phoneText(p) { p = String(p || ''); return /^\d{10}$/.test(p) ? p.replace(/(\d{4})(\d{2})(\d{2})(\d{2})/, '$1 $2 $3 $4') : p; }
+
+  /** Connecté par Google sans mot de passe : bandeau pour créer le sien (la connexion par Google va s'arrêter). */
+  function showAuthBanner(b) {
+    var a = cloudAuth();
+    var el = $('#auth-banner');
+    var need = a && a.via === 'google' && !a.hasPassword && b.cloud.step >= 3;
+    if (!need) { if (el) el.remove(); return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'auth-banner';
+      el.className = 'auth-banner';
+      var hb = $('#health-banner');
+      if (hb && hb.parentNode) hb.parentNode.insertBefore(el, hb.nextSibling);
+    }
+    el.innerHTML = icon('lock') + '<span><strong>Créez votre mot de passe.</strong> Bientôt, l’application s’ouvrira avec votre téléphone et un mot de passe (plus par Google).</span>' +
+      '<button type="button" class="btn" data-act="my-account">Créer mon mot de passe</button>';
+  }
+
+  function myAccount() {
+    var a = cloudAuth();
+    if (!a) return;
+    var u = S.boot.user;
+    var google = a.via === 'google';
+    var pw = function (name, label, auto) { return field(label, '<input name="' + name + '" type="password" autocomplete="' + auto + '">'); };
+    showModal(modalHead('Mon compte', '<p class="small">' + h(u.name) + ' · ' + h(u.role || '') + (google ? ' · connecté(e) par Google' : ' · connecté(e) par mot de passe') + '</p>') +
+      '<div class="form-grid" id="f-mine">' +
+      field('Téléphone (identifiant)', '<input name="phone" type="tel" inputmode="tel" value="' + h(phoneText(a.phone)) + '" placeholder="0661 22 33 44"' + (a.phone && !google ? ' readonly' : '') + '>') +
+      (a.hasPassword && !google ? pw('old', 'Mot de passe actuel', 'current-password') : '') +
+      pw('password', a.hasPassword ? 'Nouveau mot de passe' : 'Mot de passe (au moins 6 caractères)', 'new-password') +
+      pw('again', 'Encore une fois', 'new-password') + '</div>' +
+      '<div class="quick" style="margin-top:12px"><button type="button" class="btn primary" data-act="mine-save">' + (a.hasPassword ? 'Changer mon mot de passe' : 'Créer mon mot de passe') + '</button></div>' +
+      (u.admin && a.hasPassword ? '<p class="small" style="margin-top:14px"><strong>Code de secours</strong> : il permet de choisir un nouveau mot de passe si vous oubliez le vôtre. ' +
+        '<button type="button" class="link-btn" data-act="mine-rescue">Créer un nouveau code de secours</button></p>' : '') +
+      '<div class="modal-actions">' + (google ? '' : '<button type="button" class="btn" data-act="mine-revoke">Déconnecter mes autres appareils</button>') +
+      '<button type="button" class="btn danger" data-act="mine-logout">Se déconnecter</button></div>');
+  }
+
+  function showRescue(code, then) {
+    showModal(modalHead('Votre code de secours') +
+      '<p>Si vous oubliez votre mot de passe : écran de connexion › <strong>Mot de passe oublié</strong> › <strong>J’ai un code de secours</strong>. ' +
+      'Il ne sert qu’une fois. <strong>Notez-le sur papier</strong>, en lieu sûr : il ne sera plus affiché.</p>' +
+      '<p class="rescue-code">' + h(code) + '</p>' +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="copy-text" data-text="' + h(code) + '">Copier</button>' +
+      '<button type="button" class="btn primary" data-act="' + (then || 'close-modal') + '">C’est noté</button></div>');
+  }
+
+  function saveMine(el) {
+    var f = readForm($('#f-mine'));
+    if (f.password !== f.again) { toast('Les deux mots de passe ne sont pas pareils.', true); return; }
+    el.disabled = true;
+    call('api_authMine', { phone: f.phone, old: f.old || '', password: f.password }).then(function (r) {
+      el.disabled = false;
+      if (r.token) window.DZ_CLOUD.setSession(r.token, r.x, r.key);
+      S.boot.cloud.auth.hasPassword = true;
+      S.boot.cloud.auth.phone = String(f.phone || '').replace(/\D/g, '').replace(/^213/, '0');
+      if (r.token) S.boot.cloud.auth.via = 'password';
+      showAuthBanner(S.boot);
+      toast(r.message);
+      if (r.rescue) showRescue(r.rescue); else closeModal();
+    }).catch(function (e) { el.disabled = false; toast(errText(e), true); });
   }
 
   /** Après le basculement (application Google) : Commandes, Confirmation, Expédier et Suivi sont sur Cloudflare. */

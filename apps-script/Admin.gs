@@ -306,11 +306,26 @@ function api_smsPreview(text) {
 /* Équipe                                                             */
 /* ------------------------------------------------------------------ */
 
+/** Onglet Équipe : Email (facultatif dans la version Cloudflare) | Nom | Rôle | Téléphone (identifiant de connexion). */
+var TEAM_TITLES_ = ['Email', 'Nom', 'Rôle', 'Téléphone'];
+
 function teamRows_() {
   var sh = sheet_(SHEET.TEAM);
-  var rows = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues() : [];
+  ensureHeaders_(sh, TEAM_TITLES_);
+  var rows = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues() : [];
   return { sh: sh, rows: rows };
 }
+
+/** Clé de la ligne r de l'onglet Équipe (voir teamKey_). */
+function teamRowKey_(r) {
+  return teamKey_(r[0], teamPhone_(r[3]));
+}
+
+/**
+ * Mode relais (version Cloudflare, v1.11) : le classeur ne sert plus qu'à recevoir les commandes
+ * Releasit ; l'équipe se connecte par mot de passe, sans partage du classeur. Faux ici.
+ */
+function relayMode_() { return false; }
 
 function api_teamList() {
   requireAdmin_();
@@ -321,67 +336,123 @@ function api_teamList() {
   return {
     roles: ROLES_,
     owner: owner,
+    relay: relayMode_(),
     me: String(currentUser_().email || '').toLowerCase(),
-    members: teamRows_().rows.filter(function (r) { return String(r[0]).trim(); }).map(function (r) {
+    members: teamRows_().rows.filter(function (r) { return teamRowKey_(r); }).map(function (r) {
       var email = String(r[0]).trim().toLowerCase();
-      return { email: email, name: String(r[1] || '').trim(), role: String(r[2] || '').trim() || 'Confirmatrice', access: editors ? !!editors[email] : null };
+      return { key: teamRowKey_(r), email: email, phone: teamPhone_(r[3]), name: String(r[1] || '').trim(), role: String(r[2] || '').trim() || 'Confirmatrice',
+        access: editors && email ? !!editors[email] : null };
     })
   };
 }
 
-/** Ajoute ou modifie une personne, et lui partage le classeur (sinon elle ne peut pas ouvrir l'application). */
+/**
+ * Ajoute ou modifie une personne. Il faut son adresse Gmail ou son téléphone (connexion par mot de passe
+ * dans la version Cloudflare). Avec une adresse Gmail, le classeur lui est partagé (sauf en mode relais).
+ * member.key : la personne modifiée (sa clé actuelle), vide pour un ajout.
+ */
 function api_teamSave(member) {
   cloudGuardAll_();
   var user = requireAdmin_();
   member = member || {};
   var email = String(member.email || '').trim().toLowerCase();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Adresse e-mail invalide.');
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Adresse e-mail invalide.');
+  var rawPhone = String(member.phone || '').trim();
+  var phone = teamPhone_(rawPhone);
+  if (rawPhone && !phone) throw new Error('Numéro de téléphone invalide (ex. 0661 22 33 44).');
+  if (!email && !phone) throw new Error('Indiquez son téléphone (identifiant de connexion) ou son adresse Gmail.');
   var role = ROLES_.indexOf(member.role) >= 0 ? member.role : 'Confirmatrice';
-  var name = String(member.name || '').trim() || email.split('@')[0];
+  var name = String(member.name || '').trim() || (email ? email.split('@')[0] : phone);
+  var key = teamKey_(email, phone);
+  var oldKey = String(member.key || '').trim().toLowerCase();
   var me = String(currentUser_().email || '').toLowerCase();
-  if (email === me && role !== 'Administrateur') throw new Error('Vous ne pouvez pas retirer votre propre rôle d’administrateur.');
+  if ((oldKey || key) === me && role !== 'Administrateur') throw new Error('Vous ne pouvez pas retirer votre propre rôle d’administrateur.');
   var created = false;
   withLock_(function () {
     var t = teamRows_();
     var row = 0;
-    t.rows.forEach(function (r, i) { if (String(r[0]).trim().toLowerCase() === email) row = i + 2; });
+    // La personne modifiée : sa clé actuelle, ou (ajout) la même adresse Gmail (on met alors à jour sa ligne).
+    t.rows.forEach(function (r, i) {
+      var k = teamRowKey_(r);
+      if (k && (oldKey ? k === oldKey : email && String(r[0]).trim().toLowerCase() === email)) row = i + 2;
+    });
+    if (oldKey && !row) throw new Error('Personne introuvable dans l’équipe : rechargez la page.');
+    t.rows.forEach(function (r, i) {
+      if (i + 2 === row || !teamRowKey_(r)) return;
+      if ((email && String(r[0]).trim().toLowerCase() === email) || (phone && teamPhone_(r[3]) === phone)) {
+        throw new Error((phone && teamPhone_(r[3]) === phone ? 'Ce téléphone' : 'Cette adresse') + ' est déjà utilisé par ' + (String(r[1] || '').trim() || 'une autre personne') + ' dans l’équipe.');
+      }
+    });
     if (!row) { row = t.sh.getLastRow() + 1; ensureRows_(t.sh, row); created = true; }
-    t.sh.getRange(row, 1, 1, 3).setValues([[email, name, role]]);
+    t.sh.getRange(row, 1, 1, 4).setValues([[email, name, role, phone]]);
     clearConfigCache_(configKeysFor_(SHEET.TEAM));
-    log_(user, '', created ? 'Équipe : ajout' : 'Équipe : modification', name + ' · ' + role);
+    log_(user, '', created ? 'Équipe : ajout' : 'Équipe : modification', name + ' · ' + role + (phone ? ' · ' + phone : ''));
   });
   var shared = '';
-  try {
-    var already = ss_().getEditors().some(function (u) { return String(u.getEmail()).toLowerCase() === email; });
-    if (!already) { ss_().addEditor(email); shared = ' Le classeur lui est partagé : elle reçoit un e-mail de Google.'; }
-  } catch (e) {
-    shared = ' Attention : le partage automatique a échoué (' + (e && e.message ? e.message : e) + ') : partagez le classeur avec ' + email + ' à la main.';
+  if (email && !relayMode_()) {
+    try {
+      var already = ss_().getEditors().some(function (u) { return String(u.getEmail()).toLowerCase() === email; });
+      if (!already) { ss_().addEditor(email); shared = ' Le classeur lui est partagé : elle reçoit un e-mail de Google.'; }
+    } catch (e) {
+      shared = ' Attention : le partage automatique a échoué (' + (e && e.message ? e.message : e) + ') : partagez le classeur avec ' + email + ' à la main.';
+    }
   }
-  return { message: (created ? name + ' ajouté(e) comme ' + role.toLowerCase() + '.' : name + ' : ' + role.toLowerCase() + '.') + shared, team: api_teamList() };
+  return { key: key, message: (created ? name + ' ajouté(e) comme ' + role.toLowerCase() + '.' : name + ' : ' + role.toLowerCase() + '.') + shared, team: api_teamList() };
 }
 
-/** Retire une personne de l'équipe, et son accès au classeur. */
-function api_teamRemove(email) {
+/** Retire une personne de l'équipe (par sa clé : adresse Gmail ou « tel:… »), et son accès au classeur. */
+function api_teamRemove(key) {
   cloudGuardAll_();
   var user = requireAdmin_();
-  email = String(email || '').trim().toLowerCase();
+  key = String(key || '').trim().toLowerCase();
   var me = String(currentUser_().email || '').toLowerCase();
   var owner = String(ownerEmail_() || '').toLowerCase();
-  if (email === me) throw new Error('Vous ne pouvez pas vous retirer vous-même.');
-  if (email === owner) throw new Error('Le propriétaire du classeur ne peut pas être retiré.');
-  var found = false;
+  if (key === me) throw new Error('Vous ne pouvez pas vous retirer vous-même.');
+  if (key === owner) throw new Error('Le propriétaire du classeur ne peut pas être retiré.');
+  var found = null;
   withLock_(function () {
     var t = teamRows_();
     for (var i = t.rows.length - 1; i >= 0; i--) {
-      if (String(t.rows[i][0]).trim().toLowerCase() === email) { t.sh.deleteRow(i + 2); found = true; }
+      if (teamRowKey_(t.rows[i]) === key) { found = t.rows[i]; t.sh.deleteRow(i + 2); }
     }
     clearConfigCache_(configKeysFor_(SHEET.TEAM));
-    if (found) log_(user, '', 'Équipe : retrait', email);
+    if (found) log_(user, '', 'Équipe : retrait', String(found[1] || key));
   });
   if (!found) throw new Error('Personne introuvable dans l’équipe.');
+  var email = String(found[0] || '').trim().toLowerCase();
   var access = '';
-  try { ss_().removeEditor(email); access = ' Son accès au classeur est retiré.'; } catch (e) { access = ' Retirez aussi son accès au classeur à la main (bouton Partager).'; }
-  return { message: email + ' retiré(e) de l’équipe.' + access, team: api_teamList() };
+  if (email && !relayMode_()) {
+    try { ss_().removeEditor(email); access = ' Son accès au classeur est retiré.'; } catch (e) { access = ' Retirez aussi son accès au classeur à la main (bouton Partager).'; }
+  }
+  return { message: String(found[1] || key) + ' retiré(e) de l’équipe.' + access, team: api_teamList() };
+}
+
+/**
+ * Téléphone (identifiant de connexion) d'une personne de l'équipe, donné par elle-même en créant son
+ * mot de passe (version Cloudflare). Le propriétaire absent de l'onglet y est ajouté (Administrateur).
+ */
+function teamSetPhone_(key, phone, name) {
+  key = String(key || '').trim().toLowerCase();
+  phone = teamPhone_(phone);
+  if (!phone) throw new Error('Numéro de téléphone invalide (ex. 0661 22 33 44).');
+  withLock_(function () {
+    var t = teamRows_();
+    var row = 0;
+    t.rows.forEach(function (r, i) {
+      var k = teamRowKey_(r);
+      if (k === key) row = i + 2;
+      else if (teamPhone_(r[3]) === phone) throw new Error('Ce téléphone est déjà celui de ' + String(r[1] || 'une autre personne') + '.');
+    });
+    if (row) t.sh.getRange(row, 4).setValue(phone);
+    else {
+      if (key !== String(ownerEmail_() || '').toLowerCase()) throw new Error('Vous n’êtes pas dans l’équipe.');
+      row = t.sh.getLastRow() + 1;
+      ensureRows_(t.sh, row);
+      t.sh.getRange(row, 1, 1, 4).setValues([[key, String(name || 'Propriétaire'), 'Administrateur', phone]]);
+    }
+    clearConfigCache_(configKeysFor_(SHEET.TEAM));
+  });
+  return phone;
 }
 
 /* ------------------------------------------------------------------ */

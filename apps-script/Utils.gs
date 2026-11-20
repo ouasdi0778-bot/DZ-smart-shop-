@@ -273,15 +273,32 @@ function currentUser_() {
 /** Lignes du Journal en attente : écrites en une seule fois (voir withLogBatch_). */
 var LOG_BATCH_ = null;
 
-/** Lignes de l'onglet Équipe : [email en minuscules, nom, rôle] (gardées en mémoire). */
+/**
+ * Lignes de l'onglet Équipe : [clé, nom, rôle, téléphone] (gardées en mémoire). La clé est l'adresse
+ * Gmail en minuscules, ou « tel:0661223344 » pour une personne sans Gmail (connexion par mot de passe,
+ * version Cloudflare). Téléphone : l'identifiant de connexion, au format 0661223344.
+ */
 function readTeam_() {
   return cached_('cfg:team', function () {
     var sh = ss_().getSheetByName(SHEET.TEAM);
     if (!sh || sh.getLastRow() < 2) return [];
-    return sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().map(function (r) {
-      return [String(r[0]).trim().toLowerCase(), String(r[1]).trim(), String(r[2]).trim()];
+    return sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().map(function (r) {
+      var phone = teamPhone_(r[3]);
+      return [teamKey_(r[0], phone), String(r[1]).trim(), String(r[2]).trim(), phone];
     }).filter(function (r) { return r[0]; });
   });
+}
+
+/** Téléphone d'une personne de l'équipe (identifiant de connexion) : 0661223344, ou '' s'il n'est pas valable. */
+function teamPhone_(value) {
+  var p = normalizePhone(value);
+  return p.valid ? p.phone : '';
+}
+
+/** Clé d'une personne : son adresse Gmail, sinon « tel: » + son téléphone. */
+function teamKey_(email, phone) {
+  var e = String(email == null ? '' : email).trim().toLowerCase();
+  return e || (phone ? 'tel:' + phone : '');
 }
 
 /** Ajoute une ligne dans l'onglet Journal (qui a fait quoi, quand). */

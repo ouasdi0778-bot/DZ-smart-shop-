@@ -35,7 +35,7 @@
     try {
       var token = decodeURIComponent(m[1]);
       var data = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-      saveSession({ t: token, e: String(data.e).toLowerCase(), x: data.x, k: shortHash('dz-smart-shop|' + String(data.e).toLowerCase()) });
+      saveSession({ t: token, e: String(data.e).toLowerCase(), x: data.x, k: shortHash('dz-smart-shop|' + String(data.e).toLowerCase()), v: 1 });
     } catch (e) { /* jeton illisible : écran de connexion */ }
     history.replaceState(null, '', location.pathname + location.search + '#/confirmation');
   }
@@ -43,27 +43,153 @@
   if (session && !(session.x > Date.now())) session = null;
   window.DZ_DEVICE = { key: session ? session.k : '', v: VERSION };
 
-  /* ---------------- Écran de connexion ---------------- */
+  /* ---------------- Connexion (v1.11 : téléphone et mot de passe ; Google en option) ---------------- */
+
+  function setSession(token, x, key) {
+    session = { t: token, e: String(key || '').toLowerCase(), x: x, k: shortHash('dz-smart-shop|' + String(key || '').toLowerCase()), v: 2 };
+    saveSession(session);
+  }
+  function clearSession() {
+    try { window.localStorage.removeItem(KEY); } catch (e) { /* rien */ }
+    session = null;
+  }
+  /** Appel à /auth/… (connexion, mot de passe) ; withToken : avec le jeton de cet appareil. */
+  function authPost(path, body, withToken) {
+    var headers = { 'content-type': 'application/json' };
+    if (withToken && session) headers.authorization = 'Bearer ' + session.t;
+    return fetch(path, { method: 'POST', headers: headers, body: JSON.stringify(body || {}) })
+      .then(function (r) { return r.json(); }, function () { throw new Error('Pas de connexion internet. Réessayez.'); })
+      .then(function (r) {
+        if (r && r.ok) return r.data;
+        var e = new Error(r && r.error ? r.error : 'Erreur du serveur.');
+        e.code = r && r.code;
+        throw e;
+      });
+  }
+  function logout() {
+    var done = function () { clearSession(); location.reload(); };
+    authPost('/auth/logout', {}, true).then(done, done);
+  }
 
   var shown = false;
-  function showLogin(message) {
-    if (shown) return;
-    shown = true;
-    var render = function (info) {
-      var box = document.createElement('div');
+  var loginInfo = null;
+  /** Écran de connexion. mode : 'login' (défaut), 'change' (choisir son mot de passe), 'forgot'. */
+  function showLogin(message, mode) {
+    var box = document.querySelector('.cf-login');
+    if (!box) {
+      if (shown && !mode) return;
+      box = document.createElement('div');
       box.className = 'cf-login';
-      var gw = info && info.gateway ? info.gateway + (info.gateway.indexOf('?') >= 0 ? '&' : '?') + 'cf=1' : '';
-      box.innerHTML = '<div class="cf-card"><h1>' + esc(info && info.shop || 'DZ Smart Shop') + '</h1>' +
-        (message ? '<p class="cf-msg">' + esc(message) + '</p>' : '') +
-        (gw ? '<p>Connectez-vous avec votre compte Google (celui de l’équipe). Vous reviendrez ici tout seul.</p>' +
-          '<a class="cf-btn" href="' + esc(gw) + '">Se connecter avec Google</a>'
-          : '<p>L’application n’est pas encore reliée au classeur. Dans l’ancienne application : <strong>Administration › Connexions › Cloudflare</strong>.</p>') +
-        (info && !info.ready && gw ? '<p class="cf-small">Les données ne sont pas encore copiées : Administration › Connexions › Cloudflare › Copier les données.</p>' : '') +
-        '<p class="cf-small">La connexion dure 30 jours sur cet appareil.</p></div>';
       document.body.appendChild(box);
-    };
-    fetch('/auth/info').then(function (r) { return r.json(); }).then(function (r) { render(r && r.data); }).catch(function () { render(null); });
+    }
+    shown = true;
+    var go = function (info) { loginInfo = info || loginInfo || {}; renderLogin(box, message, mode || 'login'); };
+    if (loginInfo) go(loginInfo);
+    else fetch('/auth/info').then(function (r) { return r.json(); }).then(function (r) { go(r && r.data); }).catch(function () { go(null); });
   }
+
+  function renderLogin(box, message, mode) {
+    var info = loginInfo || {};
+    var gw = info.gateway ? info.gateway + (info.gateway.indexOf('?') >= 0 ? '&' : '?') + 'cf=1' : '';
+    var head = '<h1>' + esc(info.shop || 'DZ Smart Shop') + '</h1>' + (message ? '<p class="cf-msg" role="alert">' + esc(message) + '</p>' : '');
+    var phoneField = '<label class="cf-field">Téléphone (identifiant)<input name="phone" type="tel" inputmode="tel" autocomplete="username" placeholder="0661 22 33 44" required></label>';
+    var pwField = function (name, label, auto) {
+      return '<label class="cf-field">' + label + '<span class="cf-pw"><input name="' + name + '" type="password" autocomplete="' + auto + '" required>' +
+        '<button type="button" class="cf-eye" data-cf-eye aria-label="Afficher le mot de passe">👁</button></span></label>';
+    };
+    var html = '';
+    if (mode === 'change') {
+      html = head + '<p><strong>Choisissez votre mot de passe</strong> (au moins 6 caractères). Il remplace le mot de passe provisoire.</p>' +
+        '<form class="cf-form" data-cf="change">' + pwField('password', 'Nouveau mot de passe', 'new-password') + pwField('again', 'Encore une fois', 'new-password') +
+        '<button class="cf-btn" type="submit">Enregistrer et entrer</button></form>' +
+        '<p class="cf-small"><button type="button" class="cf-link" data-cf-go="logout">Ce n’est pas moi : se déconnecter</button></p>';
+    } else if (mode === 'forgot') {
+      html = head + '<p><strong>Mot de passe oublié</strong></p>' +
+        (info.sms ? '<form class="cf-form" data-cf="sms">' + phoneField + '<button class="cf-btn" type="submit">Recevoir un code par SMS</button></form>' : '') +
+        '<details class="cf-more"' + (info.sms ? '' : ' open') + '><summary>J’ai un code de secours (administrateur)</summary>' +
+        '<form class="cf-form" data-cf="rescue">' + phoneField + '<label class="cf-field">Code de secours<input name="code" autocomplete="off" placeholder="XXXX-XXXX-XXXX" required></label>' +
+        pwField('password', 'Nouveau mot de passe', 'new-password') + pwField('again', 'Encore une fois', 'new-password') +
+        '<button class="cf-btn" type="submit">Changer le mot de passe</button></form></details>' +
+        '<p class="cf-small">Sinon, demandez à l’administrateur un nouveau mot de passe provisoire.</p>' +
+        '<p class="cf-small"><button type="button" class="cf-link" data-cf-go="login">← Retour</button></p>';
+    } else if (mode === 'code') {
+      html = head + '<p>Un code à 6 chiffres vient d’être envoyé par SMS au <strong>' + esc(box.getAttribute('data-phone') || '') + '</strong>.</p>' +
+        '<form class="cf-form" data-cf="sms-check"><input type="hidden" name="phone" value="' + esc(box.getAttribute('data-phone') || '') + '">' +
+        '<label class="cf-field">Code reçu<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required></label>' +
+        pwField('password', 'Nouveau mot de passe', 'new-password') + pwField('again', 'Encore une fois', 'new-password') +
+        '<button class="cf-btn" type="submit">Changer le mot de passe</button></form>' +
+        '<p class="cf-small"><button type="button" class="cf-link" data-cf-go="forgot">← Renvoyer un code</button></p>';
+    } else if (mode === 'rescue') {
+      html = head + '<p><strong>Nouveau code de secours</strong> : l’ancien ne marche plus. Notez celui-ci sur papier, gardé en lieu sûr.</p>' +
+        '<p class="cf-code">' + esc(box.getAttribute('data-rescue') || '') + '</p>' +
+        '<button type="button" class="cf-btn" data-cf-go="enter">C’est noté, entrer</button>';
+    } else {
+      html = head +
+        (info.password ? '<form class="cf-form" data-cf="login">' + phoneField + pwField('password', 'Mot de passe', 'current-password') +
+          '<button class="cf-btn" type="submit">Se connecter</button></form>' +
+          '<p class="cf-small"><button type="button" class="cf-link" data-cf-go="forgot">Mot de passe oublié ?</button></p>' : '') +
+        (gw ? (info.password ? '<p class="cf-or"><span>ou</span></p>' : '<p>Connectez-vous avec votre compte Google (celui de l’équipe). Vous reviendrez ici tout seul.</p>') +
+          '<a class="cf-btn' + (info.password ? ' cf-btn2' : '') + '" href="' + esc(gw) + '">Se connecter avec Google</a>' : '') +
+        (!info.password && !gw ? '<p>L’application n’est pas encore reliée au classeur. Dans l’ancienne application : <strong>Administration › Connexions › Cloudflare</strong>.</p>' : '') +
+        (info && !info.ready && gw ? '<p class="cf-small">Les données ne sont pas encore copiées : Administration › Connexions › Cloudflare › Copier les données.</p>' : '') +
+        '<p class="cf-small">La connexion dure 30 jours sur cet appareil.</p>';
+    }
+    box.innerHTML = '<div class="cf-card">' + html + '</div>';
+    var first = box.querySelector('input:not([type=hidden])');
+    if (first) try { first.focus(); } catch (e) { /* rien */ }
+  }
+
+  function formValues(form) {
+    var out = {};
+    Array.prototype.forEach.call(form.querySelectorAll('input[name]'), function (el) { out[el.name] = el.value; });
+    return out;
+  }
+  function loginMessage(form, text) {
+    var p = form.parentNode.querySelector('.cf-msg');
+    if (!p) { p = document.createElement('p'); p.className = 'cf-msg'; p.setAttribute('role', 'alert'); form.parentNode.insertBefore(p, form.parentNode.children[1] || null); }
+    p.textContent = text;
+  }
+  function enter(data) {
+    setSession(data.token, data.x, data.key);
+    var box = document.querySelector('.cf-login');
+    if (data.rescue && box) { box.setAttribute('data-rescue', data.rescue); renderLogin(box, '', 'rescue'); return; }
+    if (data.change) { renderLogin(box, '', 'change'); return; }
+    location.reload();
+  }
+  document.addEventListener('submit', function (ev) {
+    var form = ev.target;
+    var kind = form && form.getAttribute ? form.getAttribute('data-cf') : '';
+    if (!kind) return;
+    ev.preventDefault();
+    var v = formValues(form);
+    if (v.again !== undefined && v.password !== v.again) { loginMessage(form, 'Les deux mots de passe ne sont pas pareils.'); return; }
+    var btn = form.querySelector('button[type=submit]');
+    if (btn) btn.disabled = true;
+    var fail = function (e) {
+      if (btn) btn.disabled = false;
+      if (e && e.code === 'auth') { clearSession(); renderLogin(document.querySelector('.cf-login'), e.message, 'login'); return; }
+      loginMessage(form, e && e.message ? e.message : String(e));
+    };
+    var box = document.querySelector('.cf-login');
+    if (kind === 'login') authPost('/auth/login', { phone: v.phone, password: v.password }).then(enter, fail);
+    else if (kind === 'change') authPost('/auth/change', { password: v.password }, true).then(function () { location.reload(); }, fail);
+    else if (kind === 'sms') authPost('/auth/sms', { phone: v.phone }).then(function () { box.setAttribute('data-phone', v.phone); renderLogin(box, '', 'code'); }, fail);
+    else if (kind === 'sms-check') authPost('/auth/sms-check', { phone: v.phone, code: v.code, password: v.password }).then(enter, fail);
+    else if (kind === 'rescue') authPost('/auth/rescue', { phone: v.phone, code: v.code, password: v.password }).then(enter, fail);
+  });
+  document.addEventListener('click', function (ev) {
+    var t = ev.target && ev.target.closest ? ev.target.closest('[data-cf-go], [data-cf-eye]') : null;
+    if (!t || !t.closest('.cf-login')) return;
+    if (t.hasAttribute('data-cf-eye')) {
+      var input = t.parentNode.querySelector('input');
+      if (input) input.type = input.type === 'password' ? 'text' : 'password';
+      return;
+    }
+    var go = t.getAttribute('data-cf-go');
+    if (go === 'logout') { logout(); return; }
+    if (go === 'enter') { location.reload(); return; }
+    renderLogin(document.querySelector('.cf-login'), '', go);
+  });
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 
   /* ---------------- google.script.run → /api ---------------- */
@@ -88,7 +214,8 @@
               if (handlers.ok) handlers.ok(r.data === undefined ? null : r.data);
               return;
             }
-            if (r && r.code === 'auth') { try { window.localStorage.removeItem(KEY); } catch (e) {} session = null; showLogin(r.error); }
+            if (r && r.code === 'auth') { clearSession(); showLogin(r.error); }
+            if (r && r.code === 'change') showLogin('', 'change');
             fail(new Error(r && r.error ? r.error : 'Erreur du serveur.'));
           }).catch(function () { fail(new Error('Pas de connexion internet. Réessayez.')); });
         };
@@ -112,7 +239,7 @@
     root.classList.toggle('cf-step3', step.n >= 3);
   }
   applyStep(null);
-  window.DZ_CLOUD = { applyStep: applyStep };
+  window.DZ_CLOUD = { applyStep: applyStep, authPost: authPost, setSession: setSession, logout: logout, via: function () { return session && session.v === 2 ? 'password' : 'google'; } };
   function googleLink(route) { return step.google ? step.google + '&page=' + route : ''; }
   // Une page de l'application Google demandée ici (lien, menu « Plus ») : ouverte dans l'application Google.
   // Étape 3 : toutes les pages sont ici.

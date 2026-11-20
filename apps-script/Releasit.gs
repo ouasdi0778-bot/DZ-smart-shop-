@@ -204,6 +204,47 @@ function releasitRowsToOrder_(rows, col, envFn) {
   };
 }
 
+/**
+ * Commandes tirées de lignes RELEASIT (valeurs brutes, sans la ligne de titres) : les lignes d'un même
+ * n° forment une commande ; une ligne écrite deux fois par Releasit n'est comptée qu'une fois.
+ * since : seulement les commandes depuis cette date (null : toutes). Utilisé aussi par la version
+ * Cloudflare, qui reçoit les lignes du relais (voir Relais.gs).
+ * Renvoie { candidates: [commandes], ignored: lignes sans n°, ou sans nom ni téléphone }.
+ */
+function releasitCandidates_(col, values, since) {
+  var out = { candidates: [], ignored: 0 };
+  var groups = [];
+  var byId = {};
+  var seenRows = {};
+  values.forEach(function (row) {
+    if (row.every(function (v) { return releasitText_(v) === ''; })) return;
+    var id = releasitText_(row[col.id]);
+    if (!id) { out.ignored++; return; }
+    // Releasit écrit parfois deux fois la même ligne : ce n'est pas un 2e produit.
+    var sig = row.map(releasitText_).join('|');
+    if (seenRows[sig]) return;
+    seenRows[sig] = true;
+    if (!byId[id]) { byId[id] = []; groups.push(byId[id]); }
+    byId[id].push(row);
+  });
+  var env = null;
+  var envFn = function () { return env || (env = releasitEnv_()); };
+  groups.forEach(function (rows) {
+    var o = releasitRowsToOrder_(rows, col, envFn);
+    if (!o) { out.ignored++; return; }
+    if (since && col.date !== undefined && releasitDate_(rows[0][col.date]) && o.date < since) return;
+    out.candidates.push(o);
+  });
+  return out;
+}
+
+/** Colonnes importantes absentes de la ligne de titres (Administration › Connexions › Releasit). */
+function releasitMissing_(col) {
+  return RELEASIT_IMPORTANT_.filter(function (k) { return col[k] === undefined; }).map(function (k) {
+    return RELEASIT_COLUMNS_.filter(function (c) { return c.key === k; })[0].label;
+  });
+}
+
 function releasitMark_(props) {
   try {
     var m = JSON.parse(props.getProperty(RELEASIT.PROP_MARK) || 'null');
@@ -267,30 +308,9 @@ function transferReleasitOrders_(options) {
     }
   }
   var since = start < 0 ? new Date(Date.now() - RELEASIT.DAYS * 86400000) : null;
-  var groups = [];
-  var byId = {};
-  var seenRows = {};
-  values.slice(Math.max(start, 0)).forEach(function (row) {
-    if (row.every(function (v) { return releasitText_(v) === ''; })) return;
-    var id = releasitText_(row[col.id]);
-    if (!id) { summary.ignored++; return; }
-    // Releasit écrit parfois deux fois la même ligne : ce n'est pas un 2e produit.
-    var sig = row.map(releasitText_).join('|');
-    if (seenRows[sig]) return;
-    seenRows[sig] = true;
-    if (!byId[id]) { byId[id] = []; groups.push(byId[id]); }
-    byId[id].push(row);
-  });
-
-  var env = null;
-  var envFn = function () { return env || (env = releasitEnv_()); };
-  var candidates = [];
-  groups.forEach(function (rows) {
-    var o = releasitRowsToOrder_(rows, col, envFn);
-    if (!o) { summary.ignored++; return; }
-    if (since && col.date !== undefined && releasitDate_(rows[0][col.date]) && o.date < since) return;
-    candidates.push(o);
-  });
+  var found = releasitCandidates_(col, values.slice(Math.max(start, 0)), since);
+  var candidates = found.candidates;
+  summary.ignored += found.ignored;
   summary.read = candidates.length;
 
   // 4. Ajout des commandes absentes de l'onglet Commandes.
@@ -377,9 +397,7 @@ function releasitColumnsReport_() {
     used[col[c.key]] = true;
     recognized.push({ title: releasitText_(header[col[c.key]]), target: c.label });
   });
-  var missing = RELEASIT_IMPORTANT_.filter(function (k) { return col[k] === undefined; }).map(function (k) {
-    return RELEASIT_COLUMNS_.filter(function (c) { return c.key === k; })[0].label;
-  });
+  var missing = releasitMissing_(col);
   var unknown = header.map(releasitText_).filter(function (t, i) { return t && !used[i]; });
   return { found: true, recognized: recognized, missing: missing, unknown: unknown };
 }

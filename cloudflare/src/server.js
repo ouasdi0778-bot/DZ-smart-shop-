@@ -359,6 +359,12 @@ function run(R, fn) {
   } finally { APP.end(); }
 }
 
+/**
+ * Changements à recopier dans le classeur Google (onglet Commandes…) : pas en mode relais (v1.11),
+ * où Apps Script ne fait plus que lire l'onglet RELEASIT (voir Relais.gs) : rien ne les lirait.
+ */
+function recopy(R) { return !(R && R.base && R.base.secret && R.base.secret['cf:relay']); }
+
 /** Enregistre dans D1 tout ce que la requête a modifié, en une transaction. */
 async function flush(env, R) {
   const db = env.DB;
@@ -372,17 +378,17 @@ async function flush(env, R) {
       .bind(...ROW_COLS.map((c) => row[c]), id, o.__rev || 0));
     st.push(db.prepare('INSERT INTO guard(ok) VALUES (changes())'));
     guarded = true;
-    st.push(db.prepare('INSERT INTO changes(order_id, kind, at) VALUES (?, ?, ?)').bind(id, 'update', now));
+    if (recopy(R)) st.push(db.prepare('INSERT INTO changes(order_id, kind, at) VALUES (?, ?, ?)').bind(id, 'update', now));
   });
   R.inserts.forEach((o) => {
     const row = rowOf(o);
     st.push(db.prepare('INSERT INTO orders (id, rev, seq, ' + ROW_COLS.join(', ') + ') VALUES (?, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM orders), ' + placeholders(ROW_COLS.length) + ')')
       .bind(row.id, ...ROW_COLS.map((c) => row[c])));
-    st.push(db.prepare('INSERT INTO changes(order_id, kind, at) VALUES (?, ?, ?)').bind(row.id, 'insert', now));
+    if (recopy(R)) st.push(db.prepare('INSERT INTO changes(order_id, kind, at) VALUES (?, ?, ?)').bind(row.id, 'insert', now));
   });
   R.extra.forEach((s) => st.push(s));
   // Autres changements à recopier dans le classeur (liste noire, client signalé…).
-  R.notes.forEach((n) => st.push(db.prepare('INSERT INTO changes(order_id, kind, at, info) VALUES (?, ?, ?, ?)').bind(String(n.id), n.kind, now, String(n.info || ''))));
+  if (recopy(R)) R.notes.forEach((n) => st.push(db.prepare('INSERT INTO changes(order_id, kind, at, info) VALUES (?, ?, ?, ?)').bind(String(n.id), n.kind, now, String(n.info || ''))));
   Object.keys(R.cacheWrites || {}).forEach((k) => {
     const v = R.cacheWrites[k];
     if (v === null) st.push(db.prepare('DELETE FROM kv WHERE key = ?').bind('cache:' + k));
@@ -408,7 +414,7 @@ async function flush(env, R) {
   if (R.moveRows.length) {
     const rows = R.moveRows.map((r) => r.map(F.cfCellOut_));
     st.push(db.prepare("INSERT INTO moves (at, row) SELECT ?, value FROM json_each(?)").bind(now, JSON.stringify(rows)));
-    st.push(db.prepare("INSERT INTO changes(order_id, kind, at, info) VALUES ('Mouvements stock', 'moves', ?, ?)").bind(now, JSON.stringify(rows)));
+    if (recopy(R)) st.push(db.prepare("INSERT INTO changes(order_id, kind, at, info) VALUES ('Mouvements stock', 'moves', ?, ?)").bind(now, JSON.stringify(rows)));
   }
   // Résumés par jour (Statistiques, Bénéfices) : les jours des commandes modifiées sont à recalculer.
   const days = {};
@@ -464,7 +470,7 @@ function tabStatements(db, R, st, now) {
       guarded = true;
     });
     if (stored.parts > parts) st.push(db.prepare('DELETE FROM tabs WHERE name = ? AND part >= ?').bind(name, parts));
-    if (list.length || stored.parts > parts) {
+    if (recopy(R) && (list.length || stored.parts > parts)) {
       st.push(db.prepare("INSERT INTO changes(order_id, kind, at, info) VALUES (?, 'tab', ?, ?)").bind(name, now, JSON.stringify({ parts: list, n: rows.length })));
     }
   });
@@ -561,7 +567,15 @@ const PAGES = {
     if (R.full) R.healthSummary = workerHealth(R).summary;
     const boot = run(R, () => F.bootstrapApi_(null));
     boot.counts = await fastCounts(env);
-    boot.cloud = { version: K.APP_VERSION, step: R.full ? 3 : isLive(R) ? 2 : 1, google: R.cfInfo.google };
+    boot.cloud = { version: K.APP_VERSION, step: R.full ? 3 : isLive(R) ? 2 : 1, google: R.cfInfo.google,
+      auth: { via: R.user.sid ? 'password' : 'google', phone: R.user.phone || '', pwdOnly: !!R.base.secret['cf:pwdOnly'], relay: !!R.base.secret['cf:relay'] },
+      lastExport: R.base.secret['cf:lastExport'] || '' };
+    if (!R.user.sid && R.full) {
+      const mine = run(R, () => F.readTeam_()).filter((t) => t[0] === String(R.user.email || ''))[0];
+      const row = mine && mine[3] ? await authRow(env, mine[3]) : null;
+      boot.cloud.auth.phone = mine ? mine[3] : '';
+      boot.cloud.auth.hasPassword = !!(row && row.hash && !row.temp);
+    } else boot.cloud.auth.hasPassword = !!R.user.sid;
     if (preload && preload.fn && PAGES[preload.fn] && ['api_dashboard', 'api_listOrders', 'api_queue'].indexOf(preload.fn) >= 0) {
       const R2 = newReq(R.base, R.user);
       R2.userName = R.userName;
@@ -686,8 +700,9 @@ const PAGES = {
   async api_importStatus(env, R) {
     const live = R && isLive(R);
     const last = live ? (R.base.secret['cf:lastIngest'] || '') : '';
+    const ri = relayInfo(R);
     return {
-      releasit: { found: !!live, missing: [], lastRun: last, lastError: '' },
+      releasit: ri.on ? { found: true, missing: ri.missing, lastRun: ri.at, lastError: ri.error, relay: true } : { found: !!live, missing: [], lastRun: last, lastError: '' },
       shopify: { configured: false },
       sms: null,
       cloud: true
@@ -736,7 +751,7 @@ const PAGES = {
         if (!F.orderRules_(o, user, null).canDelete) { out.skipped.push({ id: id, why: 'déjà envoyée à une société de livraison' }); return; }
         R.extra.push(env.DB.prepare('INSERT OR REPLACE INTO trash (id, data, deleted_at, deleted_by, reason) VALUES (?, ?, ?, ?, ?)').bind(id, JSON.stringify(plain(o)), now, user.name, why));
         R.extra.push(env.DB.prepare('DELETE FROM orders WHERE id = ?').bind(id));
-        R.extra.push(env.DB.prepare('INSERT INTO changes(order_id, kind, at, info) VALUES (?, ?, ?, ?)').bind(id, 'delete', now, JSON.stringify({ by: user.name, reason: why })));
+        if (recopy(R)) R.extra.push(env.DB.prepare('INSERT INTO changes(order_id, kind, at, info) VALUES (?, ?, ?, ?)').bind(id, 'delete', now, JSON.stringify({ by: user.name, reason: why })));
         F.log_(user, id, 'Suppression', 'Mise à la corbeille' + (why ? ' · Motif : ' + why : ''));
         out.deleted.push(id);
       });
@@ -966,13 +981,7 @@ async function cron(env) {
   const out = {};
   const settings = (() => { try { return JSON.parse(base.config['cfg:settings'] || '{}'); } catch (e) { return {}; } })();
   // 1. SMS en attente.
-  out.sms = await noteTask(env, base, 'sms', async () => {
-    const R = newReq(base, robot);
-    if (!(await loadSmsOrders(env, R))) return { sent: 0 };
-    const r = await exec(env, R, () => F.sendSmsQueue_({}));
-    await flush(env, R);
-    return r;
-  });
+  out.sms = await noteTask(env, base, 'sms', () => sendSmsNow(env, base));
   if (out.sms && out.sms.error) out.smsError = out.sms.error;
   // 2. Statuts Ecotrack (toutes les SUIVI_ECOTRACK_MINUTES minutes).
   if (due(base, 'cf:ecoLast', Number(settings.SUIVI_ECOTRACK_MINUTES) || 60)) {
@@ -1009,11 +1018,53 @@ async function cron(env) {
     out.night = await noteTask(env, base, 'nightly', () => nightly(env, base));
     if (out.night && !out.night.error) Object.assign(out, out.night);
   }
+  // 6. Mode relais : alertes par SMS aux administrateurs (avant : e-mail d'Apps Script).
+  if (base.secret['cf:relay']) out.alerts = await alertCheck(env, await loadBase(env)).catch((e) => ({ error: String(e && e.message ? e.message : e) }));
   let runs = { day: today, n: 0 };
   try { const c = JSON.parse(base.secret['cf:runs'] || 'null'); if (c && c.day === today) runs = c; } catch (e) { /* nouveau jour */ }
   runs.n++;
   await env.DB.batch([kvSet(env, 'cf:cronAt', new Date().toISOString()), kvSet(env, 'cf:runs', JSON.stringify(runs))]);
   return out;
+}
+
+/**
+ * Alertes par SMS (mode relais) : un problème de l'état de l'outil (relais RELEASIT muet depuis 10 min,
+ * Ecotrack ou Shopify en panne, entretien de nuit pas fait…) envoie UN SMS aux administrateurs qui ont
+ * un téléphone dans l'onglet Équipe ; quand il est réglé, un SMS « rétabli ». Pas de SMS pour une panne
+ * des SMS eux-mêmes (ils ne partiraient pas) : elle reste visible dans l'application.
+ */
+async function alertCheck(env, base) {
+  if (!base.props.SMS_API_KEY) return { sent: 0, off: true };
+  const R = newReq(base, { email: '' });
+  const problems = workerHealth(R).data.problems.filter((p) => p.key !== 'sms' && p.key !== 'cron');
+  let state = {};
+  try { state = JSON.parse(base.secret['cf:alertState'] || '{}') || {}; } catch (e) { state = {}; }
+  const keys = problems.map((p) => p.key);
+  const fresh = problems.filter((p) => !state[p.key]);
+  const fixed = Object.keys(state).filter((k) => keys.indexOf(k) < 0);
+  if (!fresh.length && !fixed.length) return { sent: 0 };
+  const team = await exec(env, R, () => F.readTeam_());
+  const phones = team.filter((t) => t[3] && run(R, () => F.isAdmin_({ role: t[2] }))).map((t) => t[3]);
+  const shop = run(R, () => F.getSettings_().NOM_BOUTIQUE) || 'DZ Smart Shop';
+  const texts = [];
+  if (fresh.length) texts.push(shop + ' : problème. ' + fresh.map((p) => p.text).join(' ; ').slice(0, 300) + ' (Administration › État de l’outil)');
+  if (fixed.length) texts.push(shop + ' : c’est rétabli (' + fixed.map((k) => state[k].label || k).join(', ') + ').');
+  let sent = 0;
+  // Identifiant d'envoi fixé avant : l'action peut être rejouée (appels extérieurs), chaque SMS ne part qu'une fois.
+  const stamp = Date.now();
+  if (phones.length) {
+    await exec(env, R, () => {
+      sent = 0;
+      const cfg = F.smsConfig_();
+      phones.forEach((ph) => texts.forEach((t, i) => { if (F.httpsmsSend_(cfg, F.smsNumber_(ph), t, 'alerte-' + stamp + '-' + ph + '-' + i).ok) sent++; }));
+    });
+  }
+  const now = new Date().toISOString();
+  fixed.forEach((k) => { delete state[k]; });
+  fresh.forEach((p) => { state[p.key] = { at: now, label: p.text.split(' : ')[0].slice(0, 60) }; });
+  await env.DB.batch([kvSet(env, 'cf:alertState', JSON.stringify(state)),
+    env.DB.prepare('INSERT INTO journal (at, who, order_id, action, detail) VALUES (?, ?, ?, ?, ?)').bind(now, 'Automatique', '', 'Alerte SMS', texts.join(' / ').slice(0, 500) + (phones.length ? '' : ' (aucun administrateur avec un téléphone)'))]);
+  return { sent: sent, problems: keys };
 }
 
 /**
@@ -1064,7 +1115,7 @@ async function nightly(env, base) {
       const at = new Date().toISOString();
       list.forEach((id) => {
         R3.extra.push(env.DB.prepare('UPDATE orders SET archived = 1, rev = rev + 1 WHERE id = ?').bind(id));
-        R3.extra.push(env.DB.prepare("INSERT INTO changes(order_id, kind, at) VALUES (?, 'archive', ?)").bind(id, at));
+        if (recopy(R3)) R3.extra.push(env.DB.prepare("INSERT INTO changes(order_id, kind, at) VALUES (?, 'archive', ?)").bind(id, at));
       });
       if (list.length) run(R3, () => F.log_({ name: 'Automatique' }, '', 'Archivage', list.length + ' commande(s) terminée(s) depuis plus de ' + days + ' jours archivée(s)'));
       await flush(env, R3);
@@ -1091,7 +1142,7 @@ const FN_TABS = {
   api_addExpense: ['Dépenses', 'Produits'], api_updateExpense: ['Dépenses', 'Produits'], api_deleteExpenses: ['Dépenses'], api_linkCampaign: ['Dépenses', 'Produits'],
   api_profit: ['Dépenses', 'Produits'], api_stats: ['Dépenses'],
   api_settingsGet: ['Paramètres'], api_settingsSave: ['Paramètres'], api_setPrime: ['Paramètres'], api_setGoal: ['Paramètres'],
-  api_teamList: ['Équipe'], api_teamSave: ['Équipe'], api_teamRemove: ['Équipe'], api_clientsAdmin: ['Clients'], api_clearFlag: ['Clients'], api_setBlacklist: ['Clients']
+  api_teamList: ['Équipe'], api_teamSave: ['Équipe'], api_teamRemove: ['Équipe'], api_authMine: ['Équipe'], api_clientsAdmin: ['Clients'], api_clearFlag: ['Clients'], api_setBlacklist: ['Clients']
 };
 async function preloadTabs(env, R, fn) {
   if (R.full && FN_TABS[fn] && FN_TABS[fn].length) await loadTabs(env, R, FN_TABS[fn]);
@@ -1227,6 +1278,15 @@ const CF_TASKS = [
   { key: 'nightly', label: 'Entretien de nuit (appels, archivage, stock, corbeille)', every: 1440, staleMin: 27 * 60 }
 ];
 
+/** État du relais RELEASIT (mode relais) : dernier passage, erreur, colonnes absentes. */
+function relayInfo(R) {
+  const s = (R && R.base && R.base.secret) || {};
+  let info = {};
+  try { info = JSON.parse(s['cf:relayInfo'] || '{}') || {}; } catch (e) { info = {}; }
+  return { on: !!s['cf:relay'], installed: s['cf:relay'] || '', at: s['cf:relayAt'] || info.at || '', error: info.error || '', missing: info.missing || [],
+    lastAdd: info.lastAdd || '', lastIds: info.lastIds || [], lastRow: info.lastRow || 0, version: info.version || '' };
+}
+
 function workerHealth(R) {
   const s = R.base.secret || {};
   const settings = (() => { try { return JSON.parse(R.base.config['cfg:settings'] || '{}'); } catch (e) { return {}; } })();
@@ -1238,13 +1298,19 @@ function workerHealth(R) {
     if (info.key === 'ecotrack') { info.every = Number(settings.SUIVI_ECOTRACK_MINUTES) || 60; info.staleMin = Math.max(180, info.every * 3); }
     let t = null;
     try { t = JSON.parse(s['cf:task:' + info.key] || 'null'); } catch (e) { t = null; }
-    if (info.key === 'sheet') t = s['cf:bridgeAt'] ? { at: s['cf:bridgeAt'], ok: true, ms: 0, lastOk: s['cf:bridgeAt'] } : null;
+    if (info.key === 'sheet' && s['cf:relay']) {
+      // Mode relais : le petit script Google (Relais.gs) envoie l'onglet RELEASIT chaque minute.
+      const ri = relayInfo(R);
+      info.label = 'Relais RELEASIT (petit script Google)';
+      info.staleMin = 10;
+      t = ri.at ? { at: ri.at, ok: !ri.error, ms: 0, lastOk: ri.error ? (ri.lastOk || '') : ri.at, err: ri.error, fails: ri.error ? 1 : 0 } : null;
+    } else if (info.key === 'sheet') t = s['cf:bridgeAt'] ? { at: s['cf:bridgeAt'], ok: true, ms: 0, lastOk: s['cf:bridgeAt'] } : null;
     const enabled = info.key === 'shopify' ? !!props.SHOPIFY_SHOP : info.key === 'ecotrack' ? !!props.ECOTRACK_TOKEN : info.key === 'sms' ? !!props.SMS_API_KEY : true;
     const late = t && t.lastOk ? now - Date.parse(t.lastOk) > info.staleMin * 60000 : !!t;
     const state = !enabled ? 'off' : !t ? 'wait' : (t.fails >= 3 || late) ? 'bad' : t.ok ? 'ok' : 'warn';
     if (enabled && state === 'bad') problems.push({ key: info.key, text: info.label + (t && t.err ? ' : ' + t.err : ' : pas de passage réussi depuis ' + Math.round((now - Date.parse(t.lastOk || t.at)) / 60000) + ' min') });
     return { key: info.key, label: info.label, every: info.every, state: state, at: t ? t.at : '', lastOk: t ? t.lastOk || '' : '', ms: t ? t.ms || 0 : 0, err: t ? t.err || '' : '', fails: t ? t.fails || 0 : 0,
-      note: !enabled ? 'Pas configuré' : info.key === 'sheet' ? 'Fait par Apps Script, chaque minute' : '' };
+      note: !enabled ? 'Pas configuré' : info.key === 'sheet' ? (s['cf:relay'] ? 'Le relais Google envoie l’onglet RELEASIT chaque minute' : 'Fait par Apps Script, chaque minute') : '' };
   });
   const minute = s['cf:cronAt'] || '';
   const running = !!minute && now - Date.parse(minute) <= 10 * 60000;
@@ -1379,8 +1445,11 @@ Object.assign(PAGES, {
     needFull(R);
     requireAdmin(R, 'voir l’administration');
     const res = await exec(env, R, () => ({ connections: F.connectionsData_(), perf: F.readPerf_() }));
-    // Releasit : les commandes arrivent par le classeur Google (onglet RELEASIT), puis ici.
-    res.connections.releasit = { found: true, missing: [], lastRun: R.cfInfo.lastIngest || R.cfInfo.bridgeAt, lastError: '' };
+    // Releasit : les commandes arrivent par le classeur Google (onglet RELEASIT), puis ici (par le relais en v1.11).
+    const ri = relayInfo(R);
+    res.connections.releasit = ri.on
+      ? { found: true, relay: ri, missing: ri.missing, lastRun: ri.at, lastError: ri.error }
+      : { found: true, missing: [], lastRun: R.cfInfo.lastIngest || R.cfInfo.bridgeAt, lastError: '' };
     res.health = workerHealth(R).data;
     res.health.errors = await recentErrors(env);
     res.version = K.APP_VERSION;
@@ -1400,9 +1469,6 @@ Object.assign(PAGES, {
   api_settingsSave: gasPage('api_settingsSave'),
   api_smsPreview: gasPage('api_smsPreview'),
   api_smsTest: gasPage('api_smsTest'),
-  api_teamList: gasPage('api_teamList'),
-  api_teamSave: gasPage('api_teamSave'),
-  api_teamRemove: gasPage('api_teamRemove'),
   api_clientsAdmin: gasPage('api_clientsAdmin'),
   api_clearFlag: gasPage('api_clearFlag', async (env, R, args) => {
     const pq = phoneQuery(phonesOf([args[0]]));
@@ -1467,6 +1533,98 @@ async function shopifyImport(env, R) {
   });
   await flush(env, R);
   return f.summary;
+}
+
+/* ---------------- Relais RELEASIT (v1.11) ---------------- */
+
+/** n° déjà connus (commandes, corbeille, numéros effacés) : une commande n'est jamais ajoutée deux fois. */
+async function knownIds(env, ids) {
+  const known = {};
+  for (let i = 0; i < ids.length; i += 90) {
+    const part = ids.slice(i, i + 90);
+    const ph = placeholders(part.length);
+    const r = await env.DB.batch([
+      env.DB.prepare('SELECT id FROM orders WHERE id IN (' + ph + ')').bind(...part),
+      env.DB.prepare('SELECT id FROM trash WHERE id IN (' + ph + ')').bind(...part),
+      env.DB.prepare('SELECT id FROM blocked WHERE id IN (' + ph + ')').bind(...part)
+    ]);
+    r.forEach((x) => (x.results || []).forEach((y) => { known[y.id] = true; }));
+  }
+  return known;
+}
+
+/**
+ * Lignes de l'onglet RELEASIT envoyées par le relais (Relais.gs) : transformées en commandes avec la
+ * même logique que la version Google (Releasit.gs), puis préparées (téléphone, wilaya, alerte…).
+ * body : { header, rows, from (n° de la 1re ligne envoyée), more (lot coupé : d'autres lignes suivent),
+ * resync (repère perdu : seulement les 7 derniers jours) }.
+ * Réponse : { next (prochaine ligne à envoyer), col (colonne du n° de commande, 1 = A), added, skipped, ignored, missing }.
+ */
+async function releasitIngest(env, base, body) {
+  const R = newReq(base, { email: '' });
+  const header = Array.isArray(body.header) ? body.header : [];
+  const rows = (Array.isArray(body.rows) ? body.rows : []).map((r) => (Array.isArray(r) ? r.map(F.cfCellIn_) : []));
+  const from = Math.max(2, Math.round(Number(body.from)) || 2);
+  const col = run(R, () => F.releasitColumns_(header));
+  const missing = run(R, () => F.releasitMissing_(col));
+  if (col.id === undefined) throw new HttpError(400, 'Onglet RELEASIT : colonne « Order ID » (n° de commande) introuvable. Ne renommez pas les titres de la première ligne.');
+  // Lot coupé : la dernière commande attend le lot suivant (ses autres lignes, une par produit, peuvent suivre).
+  let use = rows.length;
+  if (body.more && rows.length > 1) {
+    const text = (r) => F.releasitText_(r[col.id]);
+    let i = rows.length - 1;
+    while (i > 0 && text(rows[i - 1]) === text(rows[rows.length - 1])) i--;
+    if (i > 0) use = i;
+  }
+  const since = body.resync ? new Date(Date.now() - K.RELEASIT.DAYS * 86400000) : null;
+  const found = run(R, () => F.releasitCandidates_(col, rows.slice(0, use), since));
+  const known = await knownIds(env, found.candidates.map((o) => String(o.id).trim()));
+  const fresh = found.candidates.filter((o) => !known[String(o.id).trim()]);
+  if (fresh.length) {
+    const pq = phoneQuery(phonesOf(fresh.map((o) => o.phone)));
+    if (pq) await loadWhere(env, R, pq[0], pq[1]); // doublons et historique du client (alerte)
+    R.trashIds = Object.assign({}, known);
+  }
+  await exec(env, R, () => {
+    if (fresh.length) {
+      F.appendOrders_(F.readOrders_(), fresh);
+      F.log_({ name: 'Releasit' }, '', 'Transfert Releasit', fresh.length + ' nouvelle(s) commande(s) : ' + fresh.map((o) => o.id).join(', '));
+      F.processNewRowsNow_();
+    }
+    if (found.ignored) F.log_({ name: 'Releasit' }, '', 'Transfert Releasit', found.ignored + ' ligne(s) de l’onglet RELEASIT ignorée(s) : sans n° de commande, ou sans nom ni téléphone');
+  });
+  if (fresh.length) R.extra.push(kvSet(env, 'cf:lastIngest', new Date().toISOString()));
+  await flush(env, R);
+  return { next: from + use, col: col.id + 1, added: fresh.map((o) => String(o.id)), skipped: found.candidates.length - fresh.length, ignored: found.ignored, missing: missing };
+}
+
+/**
+ * Un seul envoi de SMS à la fois (tâche de chaque minute, ou commande qui vient d'arriver) : sinon,
+ * deux envois en même temps pourraient envoyer deux fois le même SMS. Verrou de 90 s au plus.
+ */
+async function smsLock(env) {
+  const now = Date.now();
+  const r = await env.DB.prepare("INSERT INTO kv (key, value) VALUES ('cf:smsLock', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value " +
+    'WHERE CAST(kv.value AS INTEGER) < ?2 RETURNING value').bind(String(now), now - 90000).all();
+  return (r.results || []).length ? String(now) : '';
+}
+async function smsUnlock(env, lock) {
+  if (lock) await env.DB.prepare("DELETE FROM kv WHERE key = 'cf:smsLock' AND value = ?").bind(lock).run();
+}
+
+/** Envoie les SMS en attente (SMS_QUEUE), sous le verrou. */
+async function sendSmsNow(env, base) {
+  const lock = await smsLock(env);
+  if (!lock) return { sent: 0, busy: true };
+  try {
+    const R = newReq(base, { email: '' });
+    if (!(await loadSmsOrders(env, R))) return { sent: 0 };
+    const r = await exec(env, R, () => F.sendSmsQueue_({}));
+    await flush(env, R);
+    return r;
+  } finally {
+    await smsUnlock(env, lock);
+  }
 }
 
 /* ---------------- Tableau de bord (comptes faits par la base) ---------------- */
@@ -1751,6 +1909,43 @@ async function bridge(request, env, path) {
     return { saved: rows.length };
   }
 
+  /*
+   * Relais RELEASIT (v1.11, Relais.gs) : le petit script Google envoie chaque minute les nouvelles
+   * lignes de l'onglet RELEASIT (ou seulement « je suis là »). Installer le relais passe en mode relais :
+   * plus de recopie vers le classeur, plus de connexion par Google.
+   */
+  if (path === '/bridge/releasit') {
+    if (!cf['cf:full']) throw new HttpError(409, 'Passez d’abord à l’étape 3 (Administration › Connexions › Cloudflare).');
+    const now = new Date().toISOString();
+    const st = [kvSet(env, 'cf:relayAt', now)];
+    if (body.install) {
+      st.push(kvSet(env, 'cf:relay', now));
+      st.push(db.prepare("DELETE FROM kv WHERE key IN ('cf:gateway', 'cf:editors')"));
+      st.push(db.prepare('DELETE FROM changes'));
+    }
+    await db.batch(st);
+    const info = { at: now, lastRow: Number(body.lastRow) || 0, version: String(body.version || ''), error: '' };
+    let res = { next: Number(body.from) || 0, added: [], skipped: 0, ignored: 0, missing: [] };
+    try {
+      if (Array.isArray(body.rows) && body.rows.length) res = await releasitIngest(env, await loadBase(env), body);
+    } catch (e) {
+      info.error = String(e && e.message ? e.message : e).slice(0, 300);
+    }
+    let prev = {};
+    try { prev = JSON.parse(cf['cf:relayInfo'] || '{}') || {}; } catch (e) { prev = {}; }
+    info.missing = res.missing && res.missing.length ? res.missing : (Array.isArray(body.rows) && body.rows.length ? [] : prev.missing || []);
+    info.lastAdd = res.added.length ? now : prev.lastAdd || '';
+    info.lastIds = res.added.length ? res.added.slice(-5) : prev.lastIds || [];
+    await kvSet(env, 'cf:relayInfo', JSON.stringify(info)).run();
+    if (info.error) throw new HttpError(400, info.error);
+    // SMS « commande reçue » tout de suite (sans attendre la tâche de la minute suivante).
+    if (res.added.length) {
+      const base = await loadBase(env);
+      if (base.props.SMS_API_KEY) await sendSmsNow(env, base).catch(() => null);
+    }
+    return res;
+  }
+
   // Nouvelles commandes (Releasit, Shopify) déjà préparées par Apps Script : ajoutées si elles n'existent pas.
   if (path === '/bridge/orders') {
     const list = (body.orders || []).filter((o) => o && String(o.id || '').trim());
@@ -1895,22 +2090,521 @@ async function bridge(request, env, path) {
 }
 
 /* ================================================================ */
+/* Connexion par téléphone et mot de passe (v1.11)                  */
+/* ================================================================ */
+
+/*
+ * Chaque personne de l'équipe se connecte avec son téléphone (colonne Téléphone de l'onglet Équipe) et
+ * un mot de passe. Le mot de passe n'est jamais gardé tel quel : seulement son empreinte (PBKDF2, avec
+ * un sel par personne et une clé de l'application). Un mot de passe provisoire (donné par
+ * l'administrateur) doit être changé à la première connexion. 5 essais faux : bloqué 15 minutes.
+ * Chaque appareil reçoit un jeton « v2.<données>.<signature> » valable 30 jours, qu'on peut couper
+ * (table sessions). Secours : code de secours (administrateur) ou code reçu par SMS.
+ */
+const SESSION_DAYS = 30;
+const PW_ITER = 20000;        // assez pour la version gratuite (calcul de quelques ms)
+const PW_MIN = 6;
+const LOCK_FAILS = 5;
+const LOCK_MIN = 15;
+const CODE_MIN = 10;          // code SMS valable 10 minutes
+const CODE_PER_HOUR = 3;
+const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function randomText(n) {
+  const b = crypto.getRandomValues(new Uint8Array(n));
+  let out = '';
+  for (let i = 0; i < n; i++) out += ALPHABET[b[i] % ALPHABET.length];
+  return out;
+}
+/** Mot de passe provisoire : « K7M4-QXPA » (sans 0/O ni 1/I, majuscules ou minuscules acceptées). */
+function provisionalPassword() { const t = randomText(8); return t.slice(0, 4) + '-' + t.slice(4); }
+/** Code de secours de l'administrateur : « 7KQ2-M9XA-4TPL ». */
+function rescueCodeText() { const t = randomText(12); return t.slice(0, 4) + '-' + t.slice(4, 8) + '-' + t.slice(8); }
+function cleanCode(c) { return String(c == null ? '' : c).toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+
+async function authKey(env, base) {
+  let k = base.secret['cf:authKey'];
+  if (!k) {
+    await env.DB.prepare("INSERT OR IGNORE INTO kv (key, value) VALUES ('cf:authKey', ?)").bind(b64url(crypto.getRandomValues(new Uint8Array(32)))).run();
+    k = (await env.DB.prepare("SELECT value FROM kv WHERE key = 'cf:authKey'").first()).value;
+    base.secret['cf:authKey'] = k;
+  }
+  return k;
+}
+
+/** Empreinte d'un mot de passe (ou d'un code) : PBKDF2-SHA256, sel propre, clé de l'application. */
+async function pwHash(key, text, salt, iter) {
+  const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(key + '\u0000' + text), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode(salt), iterations: iter }, material, 256);
+  return b64url(bits);
+}
+
+function phoneOf(raw) {
+  const p = F.normalizePhone(raw);
+  return p.valid ? p.phone : '';
+}
+
+function checkNewPassword(pw, phone) {
+  pw = String(pw == null ? '' : pw).trim();
+  if (pw.length < PW_MIN) throw new HttpError(400, 'Mot de passe trop court : au moins ' + PW_MIN + ' caractères.', 'input');
+  if (pw.length > 100) throw new HttpError(400, 'Mot de passe trop long.', 'input');
+  if (pw.replace(/\D/g, '') === phone || cleanCode(pw) === cleanCode(phone)) throw new HttpError(400, 'Le mot de passe ne doit pas être votre numéro de téléphone.', 'input');
+  return pw;
+}
+
+async function authRow(env, phone) {
+  return env.DB.prepare('SELECT * FROM auth WHERE phone = ?').bind(phone).first();
+}
+
+/** Enregistre un mot de passe (provisoire : temp = 1). Renvoie les instructions D1 (pas encore exécutées). */
+async function setPasswordStatements(env, base, phone, password, temp) {
+  const key = await authKey(env, base);
+  const salt = b64url(crypto.getRandomValues(new Uint8Array(16)));
+  const text = temp ? cleanCode(password) : String(password).trim();
+  const hash = await pwHash(key, text, salt, PW_ITER);
+  const now = new Date().toISOString();
+  return [env.DB.prepare("INSERT INTO auth (phone, hash, salt, iter, temp, fails, locked, code, code_until, code_tries, updated) VALUES (?, ?, ?, ?, ?, 0, '', '', '', 0, ?) " +
+    "ON CONFLICT(phone) DO UPDATE SET hash = excluded.hash, salt = excluded.salt, iter = excluded.iter, temp = excluded.temp, fails = 0, locked = '', code = '', code_until = '', code_tries = 0, updated = excluded.updated")
+    .bind(phone, hash, salt, PW_ITER, temp ? 1 : 0, now)];
+}
+
+async function passwordMatches(env, base, row, password) {
+  if (!row || !row.hash) return false;
+  const key = await authKey(env, base);
+  const text = row.temp ? cleanCode(password) : String(password == null ? '' : password).trim();
+  return sameText(await pwHash(key, text, row.salt, row.iter || PW_ITER), row.hash);
+}
+
+/** Essai faux : compté ; au 5e, le compte est bloqué 15 minutes. */
+function failStatement(env, row) {
+  const fails = (row.fails || 0) + 1;
+  if (fails >= LOCK_FAILS) {
+    return env.DB.prepare("UPDATE auth SET fails = 0, locked = ? WHERE phone = ?").bind(new Date(Date.now() + LOCK_MIN * 60000).toISOString(), row.phone);
+  }
+  return env.DB.prepare('UPDATE auth SET fails = ? WHERE phone = ?').bind(fails, row.phone);
+}
+function lockedMessage(row) {
+  if (!row || !row.locked || Date.parse(row.locked) <= Date.now()) return '';
+  const min = Math.max(1, Math.ceil((Date.parse(row.locked) - Date.now()) / 60000));
+  return 'Trop d’essais faux : réessayez dans ' + min + ' min (ou demandez un nouveau mot de passe à l’administrateur).';
+}
+
+function deviceLabel(request) {
+  const ua = String(request.headers.get('user-agent') || '');
+  const os = /android/i.test(ua) ? 'Android' : /iphone|ipad/i.test(ua) ? 'iPhone' : /windows/i.test(ua) ? 'Windows' : /mac os/i.test(ua) ? 'Mac' : /linux/i.test(ua) ? 'Linux' : '';
+  const br = /samsungbrowser/i.test(ua) ? 'Samsung Internet' : /edg\//i.test(ua) ? 'Edge' : /firefox|fxios/i.test(ua) ? 'Firefox' : /chrome|crios/i.test(ua) ? 'Chrome' : /safari/i.test(ua) ? 'Safari' : '';
+  return [os, br].filter(Boolean).join(' · ') || 'Appareil';
+}
+
+/** Nouvel appareil connecté : jeton signé (30 jours). */
+async function newSession(env, base, phone, temp, device) {
+  const key = await authKey(env, base);
+  const id = b64url(crypto.getRandomValues(new Uint8Array(18)));
+  const now = new Date();
+  const x = now.getTime() + SESSION_DAYS * 86400000;
+  const head = 'v2.' + b64urlText(JSON.stringify({ s: id, x: x }));
+  const token = head + '.' + await hmac(key, head);
+  return {
+    token: token, x: x, id: id,
+    statement: env.DB.prepare('INSERT INTO sessions (id, phone, created, seen, device, temp, revoked) VALUES (?, ?, ?, ?, ?, ?, 0)')
+      .bind(id, phone, now.toISOString(), now.toISOString(), String(device || '').slice(0, 60), temp ? 1 : 0)
+  };
+}
+
+/** Jeton « v2 » valable : la ligne de l'appareil (non coupée, moins de 30 jours), sinon null. */
+async function verifySession(env, base, token) {
+  const parts = String(token || '').split('.');
+  if (parts.length !== 3 || parts[0] !== 'v2') return null;
+  const key = await authKey(env, base);
+  if (!sameText(await hmac(key, parts[0] + '.' + parts[1]), parts[2])) return null;
+  let p;
+  try { p = JSON.parse(fromB64url(parts[1])); } catch (e) { return null; }
+  if (!p || !p.s || !(p.x > Date.now())) return null;
+  const s = await env.DB.prepare('SELECT id, phone, temp, revoked, seen, created FROM sessions WHERE id = ?').bind(String(p.s)).first();
+  if (!s || s.revoked || Date.parse(s.created) + SESSION_DAYS * 86400000 < Date.now()) return null;
+  if (Date.now() - Date.parse(s.seen) > 15 * 60000) await env.DB.prepare('UPDATE sessions SET seen = ? WHERE id = ?').bind(new Date().toISOString(), s.id).run();
+  return s;
+}
+
+function revokeStatement(env, phone, keepId) {
+  return env.DB.prepare('UPDATE sessions SET revoked = 1 WHERE phone = ? AND revoked = 0 AND id != ?').bind(phone, keepId || '');
+}
+
+/** Lignes de l'onglet Équipe (avec le téléphone de chaque personne). */
+async function teamRows(env, base) {
+  const R = newReq(base, { email: '' });
+  const team = await exec(env, R, () => F.readTeam_());
+  await flush(env, R);
+  return team;
+}
+function teamByPhone(team, phone) { return team.filter((t) => t[3] === phone)[0] || null; }
+
+function journalStatement(env, who, action, detail) {
+  return env.DB.prepare('INSERT INTO journal (at, who, order_id, action, detail) VALUES (?, ?, ?, ?, ?)').bind(new Date().toISOString(), String(who || ''), '', action, String(detail || '').slice(0, 500));
+}
+
+/**
+ * Pages publiques de connexion :
+ *   POST /auth/login      { phone, password }                 → { token, x, key, change }
+ *   POST /auth/change     { password, old } (jeton)           → nouveau mot de passe (le provisoire, ou depuis Mon compte)
+ *   POST /auth/sms        { phone }                           → code à 6 chiffres envoyé par SMS
+ *   POST /auth/sms-check  { phone, code, password }           → nouveau mot de passe avec le code SMS
+ *   POST /auth/rescue     { phone, code, password }           → nouveau mot de passe avec le code de secours
+ *   POST /auth/logout     (jeton)                             → cet appareil est déconnecté
+ */
+async function authRoute(request, env, path) {
+  if (request.method !== 'POST') throw new HttpError(405, 'Méthode non permise.');
+  const base = await loadBase(env);
+  let body = {};
+  try { body = await request.json(); } catch (e) { body = {}; }
+  body = body || {};
+  const bearer = String(request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  const device = deviceLabel(request);
+
+  if (path === '/auth/login') {
+    const phone = phoneOf(body.phone);
+    const wrong = new HttpError(401, 'Téléphone ou mot de passe incorrect.', 'login');
+    if (!phone) throw new HttpError(400, 'Tapez votre numéro de téléphone (ex. 0661 22 33 44).', 'login');
+    const row = await authRow(env, phone);
+    const locked = lockedMessage(row);
+    if (locked) throw new HttpError(429, locked, 'login');
+    const team = await teamRows(env, base);
+    const member = teamByPhone(team, phone);
+    if (!row || !member) {
+      await pwHash(await authKey(env, base), 'x', 'x', PW_ITER); // même durée de réponse
+      throw wrong;
+    }
+    if (!(await passwordMatches(env, base, row, body.password))) {
+      await env.DB.batch([failStatement(env, row), journalStatement(env, member[1], 'Connexion refusée', 'Mot de passe faux (' + device + ')')]);
+      throw wrong;
+    }
+    const s = await newSession(env, base, phone, row.temp, device);
+    await env.DB.batch([s.statement, env.DB.prepare("UPDATE auth SET fails = 0, locked = '' WHERE phone = ?").bind(phone),
+      journalStatement(env, member[1], 'Connexion', device)]);
+    return { token: s.token, x: s.x, key: member[0], name: member[1], change: !!row.temp };
+  }
+
+  if (path === '/auth/change') {
+    const s = await verifySession(env, base, bearer);
+    if (!s) throw new HttpError(401, 'Connexion expirée : reconnectez-vous.', 'auth');
+    const row = await authRow(env, s.phone);
+    if (!row) throw new HttpError(401, 'Connexion expirée : reconnectez-vous.', 'auth');
+    if (!s.temp && !row.temp && !(await passwordMatches(env, base, row, body.old))) {
+      await env.DB.batch([failStatement(env, row)]);
+      throw new HttpError(400, 'Mot de passe actuel incorrect.', 'input');
+    }
+    const pw = checkNewPassword(body.password, s.phone);
+    const team = await teamRows(env, base);
+    const member = teamByPhone(team, s.phone);
+    const st = await setPasswordStatements(env, base, s.phone, pw, false);
+    st.push(env.DB.prepare('UPDATE sessions SET temp = 0 WHERE id = ?').bind(s.id));
+    st.push(revokeStatement(env, s.phone, s.id)); // les autres appareils sont déconnectés
+    st.push(journalStatement(env, member ? member[1] : s.phone, 'Mot de passe changé', device));
+    await env.DB.batch(st);
+    return { ok: true, message: 'Mot de passe enregistré.' };
+  }
+
+  if (path === '/auth/sms') {
+    const phone = phoneOf(body.phone);
+    if (!phone) throw new HttpError(400, 'Tapez votre numéro de téléphone (ex. 0661 22 33 44).', 'input');
+    if (!base.props.SMS_API_KEY) throw new HttpError(400, 'Les SMS ne sont pas configurés : demandez un nouveau mot de passe à l’administrateur.', 'input');
+    const done = { message: 'Si ce numéro est dans l’équipe, un code vient de lui être envoyé par SMS (valable ' + CODE_MIN + ' minutes).' };
+    const team = await teamRows(env, base);
+    const member = teamByPhone(team, phone);
+    if (!member) return done;
+    const row = await authRow(env, phone);
+    let sent = [];
+    try { sent = JSON.parse((row && row.code_sent) || '[]').filter((t) => Date.now() - Date.parse(t) < 3600000); } catch (e) { sent = []; }
+    if (sent.length >= CODE_PER_HOUR) throw new HttpError(429, 'Déjà ' + CODE_PER_HOUR + ' codes envoyés cette heure-ci : réessayez plus tard.', 'input');
+    const code = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
+    const salt = b64url(crypto.getRandomValues(new Uint8Array(12)));
+    const hash = await pwHash(await authKey(env, base), 'sms:' + code, salt, 2000);
+    const R = newReq(base, { email: '' });
+    const reqId = 'auth-' + phone + '-' + Date.now();
+    const r = await exec(env, R, () => F.httpsmsSend_(F.smsConfig_(), F.smsNumber_(phone), 'DZ Smart Shop : votre code est ' + code + ' (valable ' + CODE_MIN + ' minutes). Ne le donnez à personne.', reqId));
+    if (!r || !r.ok) throw new HttpError(502, 'Le SMS n’est pas parti' + (r && r.message ? ' : ' + r.message : '.'), 'input');
+    sent.push(new Date().toISOString());
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO auth (phone, code, code_until, code_tries, code_sent, updated) VALUES (?, ?, ?, 0, ?, ?) " +
+        'ON CONFLICT(phone) DO UPDATE SET code = excluded.code, code_until = excluded.code_until, code_tries = 0, code_sent = excluded.code_sent')
+        .bind(phone, salt + '.' + hash, new Date(Date.now() + CODE_MIN * 60000).toISOString(), JSON.stringify(sent), new Date().toISOString()),
+      journalStatement(env, member[1], 'Code de connexion envoyé par SMS', device)
+    ]);
+    return done;
+  }
+
+  if (path === '/auth/sms-check' || path === '/auth/rescue') {
+    const phone = phoneOf(body.phone);
+    if (!phone) throw new HttpError(400, 'Tapez votre numéro de téléphone (ex. 0661 22 33 44).', 'input');
+    const row = await authRow(env, phone);
+    const locked = lockedMessage(row);
+    if (locked) throw new HttpError(429, locked, 'input');
+    const team = await teamRows(env, base);
+    const member = teamByPhone(team, phone);
+    const sms = path === '/auth/sms-check';
+    const wrong = new HttpError(400, sms ? 'Code incorrect ou expiré : demandez un nouveau code.' : 'Code de secours incorrect.', 'input');
+    if (!row || !member) throw wrong;
+    let ok = false;
+    const key = await authKey(env, base);
+    if (sms) {
+      const parts = String(row.code || '').split('.');
+      ok = parts.length === 2 && Date.parse(row.code_until) > Date.now() && (row.code_tries || 0) < 5 &&
+        sameText(await pwHash(key, 'sms:' + String(body.code || '').replace(/\D/g, ''), parts[0], 2000), parts[1]);
+      if (!ok) { await env.DB.prepare('UPDATE auth SET code_tries = code_tries + 1 WHERE phone = ?').bind(phone).run(); throw wrong; }
+    } else {
+      const parts = String(row.rescue || '').split('.');
+      ok = parts.length === 2 && sameText(await pwHash(key, 'secours:' + cleanCode(body.code), parts[0], PW_ITER), parts[1]);
+      if (!ok) { await env.DB.batch([failStatement(env, row)]); throw wrong; }
+    }
+    const pw = checkNewPassword(body.password, phone);
+    const st = await setPasswordStatements(env, base, phone, pw, false);
+    st.push(revokeStatement(env, phone, ''));
+    const out = {};
+    if (!sms) {
+      // Le code de secours sert une fois : un nouveau est donné (à noter).
+      out.rescue = rescueCodeText();
+      const salt = b64url(crypto.getRandomValues(new Uint8Array(12)));
+      st.push(env.DB.prepare('UPDATE auth SET rescue = ? WHERE phone = ?').bind(salt + '.' + await pwHash(key, 'secours:' + cleanCode(out.rescue), salt, PW_ITER), phone));
+    }
+    const s = await newSession(env, base, phone, false, device);
+    st.push(s.statement);
+    st.push(journalStatement(env, member[1], sms ? 'Mot de passe changé (code SMS)' : 'Mot de passe changé (code de secours)', device));
+    await env.DB.batch(st);
+    return Object.assign(out, { token: s.token, x: s.x, key: member[0], name: member[1], change: false });
+  }
+
+  if (path === '/auth/logout') {
+    const s = await verifySession(env, base, bearer);
+    if (s) await env.DB.prepare('UPDATE sessions SET revoked = 1 WHERE id = ?').bind(s.id).run();
+    return { ok: true };
+  }
+  throw new HttpError(404, 'Inconnu.');
+}
+
+/** Ce que la page Équipe montre en plus dans la version Cloudflare : mot de passe, appareils connectés. */
+async function enrichTeam(env, R, team) {
+  if (!team || !Array.isArray(team.members)) return team;
+  const phones = team.members.map((m) => m.phone).filter(Boolean);
+  const auth = {};
+  const devices = {};
+  if (phones.length) {
+    const ph = placeholders(phones.length);
+    const r = await env.DB.batch([
+      env.DB.prepare('SELECT phone, hash, temp, locked, rescue FROM auth WHERE phone IN (' + ph + ')').bind(...phones),
+      env.DB.prepare('SELECT phone, COUNT(*) AS n, MAX(seen) AS seen FROM sessions WHERE revoked = 0 AND created > ? AND phone IN (' + ph + ') GROUP BY phone')
+        .bind(new Date(Date.now() - SESSION_DAYS * 86400000).toISOString(), ...phones)
+    ]);
+    (r[0].results || []).forEach((x) => { auth[x.phone] = x; });
+    (r[1].results || []).forEach((x) => { devices[x.phone] = x; });
+  }
+  team.members.forEach((m) => {
+    const a = auth[m.phone] || null;
+    const d = devices[m.phone] || null;
+    m.auth = { password: !!(a && a.hash), temp: !!(a && a.temp), locked: !!(a && a.locked && Date.parse(a.locked) > Date.now()),
+      rescue: !!(a && a.rescue), devices: d ? d.n : 0, seen: d ? d.seen : '' };
+  });
+  const s = R.base.secret;
+  team.auth = { on: true, pwdOnly: !!s['cf:pwdOnly'], smsReady: !!R.base.props.SMS_API_KEY, via: R.user.sid ? 'password' : 'google' };
+  return team;
+}
+
+Object.assign(PAGES, {
+  async api_teamList(env, R, args) {
+    needFull(R);
+    return enrichTeam(env, R, await gasPage('api_teamList')(env, R, args));
+  },
+  async api_teamSave(env, R, args) {
+    needFull(R);
+    const res = await gasPage('api_teamSave')(env, R, args);
+    res.team = await enrichTeam(env, R, res.team);
+    return res;
+  },
+  async api_teamRemove(env, R, args) {
+    needFull(R);
+    // La personne retirée est déconnectée tout de suite (ses appareils et son mot de passe).
+    const key = String(args[0] || '').trim().toLowerCase();
+    const before = run(R, () => F.readTeam_()).filter((t) => t[0] === key)[0];
+    const res = await gasPage('api_teamRemove')(env, R, args);
+    if (before && before[3]) await env.DB.batch([revokeStatement(env, before[3], ''), env.DB.prepare('DELETE FROM auth WHERE phone = ?').bind(before[3])]);
+    res.team = await enrichTeam(env, R, res.team);
+    return res;
+  },
+
+  /** Administrateur : mot de passe provisoire pour une personne (à lui envoyer, par exemple par WhatsApp). */
+  async api_authTemp(env, R, args) {
+    needFull(R);
+    const admin = requireAdmin(R, 'donner un mot de passe');
+    const key = String(args[0] || '').trim().toLowerCase();
+    const m = run(R, () => F.readTeam_()).filter((t) => t[0] === key)[0];
+    if (!m) throw new HttpError(404, 'Personne introuvable dans l’équipe : rechargez la page.');
+    if (!m[3]) throw new HttpError(400, 'Ajoutez d’abord son téléphone (Modifier) : c’est son identifiant de connexion.');
+    if (key === String(R.user.email || '') && R.user.sid) throw new HttpError(400, 'Pour vous-même : Mon mot de passe.');
+    const pw = provisionalPassword();
+    const st = await setPasswordStatements(env, R.base, m[3], pw, true);
+    st.push(revokeStatement(env, m[3], ''));
+    st.push(journalStatement(env, admin.name, 'Mot de passe provisoire', m[1] + ' (' + m[3] + ')'));
+    await env.DB.batch(st);
+    return { password: pw, phone: m[3], name: m[1], message: 'Mot de passe provisoire créé pour ' + m[1] + '. Ses autres appareils sont déconnectés.' };
+  },
+
+  /** Administrateur (ou soi-même) : déconnecter tous les appareils d'une personne (téléphone perdu…). */
+  async api_authRevoke(env, R, args) {
+    needFull(R);
+    const key = String(args[0] || '').trim().toLowerCase();
+    const self = key === String(R.user.email || '');
+    const who = self ? run(R, () => F.currentUser_()) : requireAdmin(R, 'déconnecter une personne');
+    const m = run(R, () => F.readTeam_()).filter((t) => t[0] === key)[0];
+    if (!m || !m[3]) throw new HttpError(404, 'Personne introuvable (ou sans téléphone).');
+    await env.DB.batch([revokeStatement(env, m[3], self ? R.user.sid : ''), journalStatement(env, who.name, 'Appareils déconnectés', m[1])]);
+    return { message: self ? 'Vos autres appareils sont déconnectés.' : m[1] + ' est déconnectée de tous ses appareils.' };
+  },
+
+  /**
+   * Mon mot de passe : la personne connectée crée ou change le sien (avec son téléphone, qui devient son
+   * identifiant). Connectée par mot de passe : l'ancien est demandé. Un administrateur reçoit son code de
+   * secours la première fois (ou sur demande). Renvoie un jeton « mot de passe » pour cet appareil.
+   */
+  async api_authMine(env, R, args) {
+    needFull(R);
+    const input = args[0] || {};
+    const me = run(R, () => F.currentUser_());
+    const key = String(R.user.email || '').toLowerCase();
+    const phone = phoneOf(input.phone);
+    if (!phone) throw new HttpError(400, 'Numéro de téléphone invalide (ex. 0661 22 33 44).', 'input');
+    const team = run(R, () => F.readTeam_());
+    const mine = team.filter((t) => t[0] === key)[0];
+    const other = teamByPhone(team, phone);
+    if (other && other[0] !== key) throw new HttpError(400, 'Ce téléphone est déjà celui de ' + other[1] + '.', 'input');
+    const pw = checkNewPassword(input.password, phone);
+    const row = await authRow(env, phone);
+    if (R.user.sid && row && row.hash && !row.temp && !(await passwordMatches(env, R.base, row, input.old))) {
+      await env.DB.batch([failStatement(env, row)]);
+      throw new HttpError(400, 'Mot de passe actuel incorrect.', 'input');
+    }
+    if (!mine || mine[3] !== phone) {
+      await exec(env, R, () => F.teamSetPhone_(key, phone, me.name));
+      await flush(env, R);
+    }
+    const st = await setPasswordStatements(env, R.base, phone, pw, false);
+    st.push(revokeStatement(env, phone, R.user.sid || ''));
+    const out = { message: 'Mot de passe enregistré. Identifiant : ' + phone + '.' };
+    const admin = run(R, () => F.isAdmin_({ role: mine ? mine[2] : 'Administrateur' }));
+    if (admin && (!row || !row.rescue || input.newRescue)) {
+      out.rescue = rescueCodeText();
+      const salt = b64url(crypto.getRandomValues(new Uint8Array(12)));
+      st.push(env.DB.prepare('UPDATE auth SET rescue = ? WHERE phone = ?').bind(salt + '.' + await pwHash(await authKey(env, R.base), 'secours:' + cleanCode(out.rescue), salt, PW_ITER), phone));
+    }
+    if (!R.user.sid) {
+      const s = await newSession(env, R.base, phone, false, 'Cet appareil');
+      st.push(s.statement);
+      out.token = s.token; out.x = s.x; out.key = key;
+    }
+    st.push(journalStatement(env, me.name, 'Mot de passe changé', 'depuis l’application'));
+    await env.DB.batch(st);
+    return out;
+  },
+
+  /**
+   * Sauvegarde (Administration › Classeur › Tout exporter) : les données par morceaux, assemblées en un
+   * fichier Excel sur l'appareil. part : 'meta', 'orders' (offset), 'tabs', 'journal', 'moves', 'done'.
+   */
+  async api_exportAll(env, R, args) {
+    needFull(R);
+    requireAdmin(R, 'tout exporter');
+    const part = String(args[0] || 'meta');
+    const offset = Math.max(0, Math.round(Number(args[1]) || 0));
+    const db = env.DB;
+    if (part === 'meta') {
+      const r = await db.batch([db.prepare('SELECT COUNT(*) AS n FROM orders'), db.prepare('SELECT COUNT(*) AS n FROM trash')]);
+      return { orders: r[0].results[0].n, trash: r[1].results[0].n, columns: K.ORDER_COLUMNS.map((c) => ({ key: c.key, title: c.title })), shop: run(R, () => F.getSettings_().NOM_BOUTIQUE) };
+    }
+    if (part === 'orders') {
+      const r = await db.prepare('SELECT data, archived FROM orders ORDER BY seq LIMIT 400 OFFSET ?').bind(offset).all();
+      return { rows: (r.results || []).map((x) => { const o = JSON.parse(x.data); o.__archived = x.archived ? 'Oui' : ''; return o; }), next: (r.results || []).length === 400 ? offset + 400 : -1 };
+    }
+    if (part === 'tabs') {
+      const r = await db.prepare('SELECT name, part, rows FROM tabs ORDER BY name, part').all();
+      const tabs = {};
+      (r.results || []).forEach((x) => { tabs[x.name] = (tabs[x.name] || []).concat(JSON.parse(x.rows)); });
+      const t = await db.prepare('SELECT id, data, deleted_at, deleted_by, reason FROM trash ORDER BY deleted_at DESC LIMIT 2000').all();
+      return { tabs: tabs, trash: (t.results || []).map((x) => Object.assign(JSON.parse(x.data), { __deleted: x.deleted_at, __by: x.deleted_by, __reason: x.reason })) };
+    }
+    if (part === 'journal') {
+      const r = await db.prepare('SELECT at, who, order_id, action, detail FROM journal ORDER BY at DESC LIMIT 3000').all();
+      return { rows: r.results || [] };
+    }
+    if (part === 'moves') {
+      const r = await db.prepare('SELECT row FROM moves ORDER BY seq DESC LIMIT 5000').all();
+      return { rows: (r.results || []).map((x) => JSON.parse(x.row)) };
+    }
+    if (part === 'done') {
+      await kvSet(env, 'cf:lastExport', new Date().toISOString()).run();
+      return { ok: true };
+    }
+    throw new HttpError(400, 'Morceau inconnu.');
+  },
+
+  /** Administrateur : nouveau code de secours (l'ancien ne marche plus). */
+  async api_authRescueNew(env, R) {
+    needFull(R);
+    const admin = requireAdmin(R, 'créer un code de secours');
+    const mine = run(R, () => F.readTeam_()).filter((t) => t[0] === String(R.user.email || ''))[0];
+    const row = mine && mine[3] ? await authRow(env, mine[3]) : null;
+    if (!row || !row.hash) throw new HttpError(400, 'Créez d’abord votre mot de passe (Mon mot de passe).');
+    const code = rescueCodeText();
+    const salt = b64url(crypto.getRandomValues(new Uint8Array(12)));
+    await env.DB.batch([env.DB.prepare('UPDATE auth SET rescue = ? WHERE phone = ?').bind(salt + '.' + await pwHash(await authKey(env, R.base), 'secours:' + cleanCode(code), salt, PW_ITER), mine[3]),
+      journalStatement(env, admin.name, 'Nouveau code de secours', '')]);
+    return { rescue: code, message: 'Nouveau code de secours : notez-le. L’ancien ne marche plus.' };
+  },
+
+  /** Administrateur : connexion par mot de passe seulement (plus par Google). */
+  async api_authSettings(env, R, args) {
+    needFull(R);
+    const admin = requireAdmin(R, 'changer la connexion');
+    const on = !!(args[0] && args[0].pwdOnly);
+    if (on) {
+      const mine = run(R, () => F.readTeam_()).filter((t) => t[0] === String(R.user.email || ''))[0];
+      const row = mine && mine[3] ? await authRow(env, mine[3]) : null;
+      if (!row || !row.hash || row.temp) throw new HttpError(400, 'Créez d’abord votre propre mot de passe (Mon mot de passe) : sinon vous ne pourriez plus entrer.');
+    }
+    await env.DB.batch([on ? kvSet(env, 'cf:pwdOnly', new Date().toISOString()) : env.DB.prepare("DELETE FROM kv WHERE key = 'cf:pwdOnly'"),
+      journalStatement(env, admin.name, 'Connexion', on ? 'par mot de passe seulement' : 'par mot de passe ou par Google')]);
+    return { pwdOnly: on, message: on ? 'Connexion par mot de passe seulement : la connexion par Google est coupée.' : 'La connexion par Google est de nouveau possible.' };
+  }
+});
+
+/* ================================================================ */
 /* Point d'entrée                                                   */
 /* ================================================================ */
 
 async function api(request, env, fn) {
   if (request.method !== 'POST') throw new HttpError(405, 'Méthode non permise.');
   const base = await loadBase(env);
-  const auth = request.headers.get('authorization') || '';
-  const user = await verifyToken(auth.replace(/^Bearer\s+/i, ''), base.secret['cf:secret']);
-  if (!user) throw new HttpError(401, 'Connexion expirée : reconnectez-vous.', 'auth');
-  const R = newReq(base, user);
+  const token = String(request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  const R = newReq(base, { email: '' });
   // Seuls les membres de l'onglet Équipe (et le propriétaire du classeur) entrent.
-  const owner = String(base.props.OWNER_EMAIL || '').toLowerCase();
   const team = run(R, () => F.readTeam_());
-  if (user.email !== owner && !team.some((t) => t[0] === user.email)) {
-    throw new HttpError(403, 'Votre adresse n’est pas dans l’onglet Équipe du classeur. Demandez à l’administrateur de vous ajouter.', 'auth');
+  let user;
+  if (token.indexOf('v2.') === 0) {
+    // Connexion par téléphone et mot de passe (v1.11).
+    const s = await verifySession(env, base, token);
+    if (!s) throw new HttpError(401, 'Connexion expirée : reconnectez-vous.', 'auth');
+    if (s.temp) throw new HttpError(401, 'Choisissez votre mot de passe.', 'change');
+    const m = teamByPhone(team, s.phone);
+    if (!m) throw new HttpError(403, 'Vous n’êtes plus dans l’équipe. Demandez à l’administrateur.', 'auth');
+    user = { email: m[0], sid: s.id, phone: s.phone };
+  } else {
+    // Connexion par Google (jeton signé par Apps Script), sauf si l'administrateur l'a coupée.
+    user = await verifyToken(token, base.secret['cf:secret']);
+    if (!user) throw new HttpError(401, 'Connexion expirée : reconnectez-vous.', 'auth');
+    if (base.secret['cf:pwdOnly']) throw new HttpError(401, 'Connectez-vous avec votre téléphone et votre mot de passe.', 'auth');
+    const owner = String(base.props.OWNER_EMAIL || '').toLowerCase();
+    if (user.email !== owner && !team.some((t) => t[0] === user.email)) {
+      throw new HttpError(403, 'Votre adresse n’est pas dans l’onglet Équipe du classeur. Demandez à l’administrateur de vous ajouter.', 'auth');
+    }
   }
+  R.user = user;
   R.userName = userName(R);
   const handler = PAGES[fn];
   if (!handler) throw new HttpError(404, 'Cette page n’est pas encore dans la version Cloudflare (étape 2).', 'later');
@@ -1941,11 +2635,14 @@ export default {
     const path = url.pathname;
     try {
       if (path === '/auth/info') {
-        const r = await env.DB.prepare("SELECT key, value FROM kv WHERE key IN ('cf:gateway', 'cf:shop', 'cf:imported')").all();
+        const r = await env.DB.prepare("SELECT key, value FROM kv WHERE key IN ('cf:gateway', 'cf:shop', 'cf:imported', 'cf:pwdOnly', 'cf:full', 'SMS_API_KEY')").all();
         const kv = {};
         (r.results || []).forEach((x) => { kv[x.key] = x.value; });
-        return json({ ok: true, data: { gateway: kv['cf:gateway'] || '', shop: kv['cf:shop'] || 'DZ Smart Shop', ready: !!kv['cf:imported'], version: K.APP_VERSION } });
+        // Connexion par mot de passe (étape 3) ; par Google tant que l'administrateur ne l'a pas coupée.
+        return json({ ok: true, data: { gateway: kv['cf:pwdOnly'] ? '' : kv['cf:gateway'] || '', password: !!kv['cf:full'], sms: !!kv.SMS_API_KEY,
+          shop: kv['cf:shop'] || 'DZ Smart Shop', ready: !!kv['cf:imported'], version: K.APP_VERSION } });
       }
+      if (path.indexOf('/auth/') === 0) return json({ ok: true, data: await authRoute(request, env, path) });
       if (path.indexOf('/api/') === 0) return json({ ok: true, data: await api(request, env, path.slice(5)) });
       if (path.indexOf('/bridge/') === 0) return json({ ok: true, data: await bridge(request, env, path) });
       return page(request);

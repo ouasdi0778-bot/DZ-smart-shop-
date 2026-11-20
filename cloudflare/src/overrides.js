@@ -114,6 +114,22 @@ function tomorrowAt_(now, hour) {
   var p = algiersParts_(now);
   return new Date(Date.UTC(p.y, p.M - 1, p.d + 1, hour) - ALGIERS_OFFSET_MS_);
 }
+/** Date d'une ligne RELEASIT (relais) : « 2026-11-13 18:01:14 » ou « 13/11/2026 18:01 » sont à l'heure d'Algérie. */
+function releasitDate_(value) {
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+  var s = latinDigits_(value).trim();
+  if (!s) return null;
+  if (/\d[T ]\d{1,2}:\d{2}(:\d{2}(\.\d+)?)?\s*(Z|[+\-]\d{2}:?\d{2})$/i.test(s)) {
+    var exact = new Date(s.replace(' ', 'T'));
+    if (!isNaN(exact.getTime())) return exact;
+  }
+  var at = function (y, M, d, h, mi, sec) { return new Date(Date.UTC(+y, +M - 1, +d, +(h || 0), +(mi || 0), +(sec || 0)) - ALGIERS_OFFSET_MS_); };
+  var m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) return at(m[1], m[2], m[3], m[4], m[5], m[6]);
+  m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) return at(m[3], m[2], m[1], m[4], m[5], m[6]);
+  return null;
+}
 
 /* ---------------- Pas encore dans la version Cloudflare (étape 2) ---------------- */
 
@@ -249,6 +265,9 @@ CF_SPREADSHEET_.removeEditor = function (email) {
   REQ.notes.push({ id: email, kind: 'share:remove', info: '' });
   if (REQ.editors) REQ.editors = REQ.editors.filter(function (e) { return e !== email; });
 };
+
+/** Mode relais (v1.11) : le classeur ne sert plus qu'à recevoir les commandes Releasit, sans partage. */
+function relayMode_() { return !!(REQ && REQ.base && REQ.base.secret && REQ.base.secret['cf:relay']); }
 
 /** Connexions (Administration) : Releasit arrive par le classeur ; le lien avec le classeur est vu d'ici. */
 function releasitColumnsReport_() { return { found: !!(REQ.cfInfo && REQ.cfInfo.lastIngest), missing: [] }; }

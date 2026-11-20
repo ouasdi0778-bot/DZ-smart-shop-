@@ -796,6 +796,21 @@ button.st-card { cursor: pointer; }
   .ad-line { grid-template-columns: minmax(0, 1fr) 92px auto; }
 }
 
+/* v1.11 : connexion par mot de passe (version Cloudflare). */
+.auth-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; background: #E8F0FD; color: #1B3B73; padding: 10px 16px; font-size: 14px; }
+.auth-banner .ic { flex: none; }
+.auth-banner span { flex: 1 1 260px; }
+.auth-banner .btn { min-height: 36px; }
+.rescue-code { font: 700 24px ui-monospace, monospace; letter-spacing: 2px; text-align: center; background: #F2F6FD; border: 1px dashed #9DBEF0; border-radius: 12px; padding: 14px; margin: 12px 0; }
+.cf-full .side-user[data-act], .cf-step3 .side-user[data-act] { cursor: pointer; border-radius: 10px; }
+.cf-step3 .side-user[data-act]:hover { background: rgba(255,255,255,.06); }
+.cf-step3 .mobile-user[data-act] { cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.tm-auth { font-size: 12.5px; }
+.tm-auth .ok { color: #146C2E; font-weight: 600; } .tm-auth .wait { color: #9A5B00; font-weight: 600; } .tm-auth .no { color: #5B6170; }
+.tm-acts { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.tm-acts .btn { min-height: 34px; padding: 0 10px; }
+.wa-btn { background: #1F8F4E; color: #fff; border-color: #1F8F4E; }
+
 /* Application Google après le basculement : les pages des commandes sont dans la version Cloudflare. */
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }

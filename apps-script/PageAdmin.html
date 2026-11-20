@@ -35,6 +35,7 @@
   function busy(el, on) { if (el) el.disabled = !!on; }
 
   function pageAdmin() {
+    if (S.adminTab) { AD.tab = S.adminTab; S.adminTab = null; }
     view.innerHTML = '<div id="admin"><p class="loading">Chargement…</p></div>';
     if (AD.data) renderAdmin();
     loadOverview();
@@ -190,13 +191,33 @@
       (c.shopify.configured ? '<button type="button" class="btn" data-act="admin-call" data-fn="api_shopifyTest">Tester</button>' +
         '<button type="button" class="btn" data-act="admin-call" data-fn="api_shopifyImport">Importer maintenant</button>' : '') + '</div></section>';
 
-    html += '<section class="card"><div class="detail-head"><div><h2>Releasit COD (onglet RELEASIT)</h2><p class="muted">' +
-      (c.releasit.found ? '' + icon('ok') + 'Onglet trouvé : les commandes arrivent chaque minute' : '' + icon('alert') + 'Onglet « RELEASIT » introuvable dans le classeur') + '</p></div></div>' +
-      '<p class="small">' + lastLine(c.releasit.lastRun, c.releasit.lastError) +
-      (c.releasit.missing && c.releasit.missing.length ? ' Informations absentes : ' + h(c.releasit.missing.join(', ')) + '.' : '') + '</p>' +
-      '<div class="quick" style="margin-top:10px"><button type="button" class="btn" data-act="admin-call" data-fn="api_releasitTransfer">Transférer maintenant</button></div></section>';
+    var ry = c.releasit.relay;
+    if (ry && ry.on) {
+      // v1.11 : le petit script Google (Relais.gs) envoie l'onglet RELEASIT ici chaque minute.
+      var late = !ry.at || Date.now() - new Date(ry.at).getTime() > 10 * 60000;
+      html += '<section class="card"><div class="detail-head"><div><h2>Releasit COD (relais de l’onglet RELEASIT)</h2><p class="muted">' +
+        (late ? icon('alert') + '<strong style="color:#A12626">Le relais ne répond plus' + (ry.at ? ' depuis ' + h(ago(ry.at)) : '') + '</strong>'
+          : ry.error ? icon('alert') + 'Le relais répond, mais avec une erreur' : icon('ok') + 'Relais actif : dernier passage ' + h(ago(ry.at))) + '</p></div></div>' +
+        (ry.error ? '<p class="small" style="color:#A12626">Erreur : ' + h(ry.error) + '</p>' : '') +
+        '<p class="small">Dernière commande reçue : ' + (ry.lastAdd ? h(ago(ry.lastAdd)) + (ry.lastIds.length ? ' (' + h(ry.lastIds.join(', ')) + ')' : '') : 'aucune depuis l’installation') + '. ' +
+        'Dernière ligne lue : ' + (ry.lastRow || '—') + '.' + (ry.missing && ry.missing.length ? ' Informations absentes de RELEASIT : ' + h(ry.missing.join(', ')) + '.' : '') + '</p>' +
+        '<p class="small" style="margin-top:8px">Le petit script du classeur Google lit l’onglet RELEASIT chaque minute et l’envoie ici. Le SMS « commande reçue » part tout de suite. ' +
+        'Après 10 minutes sans nouvelles, vous êtes prévenu par SMS. Dans le classeur : menu <strong>DZ Smart Shop › État du relais</strong> ou <strong>Envoyer maintenant</strong>.</p></section>';
+    } else {
+      html += '<section class="card"><div class="detail-head"><div><h2>Releasit COD (onglet RELEASIT)</h2><p class="muted">' +
+        (c.releasit.found ? '' + icon('ok') + 'Onglet trouvé : les commandes arrivent chaque minute' : '' + icon('alert') + 'Onglet « RELEASIT » introuvable dans le classeur') + '</p></div></div>' +
+        '<p class="small">' + lastLine(c.releasit.lastRun, c.releasit.lastError) +
+        (c.releasit.missing && c.releasit.missing.length ? ' Informations absentes : ' + h(c.releasit.missing.join(', ')) + '.' : '') + '</p>' +
+        '<div class="quick" style="margin-top:10px"><button type="button" class="btn" data-act="admin-call" data-fn="api_releasitTransfer">Transférer maintenant</button></div></section>';
+    }
 
     var cf = c.cloud || {};
+    if (cf.inCloud && ry && ry.on) {
+      html += '<section class="card"><div class="detail-head"><div><h2>Classeur Google</h2><p class="muted">' + icon('ok') + 'Mode relais depuis ' + h(fmtDate(ry.installed)) + '</p></div></div>' +
+        '<p class="small">Toute l’application est ici. Le classeur Google ne sert plus qu’à recevoir les commandes de Releasit (onglet RELEASIT) : ses autres onglets ne sont plus mis à jour (ils restent comme archive). ' +
+        'Les réglages, l’équipe, les produits et les dépenses se changent ici, dans Administration. Pour une copie de tout : <strong>Administration › Sauvegarde › Tout exporter</strong>.</p></section>';
+      return html;
+    }
     if (cf.inCloud) {
       html += '<section class="card"><div class="detail-head"><div><h2>Classeur Google</h2><p class="muted">' + icon(cf.sync ? 'ok' : 'alert') +
         (cf.sync ? 'Recopie dans le classeur ' + h(ago(cf.sync)) : 'Le classeur n’a pas encore contacté la version Cloudflare') +
@@ -313,26 +334,93 @@
       return '<p class="loading">Chargement…</p>';
     }
     var t = AD.team;
+    var cloud = !!t.auth; // version Cloudflare : connexion par téléphone et mot de passe
+    var owner = String(t.owner || '').toLowerCase();
     var roleSelect = function (m) {
-      return '<select data-team-role="' + h(m.email) + '"' + (m.email === t.me ? ' disabled title="Votre propre rôle"' : '') + '>' + t.roles.map(function (r) {
+      return '<select data-team-role="' + h(m.key) + '"' + (m.key === t.me ? ' disabled title="Votre propre rôle"' : '') + '>' + t.roles.map(function (r) {
         return '<option' + (r === m.role ? ' selected' : '') + '>' + h(r) + '</option>';
       }).join('') + '</select>';
     };
-    var html = '<section class="card"><h2>Équipe · ' + t.members.length + '</h2><p class="small">Administrateur : tout (bénéfices, statistiques, administration). Confirmatrice : commandes, confirmation, expéditions, suivi. Magasinier : en plus, la page Stock.</p>' +
-      '<div class="table-wrap" style="border:0"><table class="data cards"><thead><tr><th>Personne</th><th>Rôle</th><th>Accès au classeur</th><th></th></tr></thead><tbody>' +
+    var authCell = function (m) {
+      if (!cloud) return m.access === null ? '—' : m.access ? icon('ok') + 'partagé' : icon('alert') + 'pas partagé';
+      var a = m.auth || {};
+      var state = !m.phone ? '<span class="no">Pas de téléphone</span>'
+        : a.locked ? '<span class="wait">Bloquée 15 min (essais faux)</span>'
+        : a.temp ? '<span class="wait">Provisoire, pas encore changé</span>'
+        : a.password ? '<span class="ok">✓ Mot de passe</span>' : '<span class="no">Pas encore de mot de passe</span>';
+      return '<div class="tm-auth">' + state + (a.devices ? '<div class="small">' + plural(a.devices, 'appareil connecté', 'appareils connectés') + (a.seen ? ' · vue ' + h(ago(a.seen)) : '') + '</div>' : '') + '</div>';
+    };
+    var acts = function (m) {
+      var me = m.key === t.me;
+      var out = [];
+      if (cloud && m.phone && !me) out.push('<button type="button" class="btn" data-act="admin-team-temp" data-key="' + h(m.key) + '">Mot de passe provisoire</button>');
+      if (cloud && m.auth && m.auth.devices && !me) out.push('<button type="button" class="btn" data-act="admin-team-revoke" data-key="' + h(m.key) + '">Déconnecter</button>');
+      out.push('<button type="button" class="btn" data-act="admin-team-edit" data-key="' + h(m.key) + '">Modifier</button>');
+      if (!me && m.email !== owner) out.push('<button type="button" class="btn danger" data-act="admin-team-remove" data-key="' + h(m.key) + '">Retirer</button>');
+      return '<div class="tm-acts">' + out.join('') + '</div>';
+    };
+    var html = '';
+    if (cloud) {
+      var mine = (t.members || []).filter(function (m) { return m.key === t.me; })[0];
+      var ready = mine && mine.auth && mine.auth.password && !mine.auth.temp;
+      html += '<section class="card"><h2>Connexion</h2>' +
+        '<p class="small">Chacun se connecte avec <strong>son téléphone</strong> (identifiant) et <strong>son mot de passe</strong>. Pas besoin de Gmail ni du classeur Google. ' +
+        'Mot de passe oublié : code par SMS sur son téléphone, ou un nouveau mot de passe provisoire donné ici.</p>' +
+        '<div class="quick" style="margin-top:10px"><button type="button" class="btn' + (ready ? '' : ' primary') + '" data-act="my-account">' + (ready ? 'Mon compte (mot de passe, code de secours)' : 'Créer mon mot de passe') + '</button></div>' +
+        '<label class="check-line" style="margin-top:14px"><input type="checkbox" data-auth-only' + (t.auth.pwdOnly ? ' checked' : '') + (ready || t.auth.pwdOnly ? '' : ' disabled') + '> ' +
+        '<span><strong>Connexion par mot de passe seulement</strong> (plus par Google). ' + (ready ? 'Cochez quand tout le monde a son mot de passe (colonne Connexion).' : 'Créez d’abord votre propre mot de passe.') + '</span></label></section>';
+    }
+    html += '<section class="card"><h2>Équipe · ' + t.members.length + '</h2><p class="small">Administrateur : tout (bénéfices, statistiques, administration). Confirmatrice : commandes, confirmation, expéditions, suivi. Magasinier : en plus, la page Stock.</p>' +
+      '<div class="table-wrap" style="border:0"><table class="data cards"><thead><tr><th>Personne</th><th>Rôle</th><th>' + (cloud ? 'Connexion' : 'Accès au classeur') + '</th><th></th></tr></thead><tbody>' +
       t.members.map(function (m) {
-        return '<tr><td data-label="Personne" class="multi"><strong>' + h(m.name) + '</strong>' + (m.email === t.me ? ' (vous)' : '') + (m.email === String(t.owner).toLowerCase() ? ' · propriétaire' : '') +
-          '<div class="small">' + h(m.email) + '</div></td><td data-label="Rôle">' + roleSelect(m) + '</td>' +
-          '<td data-label="Accès">' + (m.access === null ? '—' : m.access ? '' + icon('ok') + 'partagé' : '' + icon('alert') + 'pas partagé') + '</td>' +
-          '<td data-label="">' + (m.email === t.me || m.email === String(t.owner).toLowerCase() ? '' : '<button type="button" class="btn danger" style="min-height:36px" data-act="admin-team-remove" data-email="' + h(m.email) + '">Retirer</button>') + '</td></tr>';
+        var sub = [m.phone ? DZ.phoneText ? DZ.phoneText(m.phone) : m.phone : '', m.email].filter(Boolean).join(' · ');
+        return '<tr><td data-label="Personne" class="multi"><strong>' + h(m.name) + '</strong>' + (m.key === t.me ? ' (vous)' : '') + (m.email && m.email === owner ? ' · propriétaire' : '') +
+          '<div class="small">' + h(sub || '—') + '</div></td><td data-label="Rôle">' + roleSelect(m) + '</td>' +
+          '<td data-label="Connexion">' + authCell(m) + '</td><td data-label="">' + acts(m) + '</td></tr>';
       }).join('') + '</tbody></table></div></section>';
     html += '<section class="card"><h2>Ajouter une personne</h2><form class="form-grid" id="f-team" onsubmit="return false">' +
-      field('Adresse Gmail', '<input type="email" name="email" placeholder="prenom@gmail.com">') +
       field('Prénom', '<input name="name" placeholder="Prénom">') +
+      (cloud ? field('Téléphone (son identifiant)', '<input name="phone" type="tel" inputmode="tel" placeholder="0661 22 33 44">') : '') +
       field('Rôle', '<select name="role">' + t.roles.map(function (r) { return '<option' + (r === 'Confirmatrice' ? ' selected' : '') + '>' + h(r) + '</option>'; }).join('') + '</select>') +
-      '</form><div class="quick" style="margin-top:10px"><button type="button" class="btn primary" data-act="admin-team-add">Ajouter et partager le classeur</button></div>' +
-      '<p class="small" style="margin-top:8px">Google lui envoie un e-mail d’invitation. Elle ouvre ensuite le lien de l’application avec cette adresse.</p></section>';
+      (cloud && t.relay ? '' : field(cloud ? 'Adresse Gmail (facultatif)' : 'Adresse Gmail', '<input type="email" name="email" placeholder="prenom@gmail.com">')) +
+      '</form><div class="quick" style="margin-top:10px"><button type="button" class="btn primary" data-act="admin-team-add">' + (cloud ? 'Ajouter' : 'Ajouter et partager le classeur') + '</button></div>' +
+      '<p class="small" style="margin-top:8px">' + (cloud ? 'Un mot de passe provisoire est créé : envoyez-le-lui (bouton WhatsApp). Elle choisira le sien à la première connexion.'
+        : 'Google lui envoie un e-mail d’invitation. Elle ouvre ensuite le lien de l’application avec cette adresse.') + '</p></section>';
     return html;
+  }
+
+  function memberByKey(key) { return ((AD.team && AD.team.members) || []).filter(function (m) { return m.key === key; })[0] || null; }
+
+  /** Fenêtre du mot de passe provisoire : affiché une seule fois, à envoyer par WhatsApp. */
+  function showTemp(r) {
+    var phone = String(r.phone || '');
+    var link = location.origin + location.pathname;
+    var pretty = DZ.phoneText ? DZ.phoneText(phone) : phone;
+    var msg = 'Bonjour ' + r.name + ', voici ton accès à l’application ' + (S.boot.shop || 'DZ Smart Shop') + ' :\n' + link +
+      '\nIdentifiant : ' + pretty + '\nMot de passe provisoire : ' + r.password + '\nÀ la première connexion, tu choisiras ton propre mot de passe.';
+    var intl = /^0\d{9}$/.test(phone) ? '213' + phone.slice(1) : '';
+    DZ.showModal(DZ.modalHead('Accès de ' + h(r.name)) +
+      '<p>Identifiant : <strong>' + h(pretty) + '</strong></p>' +
+      '<p style="margin-top:6px">Mot de passe provisoire :</p><p class="rescue-code">' + h(r.password) + '</p>' +
+      '<p class="small">Il ne sera plus affiché. Elle choisira son propre mot de passe à la première connexion. Ses autres appareils sont déconnectés.</p>' +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="copy-text" data-text="' + h(msg) + '">Copier le message</button>' +
+      (intl ? '<a class="btn wa-btn" href="https://wa.me/' + intl + '?text=' + encodeURIComponent(msg) + '" target="_blank" rel="noopener">' + icon('whatsapp') + 'Envoyer par WhatsApp</a>' : '') +
+      '<button type="button" class="btn primary" data-act="close-modal">Fermer</button></div>');
+  }
+
+  function editMember(key) {
+    var m = memberByKey(key);
+    if (!m) return;
+    var t = AD.team;
+    var cloud = !!t.auth;
+    AD.editing = key;
+    DZ.showModal(DZ.modalHead('Modifier : ' + h(m.name)) + '<form class="form-grid" id="f-team-edit" onsubmit="return false">' +
+      field('Prénom', '<input name="name" value="' + h(m.name) + '">') +
+      (cloud ? field('Téléphone (son identifiant)', '<input name="phone" type="tel" inputmode="tel" value="' + h(m.phone) + '" placeholder="0661 22 33 44">') : '') +
+      field('Rôle', '<select name="role"' + (key === t.me ? ' disabled' : '') + '>' + t.roles.map(function (r) { return '<option' + (r === m.role ? ' selected' : '') + '>' + h(r) + '</option>'; }).join('') + '</select>') +
+      (cloud && t.relay && !m.email ? '' : field(cloud ? 'Adresse Gmail (facultatif)' : 'Adresse Gmail', '<input type="email" name="email" value="' + h(m.email) + '">')) +
+      '</form><div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Annuler</button>' +
+      '<button type="button" class="btn primary" data-act="admin-team-edit-go">Enregistrer</button></div>');
   }
 
   function teamCall(fn, args, el) {
@@ -375,13 +463,151 @@
       return '<div class="result-row"><span class="grow"><strong>' + h(title) + '</strong><br><span class="small">' + h(text) + '</span></span>' +
         '<button type="button" class="btn' + (danger ? ' danger' : '') + '" data-act="' + act + '">' + h(label) + '</button></div>';
     };
-    return '<section class="card"><h2>Entretien du classeur</h2>' +
+    var cloud = S.boot && S.boot.cloud;
+    var last = cloud ? S.boot.cloud.lastExport : '';
+    var backup = cloud ? '<section class="card"><h2>Sauvegarde</h2>' +
+      item('Tout exporter (Excel)', 'Un fichier Excel avec tout : commandes (archive comprise), corbeille, produits, dépenses, clients, réglages, équipe, mouvements de stock, Journal. ' +
+        (last ? 'Dernier export : ' + fmtDate(last) + '.' : 'Pas encore fait.') + ' Gardez-le sur votre ordinateur ou votre Drive : faites-le chaque semaine.', 'admin-export-all', 'Tout exporter') +
+      '<p class="small" style="margin-top:8px">La base Cloudflare peut aussi être remise à n’importe quelle minute des 7 derniers jours (sauvegarde automatique de Cloudflare).</p></section>' : '';
+    if (cloud && S.boot.cloud.auth && S.boot.cloud.auth.relay) {
+      return backup + '<section class="card"><h2>Entretien</h2>' +
+        item('Archiver et alléger maintenant', 'Ce que fait l’entretien de chaque nuit : annulations automatiques, archivage, Journal raccourci, statistiques recalculées.', 'admin-archive', 'Lancer') +
+        item('Recalculer les statistiques', 'Refait tout de suite les résumés par jour (sinon : chaque nuit).', 'admin-stats', 'Recalculer') +
+        '<div class="result-row"><span class="grow"><strong>Corbeille</strong><br><span class="small">Commandes supprimées, avec « Restaurer ».</span></span>' +
+        '<button type="button" class="btn" data-act="goto" data-route="commandes" data-status="trash">Ouvrir</button></div></section>' +
+        '<p class="small">Le classeur Google ne sert plus qu’à recevoir les commandes de Releasit (onglet RELEASIT) : ses autres onglets ne sont plus mis à jour.</p>';
+    }
+    return backup + '<section class="card"><h2>Entretien du classeur</h2>' +
       item('Réparer le classeur', 'Ajoute les onglets, colonnes, listes et réglages qui manquent. Sans danger : rien n’est effacé.', 'admin-repair', 'Réparer') +
       item('Archiver et alléger maintenant', 'Ce que fait l’entretien de chaque nuit : annulations automatiques, archivage, Journal raccourci, statistiques recalculées.', 'admin-archive', 'Lancer') +
       item('Recalculer les statistiques', 'Refait tout de suite les résumés par jour (sinon : chaque nuit).', 'admin-stats', 'Recalculer') +
       '<div class="result-row"><span class="grow"><strong>Corbeille</strong><br><span class="small">Commandes supprimées, avec « Restaurer ».</span></span>' +
       '<button type="button" class="btn" data-act="goto" data-route="commandes" data-status="trash">Ouvrir</button></div>' +
       '</section><p class="small">Le menu « DZ Smart Shop » du classeur reste en secours : Ouvrir l’application, Installer / réparer, Archiver, Restaurer une commande.</p>';
+  }
+
+  /* ---------------- Sauvegarde : tout dans un fichier Excel (.xlsx), fait sur l'appareil ---------------- */
+
+  var CRC_TABLE = null;
+  function crc32(bytes) {
+    if (!CRC_TABLE) {
+      CRC_TABLE = [];
+      for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; CRC_TABLE[n] = c >>> 0; }
+    }
+    var crc = 0xFFFFFFFF;
+    for (var i = 0; i < bytes.length; i++) crc = CRC_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+  /** Archive ZIP sans compression (format des fichiers .xlsx). files : [{ name, text }]. */
+  function zipFiles(files) {
+    var enc = new TextEncoder();
+    var parts = [];
+    var central = [];
+    var offset = 0;
+    var u16 = function (v) { return [v & 255, (v >>> 8) & 255]; };
+    var u32 = function (v) { return [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255]; };
+    files.forEach(function (f) {
+      var name = enc.encode(f.name);
+      var data = enc.encode(f.text);
+      var crc = crc32(data);
+      var head = [].concat(u32(0x04034b50), u16(20), u16(0x0800), u16(0), u16(0), u16(0), u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0));
+      parts.push(new Uint8Array(head), name, data);
+      central.push([].concat(u32(0x02014b50), u16(20), u16(20), u16(0x0800), u16(0), u16(0), u16(0), u32(crc), u32(data.length), u32(data.length),
+        u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset)), name);
+      offset += head.length + name.length + data.length;
+    });
+    var size = 0;
+    central.forEach(function (c, i) { if (i % 2 === 0) { parts.push(new Uint8Array(c)); size += c.length; } else { parts.push(c); size += c.length; } });
+    parts.push(new Uint8Array([].concat(u32(0x06054b50), u16(0), u16(0), u16(files.length), u16(files.length), u32(size), u32(offset), u16(0))));
+    return new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  }
+  function xmlText(v) {
+    return String(v == null ? '' : v).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function colName(i) { var s = ''; i++; while (i > 0) { var m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+  /** Fichier Excel : sheets = [{ name, rows: [[...]] }] (la 1re ligne en titres). */
+  function xlsxBlob(sheets) {
+    var files = [];
+    var cell = function (v, r, c) {
+      if (v && typeof v === 'object' && v.$d) v = v.$d;
+      if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v)) {
+        var d = new Date(v);
+        if (!isNaN(d.getTime())) v = ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2) + '/' + d.getFullYear() + ' ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+      }
+      var ref = colName(c) + (r + 1);
+      if (typeof v === 'number' && isFinite(v)) return '<c r="' + ref + '"><v>' + v + '</v></c>';
+      if (v === '' || v == null) return '';
+      return '<c r="' + ref + '" t="inlineStr"><is><t xml:space="preserve">' + xmlText(v) + '</t></is></c>';
+    };
+    sheets.forEach(function (sh, i) {
+      files.push({ name: 'xl/worksheets/sheet' + (i + 1) + '.xml', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+        sh.rows.map(function (row, r) { return '<row r="' + (r + 1) + '">' + row.map(function (v, c) { return cell(v, r, c); }).join('') + '</row>'; }).join('') +
+        '</sheetData></worksheet>' });
+    });
+    files.unshift(
+      { name: '[Content_Types].xml', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' +
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+        sheets.map(function (sh, i) { return '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'; }).join('') + '</Types>' },
+      { name: '_rels/.rels', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
+      { name: 'xl/workbook.xml', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' +
+        sheets.map(function (sh, i) { return '<sheet name="' + xmlText(String(sh.name).replace(/[\[\]\*\/\\?:]/g, ' ').slice(0, 31)) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>'; }).join('') + '</sheets></workbook>' },
+      { name: 'xl/_rels/workbook.xml.rels', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        sheets.map(function (sh, i) { return '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>'; }).join('') + '</Relationships>' }
+    );
+    return zipFiles(files);
+  }
+
+  /** Tout exporter : les morceaux demandés un par un, puis un seul fichier Excel téléchargé. */
+  function exportAll(el) {
+    busy(el, true);
+    var meta = null;
+    var orders = [];
+    var more = function (offset) {
+      toast('Export en cours… ' + orders.length + (meta ? ' / ' + meta.orders : '') + ' commandes');
+      return call('api_exportAll', 'orders', offset).then(function (r) {
+        orders = orders.concat(r.rows);
+        return r.next >= 0 ? more(r.next) : null;
+      });
+    };
+    var out = {};
+    call('api_exportAll', 'meta').then(function (m) { meta = m; return more(0); })
+      .then(function () { return call('api_exportAll', 'tabs'); }).then(function (t) { out.tabs = t; return call('api_exportAll', 'moves'); })
+      .then(function (mv) { out.moves = mv.rows; return call('api_exportAll', 'journal'); })
+      .then(function (j) {
+        var cols = meta.columns;
+        var orderRows = function (list, extra) {
+          return [cols.map(function (c) { return c.title; }).concat(extra.map(function (e) { return e[0]; }))].concat(list.map(function (o) {
+            return cols.map(function (c) { return o[c.key] == null ? '' : o[c.key]; }).concat(extra.map(function (e) { return o[e[1]] || ''; }));
+          }));
+        };
+        var sheets = [{ name: 'Commandes', rows: orderRows(orders, [['Archivée', '__archived']]) },
+          { name: 'Corbeille', rows: orderRows(out.tabs.trash || [], [['Supprimée le', '__deleted'], ['Par', '__by'], ['Motif', '__reason']]) }];
+        ['Produits', 'Dépenses', 'Clients', 'Tarifs', 'Paramètres', 'Équipe'].forEach(function (n) {
+          if (out.tabs.tabs[n]) sheets.push({ name: n, rows: out.tabs.tabs[n] });
+        });
+        sheets.push({ name: 'Mouvements stock', rows: [['Date', 'Produit', 'Modèle', 'Mouvement', 'Quantité', 'Stock après', 'Coût unitaire', 'Commande', 'Par', 'Note']].concat(out.moves || []) });
+        sheets.push({ name: 'Journal', rows: [['Date', 'Qui', 'Commande', 'Action', 'Détail']].concat(j.rows.map(function (x) { return [String(x.at).replace('T', ' ').slice(0, 19), x.who, x.order_id, x.action, x.detail]; })) });
+        var blob = xlsxBlob(sheets);
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'sauvegarde-' + String(meta.shop || 'dz-smart-shop').toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + new Date().toISOString().slice(0, 10) + '.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        return call('api_exportAll', 'done');
+      })
+      .then(function () {
+        busy(el, false);
+        S.boot.cloud.lastExport = new Date().toISOString();
+        toast('Sauvegarde téléchargée : ' + orders.length + ' commandes.');
+        renderTab();
+        if (DZ.showBackupBanner) DZ.showBackupBanner();
+      })
+      .catch(function (e) { busy(el, false); toast(errText(e), true); });
   }
 
   var TAB_RENDER = { etat: renderHealth, connexions: renderConnections, reglages: renderSettings, equipe: renderTeam, clients: renderClients, classeur: renderSheet };
@@ -419,11 +645,50 @@
     },
     'admin-cloud-stop-go': function (el) { DZ.closeModal(); saveConnection('api_cloudStopLive', [], el); },
     'admin-save-settings': saveSettings,
-    'admin-team-add': function (el) { var f = formData('f-team'); teamCall('api_teamSave', [{ email: f.email, name: f.name, role: f.role }], el); },
+    'admin-team-add': function (el) {
+      var f = formData('f-team');
+      var cloud = !!(AD.team && AD.team.auth);
+      busy(el, true);
+      call('api_teamSave', { email: f.email || '', name: f.name, role: f.role, phone: f.phone || '' }).then(function (r) {
+        AD.team = r.team;
+        renderTab();
+        var m = memberByKey(r.key);
+        // Version Cloudflare : mot de passe provisoire tout de suite, à lui envoyer.
+        if (cloud && m && m.phone && !(m.auth && m.auth.password)) {
+          return call('api_authTemp', r.key).then(function (t) { showTemp(t); return call('api_teamList'); }).then(function (team) { AD.team = team; renderTab(); });
+        }
+        toast(r.message);
+      }).catch(function (e) { busy(el, false); toast(errText(e), true); });
+    },
+    'admin-team-temp': function (el) {
+      var m = memberByKey(el.getAttribute('data-key'));
+      if (!m) return;
+      AD.tempKey = m.key;
+      DZ.confirmModal('Nouveau mot de passe provisoire pour ' + m.name + ' ?', 'Son mot de passe actuel ne marchera plus et ses appareils seront déconnectés. Vous lui enverrez le nouveau (WhatsApp).', 'admin-team-temp-go', 'Créer');
+    },
+    'admin-team-temp-go': function (el) {
+      busy(el, true);
+      call('api_authTemp', AD.tempKey).then(function (r) { showTemp(r); return call('api_teamList'); }).then(function (team) { AD.team = team; renderTab(); })
+        .catch(function (e) { busy(el, false); toast(errText(e), true); });
+    },
+    'admin-team-revoke': function (el) {
+      busy(el, true);
+      call('api_authRevoke', el.getAttribute('data-key')).then(function (r) { toast(r.message); return call('api_teamList'); }).then(function (team) { AD.team = team; renderTab(); })
+        .catch(function (e) { busy(el, false); toast(errText(e), true); });
+    },
+    'admin-team-edit': function (el) { editMember(el.getAttribute('data-key')); },
+    'admin-team-edit-go': function (el) {
+      var f = formData('f-team-edit');
+      var m = memberByKey(AD.editing);
+      if (!m) return;
+      DZ.closeModal();
+      teamCall('api_teamSave', [{ key: m.key, email: f.email === undefined ? m.email : f.email, name: f.name, role: f.role || m.role, phone: f.phone === undefined ? m.phone : f.phone }], el);
+    },
     'admin-team-remove': function (el) {
-      var email = el.getAttribute('data-email');
-      DZ.confirmModal('Retirer ' + email + ' ?', 'Elle n’aura plus accès à l’application ni au classeur.', 'admin-team-remove-go', 'Retirer');
-      AD.removing = email;
+      var m = memberByKey(el.getAttribute('data-key'));
+      if (!m) return;
+      DZ.confirmModal('Retirer ' + m.name + ' ?', AD.team.auth ? 'Elle est déconnectée tout de suite et ne pourra plus entrer.' : 'Elle n’aura plus accès à l’application ni au classeur.', 'admin-team-remove-go', 'Retirer');
+      AD.removing = m.key;
     },
     'admin-team-remove-go': function () { DZ.closeModal(); teamCall('api_teamRemove', [AD.removing], null); },
     'admin-black-on': function (el) {
@@ -442,6 +707,7 @@
       call('api_clearFlag', el.getAttribute('data-phone')).then(function (r) { toast(r.message); AD.clients = r.clients; renderTab(); })
         .catch(function (e) { busy(el, false); toast(errText(e), true); });
     },
+    'admin-export-all': exportAll,
     'admin-repair': function (el) { simple('api_repair', el, function () { AD.settings = null; }); },
     'admin-archive': function (el) { toast('Entretien en cours…'); simple('api_archiveNow', el); },
     'admin-stats': function (el) { simple('api_rebuildStats', el); }
@@ -450,9 +716,15 @@
   /** Champs de la page : aperçu des SMS, changement de rôle, groupe de réglages ouvert. */
   function onChange(e) {
     if (e.target.hasAttribute('data-team-role')) {
-      var email = e.target.getAttribute('data-team-role');
-      var m = (AD.team.members || []).filter(function (x) { return x.email === email; })[0];
-      teamCall('api_teamSave', [{ email: email, name: m ? m.name : '', role: e.target.value }], e.target);
+      var m = memberByKey(e.target.getAttribute('data-team-role'));
+      if (m) teamCall('api_teamSave', [{ key: m.key, email: m.email, phone: m.phone, name: m.name, role: e.target.value }], e.target);
+      return true;
+    }
+    if (e.target.hasAttribute('data-auth-only')) {
+      var on = e.target.checked;
+      e.target.disabled = true;
+      call('api_authSettings', { pwdOnly: on }).then(function (r) { toast(r.message); AD.team.auth.pwdOnly = r.pwdOnly; renderTab(); })
+        .catch(function (err) { toast(errText(err), true); renderTab(); });
       return true;
     }
     return false;

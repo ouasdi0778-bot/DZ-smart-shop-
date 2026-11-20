@@ -64,3 +64,17 @@ CREATE TABLE IF NOT EXISTS moves (seq INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT
 -- Résumé de chaque jour (Statistiques, Bénéfices) ; stale > 0 : à recalculer (une commande de ce jour a changé).
 CREATE TABLE IF NOT EXISTS days (day TEXT PRIMARY KEY, data TEXT NOT NULL DEFAULT '', stale INTEGER NOT NULL DEFAULT 1);
 CREATE INDEX IF NOT EXISTS days_stale ON days(stale);
+
+-- v1.11 : connexion par téléphone et mot de passe (sans Google). Mots de passe gardés chiffrés (PBKDF2).
+CREATE TABLE IF NOT EXISTS auth (
+  phone TEXT PRIMARY KEY, hash TEXT NOT NULL DEFAULT '', salt TEXT NOT NULL DEFAULT '', iter INTEGER NOT NULL DEFAULT 0,
+  temp INTEGER NOT NULL DEFAULT 0, fails INTEGER NOT NULL DEFAULT 0, locked TEXT NOT NULL DEFAULT '',
+  rescue TEXT NOT NULL DEFAULT '', code TEXT NOT NULL DEFAULT '', code_until TEXT NOT NULL DEFAULT '', code_tries INTEGER NOT NULL DEFAULT 0,
+  code_sent TEXT NOT NULL DEFAULT '[]', updated TEXT NOT NULL DEFAULT ''
+);
+-- Appareils connectés (30 jours) : un jeton par appareil, qu'on peut couper.
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY, phone TEXT NOT NULL, created TEXT NOT NULL, seen TEXT NOT NULL, device TEXT NOT NULL DEFAULT '',
+  temp INTEGER NOT NULL DEFAULT 0, revoked INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS sessions_phone ON sessions(phone);

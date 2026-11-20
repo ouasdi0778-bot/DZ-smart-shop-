@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.10
+## Ce que fait la version 1.11
 
 | Écran | Contenu |
 |---|---|
@@ -18,7 +18,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 | **Stock** | Une ligne par modèle avec le **disponible en couleur**, recherche, filtres et tri, photos, **packs**, variantes créées d'un coup, commandes qui réservent, fusionner, masquer ou supprimer un modèle, entrées, inventaire, **annuler un mouvement mal tapé**, export Excel / feuille d'inventaire / **valeur du stock à une date** (administrateur et magasinier) |
 | **Bénéfices** | Bénéfice net sur la **période de votre choix** comparé à la période d'avant, **graphiques** (bénéfice par jour, où part l'argent, seuil de rentabilité, simulateur du taux de livraison), produits classés par bénéfice **après pub** (chaque pub reliée à son produit), publicité (coût par livrée, ROAS), **dépenses et gains** sur un jour ou un intervalle, à corriger ou supprimer (administrateur) |
 | **Statistiques** | Commandes et argent par période, comparés à la période d'avant : **ce qui a changé** en phrases, parcours des commandes avec les pertes et leurs motifs, **carte des wilayas**, heures × jours, **meilleure heure pour appeler**, vitesse de confirmation, bureau ou domicile, produits, **équipe** (appels, réponses, objectif du jour, prime), publicité (**qualité des sources**), **filtre croisé** (une wilaya, un produit, une campagne, une source ou une confirmatrice), où est l'argent et versements d'Ecotrack ; tableaux triables, export pour Excel (administrateur) |
-| **Administration** | État de l'outil, connexions (Ecotrack, SMS, Shopify, Releasit), réglages en formulaires, équipe, clients, entretien du classeur (administrateur) |
+| **Administration** | État de l'outil, connexions (Ecotrack, SMS, Shopify, Releasit), réglages en formulaires, équipe (**connexion par téléphone et mot de passe**, version Cloudflare), clients, sauvegarde **Tout exporter (Excel)**, entretien (administrateur) |
 
 Ce qui se passe tout seul :
 
@@ -611,6 +611,41 @@ Un nouveau basculement fait directement l'étape 3. Après un basculement à l'�
 - **Limites gratuites de Cloudflare** : chaque action reste sous la limite de calcul (mesuré sur 7 200 commandes : Statistiques 6 ms, Bénéfices 3 à 4 ms, Stock et Confirmation 1 ms). Dans Statistiques › Argent, les versements d'Ecotrack sont listés sur 120 jours au plus.
 - **Retour en arrière** : comme à l'étape 2 (« Revenir à l'application Google »), tout est recopié avant.
 
+### v1.11 : connexion par téléphone et mot de passe, Apps Script réduit à un relais RELEASIT
+
+Objectif : l'équipe n'ouvre plus jamais de lien Google (plus d'erreur « Impossible d'ouvrir le fichier », plus besoin de Gmail ni du partage du classeur). Apps Script ne garde qu'un rôle : **lire l'onglet RELEASIT** et l'envoyer à Cloudflare.
+
+**Connexion par téléphone et mot de passe** (version Cloudflare, étape 3)
+
+- Page de connexion : **téléphone** (identifiant, colonne **Téléphone** de l'onglet Équipe) + **mot de passe**. Connecté 30 jours sur l'appareil.
+- **Administration › Équipe** : ajouter une personne avec son prénom, son téléphone et son rôle (Gmail facultatif). Un **mot de passe provisoire** (ex. `K7M4-QXPA`) est affiché une seule fois, avec **Envoyer par WhatsApp** (lien, identifiant, mot de passe). À la première connexion, elle choisit **son propre mot de passe** (6 caractères au moins).
+- Pour chaque personne : état (mot de passe, provisoire, bloquée), appareils connectés, **Mot de passe provisoire** (oubli), **Déconnecter** (téléphone perdu), **Modifier**, **Retirer** (accès coupé tout de suite).
+- **Sécurité** : mots de passe gardés chiffrés (PBKDF2, jamais lisibles, jamais recopiés dans le classeur), **5 essais faux = bloqué 15 minutes**, chaque connexion et chaque refus notés dans le Journal, changer son mot de passe déconnecte ses autres appareils.
+- **Mot de passe oublié** : **code à 6 chiffres par SMS** sur son téléphone (10 minutes, 3 codes par heure), ou nouveau mot de passe provisoire donné par l'administrateur. Administrateur : **code de secours** (ex. `7KQ2-M9XA-4TPL`) donné à la création de son mot de passe, à noter sur papier ; il ne sert qu'une fois (un nouveau est alors donné).
+- **Mon compte** (toucher son nom en bas du menu, ou en haut sur téléphone) : changer son mot de passe, déconnecter ses autres appareils, se déconnecter, nouveau code de secours (administrateur).
+- **Connexion par mot de passe seulement** (Administration › Équipe) : coupe la connexion par Google. Possible seulement quand l'administrateur a son propre mot de passe.
+
+**Relais RELEASIT** (`dist/Relais.gs`, environ 200 lignes, à la place de `dist/Code.gs`)
+
+- Chaque minute : les nouvelles lignes de RELEASIT (par lots de 50) partent vers Cloudflare, qui les transforme en commandes avec **la même logique** que la version Google (téléphone, wilaya, commune, type de livraison, plusieurs produits, doublons), puis envoie **tout de suite** le SMS « commande reçue ». Sans nouvelle ligne : un simple « je suis là ».
+- Il reprend exactement là où l'ancien code s'était arrêté (même repère `RELEASIT_MARK`). Lignes effacées dans RELEASIT : les 200 dernières sont renvoyées, sans doublon (7 derniers jours). L'onglet n'est jamais modifié.
+- Le classeur ne reçoit plus de copie : ses autres onglets restent comme archive. Réglages, équipe, produits, dépenses : seulement dans **Administration** (Cloudflare).
+- **Alertes par SMS** aux administrateurs qui ont un téléphone dans l'Équipe : relais muet depuis 10 minutes, Ecotrack ou Shopify en panne… un SMS, puis « rétabli ». (Une panne des SMS eux-mêmes reste visible dans l'application.)
+- **Sauvegarde** : Administration › Classeur › **Tout exporter (Excel)** : un fichier .xlsx avec commandes (archive comprise), corbeille, produits, dépenses, clients, tarifs, réglages, équipe (sans mots de passe), mouvements de stock et Journal. Rappel dans l'application après 7 jours. La base Cloudflare peut aussi être remise à n'importe quelle minute des 7 derniers jours.
+
+**Passage, dans l'ordre** (rien ne s'arrête : l'ancienne façon marche jusqu'au bout)
+
+1. Ouvrez l'application Cloudflare (connexion Google comme avant) : bandeau **« Créez votre mot de passe »** → votre téléphone + mot de passe → **notez le code de secours**.
+2. **Administration › Équipe** : ajoutez le téléphone de chaque personne (Modifier), puis **Mot de passe provisoire** → WhatsApp. Chacun se connecte et choisit son mot de passe (colonne Connexion : « ✓ Mot de passe »).
+3. Dans le classeur : **Extensions › Apps Script**, remplacez tout le contenu de Code.gs par **dist/Relais.gs**, enregistrez. Rechargez le classeur : menu **DZ Smart Shop › Installer le relais** (autorisation Google demandée une fois). Les anciennes tâches automatiques sont supprimées.
+4. Vérifiez : **Administration › Connexions › Releasit** (« Relais actif ») ; passez une commande test.
+5. Apps Script › **Déployer › Gérer les déploiements › Archiver** : l'ancien lien Google ne s'ouvre plus.
+6. **Administration › Équipe** : cochez **Connexion par mot de passe seulement**.
+7. Classeur › **Partager** : retirez les confirmatrices (il ne reste que vous).
+8. Une fois par semaine : **Administration › Classeur › Tout exporter**.
+
+Retour en arrière possible : recoller **dist/Code.gs** (les clés Ecotrack et SMS sont restées dans les propriétés du script) puis « Installer / réparer le classeur ».
+
 ### Comment ça marche
 
 - **Connexion** : l'application Cloudflare renvoie vers le lien de cette application Google avec `?cf=1`. Google sait qui vous êtes ; un **jeton signé** (valable 30 jours sur l'appareil) vous renvoie vers Cloudflare. Seuls les membres de l'onglet **Équipe** (et le propriétaire du classeur) entrent.
@@ -629,6 +664,7 @@ Un nouveau basculement fait directement l'étape 3. Après un basculement à l'�
    npx wrangler d1 execute dz-smart-shop --remote --file schema.sql   # une fois (déjà fait)
    npx wrangler d1 execute dz-smart-shop --remote --file migrations/0002-etape2.sql   # v1.5 (déjà fait)
    npx wrangler d1 execute dz-smart-shop --remote --file migrations/0003-etape3.sql   # v1.6 (déjà fait)
+   npx wrangler d1 execute dz-smart-shop --remote --file migrations/0004-connexion.sql   # v1.11 (déjà fait)
    npx wrangler deploy                                                # à chaque nouvelle version
    ```
    La page de l'interface est intégrée au moteur : une seule mise en ligne, rien d'autre à envoyer.
@@ -639,7 +675,7 @@ Un nouveau basculement fait directement l'étape 3. Après un basculement à l'�
 
 ```
 npm run cf:build    # cloudflare/dist/worker.js et cloudflare/public/index.html
-npm run cf:test     # 20 tests : la version Cloudflare (base SQLite locale) comparée à la version Google (Stock, Bénéfices, Statistiques compris), Ecotrack, SMS et Shopify contre de faux serveurs
+npm run cf:test     # 23 tests : la version Cloudflare (base SQLite locale) comparée à la version Google (Stock, Bénéfices, Statistiques compris), Ecotrack, SMS et Shopify contre de faux serveurs
 npm run cf:serve    # la version Cloudflare sur http://localhost:8787/connexion, avec les données d'exemple
 node cloudflare/test/serve.js 8787 --etape2   # la même, après le basculement (Expédier, Suivi, faux Ecotrack et SMS)
 node cloudflare/test/serve.js 8787 --etape3   # tout dans Cloudflare (Stock, Bénéfices, Statistiques, Administration)
@@ -654,7 +690,8 @@ cloudflare/
                       Shopify (action rejouée avec les réponses), onglets lus à la demande, résumés par jour,
                       tâches de chaque minute, pont avec Apps Script
   src/gas-shim.js     (aussi) imitation des onglets du classeur gardés dans la base (étape 3)
-  src/client-cloud.*  l'interface : google.script.run → /api, écran de connexion, étape 1 ou 2
+  src/client-cloud.*  l'interface : google.script.run → /api, écran de connexion (téléphone et mot de passe), étape 1 ou 2
+relay/Relais.gs       le relais RELEASIT (v1.11) : copié dans dist/Relais.gs par npm run bundle
   migrations/         changements de la base pour les versions suivantes
   build.js            assemble le moteur (code de apps-script/ compris) et la page
   wrangler.toml       configuration Cloudflare
@@ -668,8 +705,8 @@ apps-script/Cloud.gs  côté Google : relier, copier les données, page de conne
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 149 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
-npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
+npm test          # 150 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script) et dist/Relais.gs (le relais RELEASIT)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```
 

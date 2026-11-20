@@ -4637,6 +4637,83 @@ test('fichier unique dist/Code.gs : à jour et fonctionnel', function () {
   assert.strictEqual(sandbox.__mock.ss().timeZone, 'Africa/Algiers');
 });
 
+test('Relais RELEASIT (dist/Relais.gs) : à jour, installation, lots, « je suis là », repère perdu, erreur', function () {
+  var bundle = require('./build-bundle.js');
+  var expected = bundle.buildRelay();
+  var current = fs.existsSync(bundle.RELAY_OUT) ? fs.readFileSync(bundle.RELAY_OUT, 'utf8') : '';
+  assert.ok(current === expected, 'dist/Relais.gs n’est pas à jour : lancez « npm run bundle »');
+  assert.ok(!/__VERSION__/.test(expected) && expected.indexOf(APP_VERSION) > 0, 'version écrite dans le relais');
+
+  // Le relais tourne seul (sans l'ancien code), dans un environnement neuf, contre une fausse application Cloudflare.
+  var box = { console: console, Proxy: Proxy };
+  box.globalThis = box;
+  vm.createContext(box);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, 'gas-mock.js'), 'utf8'), box);
+  vm.runInContext("UrlFetchApp = { fetch: function (url) { throw new Error('Adresse inattendue : ' + url); } };", box);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, 'fake-cloud.js'), 'utf8'), box);
+  vm.runInContext(expected, box, { filename: 'dist/Relais.gs' });
+  var run = function (code) { return vm.runInContext(code, box); };
+  var J = function (x) { return JSON.parse(JSON.stringify(x)); }; // objets d'un autre environnement
+  var cloud = box.__fakeCloud;
+  var sh = run("SpreadsheetApp.getActiveSpreadsheet().insertSheet('RELEASIT')");
+  sh.appendRow(['Order ID', 'Date', 'Nom', 'Téléphone', 'Wilaya', 'Produit', 'Prix total']);
+  for (var i = 1; i <= 3; i++) sh.appendRow(['#' + (100 + i), '2026-11-20 10:0' + i + ':00', 'Client ' + i, '0550000' + (100 + i), 'Alger', 'Montre', 3500]);
+  var props = run('PropertiesService.getScriptProperties()');
+  assert.throws(function () { run('installerRelais()'); }, /pas relié à l’application Cloudflare/);
+  props.setProperty('CF_URL', cloud.host + '/');
+  props.setProperty('CF_SECRET', 'cle-du-relais');
+  cloud.secret = 'cle-du-relais';
+  // Anciennes tâches automatiques (ancien Code.gs) : supprimées à l'installation.
+  run("ScriptApp.newTrigger('everyMinute').timeBased().everyMinutes(1).create(); ScriptApp.newTrigger('nightly').timeBased().everyDays(1).atHour(3).create();");
+  var msg = run('installerRelais()');
+  assert.ok(/Relais installé/.test(msg) && /3 nouvelle\(s\) commande\(s\)/.test(msg), msg);
+  assert.deepStrictEqual(J(run('ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction() + ":" + t.minutes; })')), ['relaisReleasit:1']);
+  var calls = cloud.byPath('/bridge/releasit');
+  assert.strictEqual(calls[0].body.install, true);
+  assert.strictEqual(calls[0].key, 'cle-du-relais');
+  assert.deepStrictEqual(J([calls[1].body.from, calls[1].body.rows.length, calls[1].body.more, calls[1].body.resync]), [2, 3, false, true], 'sans repère : les dernières lignes, 7 derniers jours');
+  assert.deepStrictEqual(J(calls[1].body.header.slice(0, 2)), ['Order ID', 'Date']);
+  assert.deepStrictEqual(JSON.parse(props.getProperty('RELEASIT_MARK')), { row: 4, id: '#103', col: 1 });
+
+  // Rien de nouveau : seulement « je suis là » (sans lignes).
+  cloud.calls = [];
+  assert.strictEqual(run('relaisReleasit()').added, 0);
+  assert.deepStrictEqual(J(Object.keys(cloud.calls[0].body).sort()), ['lastRow', 'version']);
+
+  // 60 nouvelles lignes : deux lots (50 + 10), dans le même passage.
+  for (i = 4; i <= 63; i++) sh.appendRow(['#' + (100 + i), '2026-11-20 11:00:00', 'Client ' + i, '0550000' + (100 + i), 'Oran', 'Sac', 2900]);
+  cloud.calls = [];
+  assert.strictEqual(run('relaisReleasit()').added, 60);
+  var lots = cloud.byPath('/bridge/releasit').map(function (c) { return [c.body.from, c.body.rows.length, c.body.more, c.body.resync]; });
+  assert.deepStrictEqual(J(lots), [[5, 50, true, false], [55, 10, false, false]]);
+  assert.deepStrictEqual(JSON.parse(props.getProperty('RELEASIT_MARK')), { row: 64, id: '#163', col: 1 });
+  assert.ok(/Tâche de chaque minute : active/.test(run('etatRelais()')) && /#163/.test(run('etatRelais()')));
+
+  // Lignes effacées dans RELEASIT : repère perdu, les dernières lignes sont renvoyées (l'application écarte les doublons).
+  sh.deleteRows(2, 40);
+  cloud.calls = [];
+  run('relaisReleasit()');
+  var c = cloud.byPath('/bridge/releasit')[0].body;
+  assert.deepStrictEqual(J([c.from, c.rows.length, c.resync]), [2, 23, true]);
+
+  // Une date du classeur garde son type ; l'onglet n'est jamais modifié.
+  sh.appendRow(['#200', new Date(Date.UTC(2026, 10, 20, 9, 30)), 'Client daté', '0661000200', 'Blida', 'Montre', 3500]);
+  cloud.calls = [];
+  run('relaisReleasit()');
+  assert.deepStrictEqual(J(cloud.byPath('/bridge/releasit')[0].body.rows[0][1]), { $d: '2026-11-20T09:30:00.000Z' });
+  assert.strictEqual(sh.getLastRow(), 25);
+
+  // Erreur de l'application : gardée et affichée, le repère ne bouge pas.
+  sh.appendRow(['#201', '2026-11-20 12:00:00', 'Client 201', '0661000201', 'Blida', 'Montre', 3500]);
+  cloud.refuse = 'Onglet RELEASIT : colonne « Order ID » introuvable.';
+  var before = props.getProperty('RELEASIT_MARK');
+  assert.throws(function () { run('relaisReleasit()'); }, /colonne « Order ID »/);
+  assert.strictEqual(props.getProperty('RELEASIT_MARK'), before);
+  assert.ok(/Dernière erreur : Application Cloudflare : Onglet RELEASIT/.test(run('etatRelais()')));
+  cloud.refuse = '';
+  assert.strictEqual(run('relaisReleasit()').added, 1, 'repris au passage suivant');
+});
+
 /* ---------------- Lancement ---------------- */
 
 var failed = 0;

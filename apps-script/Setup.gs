@@ -126,7 +126,7 @@ function migrateOnce_(sh, flag, fn) {
 }
 
 function setupTeamSheet_(ss) {
-  var sh = setupSimpleSheet_(ss, SHEET.TEAM, ['Email', 'Nom', 'Rôle'], [240, 160, 160]);
+  var sh = setupSimpleSheet_(ss, SHEET.TEAM, TEAM_TITLES_, [240, 160, 160, 140]);
   if (sh.getLastRow() < 2) {
     var email = '';
     try { email = Session.getEffectiveUser().getEmail(); } catch (e) { email = ''; }

@@ -819,6 +819,233 @@ test('Étape 3 · Shopify lu par Cloudflare ; SMS « reçue » ; entretien de nu
   assert.ok(ch.some((c) => c.kind === 'archive' && c.id === String(old.id)));
 });
 
+test('v1.11 · Relais RELEASIT : mêmes commandes que la version Google, SMS « reçue » tout de suite, mode relais (plus de recopie)', async () => {
+  await fresh(true, true);
+  // Le relais (dist/Relais.gs) tourne dans son propre environnement, sur le même classeur.
+  const relay = { console: console, SpreadsheetApp: SpreadsheetApp, Utilities: Utilities };
+  const store = {};
+  relay.PropertiesService = { getScriptProperties: () => ({ getProperty: (k) => (k in store ? store[k] : null), setProperty: (k, v) => { store[k] = String(v); }, deleteProperty: (k) => { delete store[k]; } }) };
+  vm.createContext(relay);
+  vm.runInContext(require('../../tests/build-bundle.js').buildRelay(), relay, { filename: 'dist/Relais.gs' });
+  /** Un passage du relais : ses lots envoyés au moteur, son repère mis à jour. */
+  async function relayPass(resync) {
+    const out = [];
+    for (let i = 0; i < 10; i++) {
+      const job = relay.relaisPrepare_(resync);
+      const res = await bridge('/bridge/releasit', JSON.parse(JSON.stringify(job.payload)));
+      relay.relaisApply_(job, res);
+      out.push(res);
+      if (!job.payload.rows || !job.payload.more) break;
+    }
+    return out;
+  }
+  // Installation : mode relais, plus de connexion par Google, changements en attente oubliés.
+  const before = (await bridge('/bridge/changes', { after: 0 })).changes.length;
+  await bridge('/bridge/releasit', { install: true, version: APP_VERSION });
+  assert.ok(before >= 0);
+  const info = await call(new Request(HOST + '/auth/info'));
+  assert.strictEqual(info.body.data.gateway, '', 'plus de lien Google');
+  assert.strictEqual((await env.DB.prepare('SELECT COUNT(*) AS n FROM changes').first()).n, 0);
+  // Repère de l'ancien code (onglet déjà lu) : le relais reprend après.
+  store.RELEASIT_MARK = PropertiesService.getScriptProperties().getProperty('RELEASIT_MARK');
+  const first = await relayPass(false);
+  assert.deepStrictEqual(first.map((r) => r.added.length), [0], 'rien de nouveau : « je suis là »');
+  // Nouvelles lignes Releasit : une commande à deux produits (deux lignes), une simple.
+  releasitTab_();
+  releasitRow_('9501', '0550112233');
+  releasitRow_('9501', '0550112233');
+  const sh = releasitTab_();
+  const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  const pcol = releasitColumns_(head).product;
+  sh.getRange(sh.getLastRow(), pcol + 1).setValue('Montre connectée');
+  releasitRow_('9502', '0661223344');
+  const mark0 = JSON.parse(store.RELEASIT_MARK);
+  const sent = __fakeHttpsms.messages.length;
+  const res = await relayPass(false);
+  assert.deepStrictEqual(res[0].added, ['9501', '9502']);
+  // La version Google, sur les mêmes lignes, donne les mêmes commandes.
+  transferReleasitOrders_();
+  for (const id of ['9501', '9502']) {
+    const w = await dbOrder(id);
+    const g = sheetOrder(id);
+    ['client', 'phone', 'wilaya', 'commune', 'address', 'product', 'qty', 'price', 'shipping', 'total', 'mode', 'status', 'source', 'alert'].forEach((k) => {
+      assert.strictEqual(String(w[k]), String(g[k]), id + ' ' + k);
+    });
+    assert.strictEqual(Math.abs(Date.parse(w.date) - Date.parse(g.date)) < 1000, true, id + ' date');
+  }
+  assert.ok(/\+/.test((await dbOrder('9501')).product), 'deux lignes = une commande à deux produits');
+  // SMS « commande reçue » envoyé tout de suite (pas en file pour la minute suivante).
+  assert.strictEqual(__fakeHttpsms.messages.length - sent, 2, 'deux SMS partis');
+  assert.ok(!(await kvQueue()).some((x) => x.i === '9501'));
+  assert.strictEqual(JSON.parse(store.RELEASIT_MARK).row, mark0.row + 3);
+  // Mode relais : rien n'est noté pour une recopie dans le classeur.
+  assert.strictEqual((await env.DB.prepare('SELECT COUNT(*) AS n FROM changes').first()).n, 0);
+  // Pas de doublon : lignes renvoyées après un repère perdu.
+  delete store.RELEASIT_MARK;
+  const again = await relayPass(false);
+  assert.deepStrictEqual(again.map((r) => r.added.length), [0]);
+  // État du relais dans l'application (Administration, état de l'outil).
+  const ov = await api('api_adminOverview');
+  assert.ok(ov.connections.releasit.relay && ov.connections.releasit.relay.on);
+  assert.deepStrictEqual(ov.connections.releasit.relay.lastIds, ['9501', '9502']);
+  const relayTask = ov.health.tasks.filter((t) => t.key === 'sheet')[0];
+  assert.strictEqual(relayTask.state, 'ok');
+  assert.ok(/Relais RELEASIT/.test(relayTask.label));
+  // Onglet sans colonne « Order ID » : erreur gardée et renvoyée au relais.
+  await assert.rejects(bridge('/bridge/releasit', { header: ['Nom'], rows: [['x']], from: 2 }), /Order ID/);
+  assert.ok(/Order ID/.test((await api('api_adminOverview')).connections.releasit.lastError));
+});
+
+test('v1.11 · Connexion par téléphone et mot de passe : provisoire, 5 essais, code SMS, code de secours, appareils, mot de passe seulement', async () => {
+  await fresh(true, true);
+  const post = async (p, body, token) => call(new Request(HOST + p, { method: 'POST', headers: { 'content-type': 'application/json', authorization: token ? 'Bearer ' + token : '', 'user-agent': 'Mozilla/5.0 (Linux; Android 14) Chrome/120' }, body: JSON.stringify(body || {}) }));
+  const apiTok = async (token, fn, ...args) => call(new Request(HOST + '/api/' + fn, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token }, body: JSON.stringify(args) }));
+  const info0 = (await call(new Request(HOST + '/auth/info'))).body.data;
+  assert.strictEqual(info0.password, true, 'étape 3 : connexion par mot de passe proposée');
+  assert.ok(info0.gateway, 'et encore par Google');
+
+  // L'administrateur (connecté par Google) crée son mot de passe : son téléphone devient son identifiant.
+  const boot0 = await api('api_bootstrap');
+  assert.deepStrictEqual([boot0.cloud.auth.via, boot0.cloud.auth.hasPassword], ['google', false]);
+  await assert.rejects(api('api_authMine', { phone: '0550 11 22 33', password: '123' }), /trop court/);
+  await assert.rejects(api('api_authMine', { phone: '0550 11 22 33', password: '0550112233' }), /numéro de téléphone/);
+  const mine = await api('api_authMine', { phone: '0550 11 22 33', password: 'motdepasse1' });
+  assert.ok(/^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(mine.rescue), 'code de secours donné une fois');
+  assert.ok(/^v2\./.test(mine.token), 'cet appareil passe au mot de passe');
+  assert.ok((await teamTabCf()).some((r) => r[0] === 'admin@example.com' && String(r[3]) === '0550112233'), 'téléphone écrit dans l’onglet Équipe');
+  const boot1 = (await apiTok(mine.token, 'api_bootstrap')).body.data;
+  assert.deepStrictEqual([boot1.cloud.auth.via, boot1.user.admin], ['password', true]);
+  const pwRow = await env.DB.prepare("SELECT hash, salt, iter FROM auth WHERE phone = '0550112233'").first();
+  assert.ok(pwRow.hash && pwRow.hash.indexOf('motdepasse1') < 0 && pwRow.iter >= 10000, 'mot de passe gardé chiffré');
+
+  // Une confirmatrice sans Gmail : téléphone + mot de passe provisoire.
+  const add = await api('api_teamSave', { name: 'Sara', phone: '0661 22 33 44', role: 'Confirmatrice' });
+  assert.strictEqual(add.key, 'tel:0661223344');
+  assert.ok(!/partagé/.test(add.message), 'sans Gmail : pas de partage du classeur');
+  const sara = add.team.members.filter((m) => m.key === 'tel:0661223344')[0];
+  assert.deepStrictEqual([sara.phone, sara.auth.password], ['0661223344', false]);
+  await assert.rejects(api('api_teamSave', { name: 'Autre', phone: '0661223344', role: 'Confirmatrice' }), /déjà utilisé/);
+  const temp = await api('api_authTemp', 'tel:0661223344');
+  assert.ok(/^[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(temp.password));
+  // Première connexion : le provisoire (même tapé en minuscules, sans tiret), puis son propre mot de passe.
+  let r = await post('/auth/login', { phone: '+213 661 22 33 44', password: temp.password.replace('-', '').toLowerCase() });
+  assert.strictEqual(r.body.ok, true, JSON.stringify(r.body));
+  assert.strictEqual(r.body.data.change, true);
+  const tTemp = r.body.data.token;
+  r = await apiTok(tTemp, 'api_bootstrap');
+  assert.strictEqual(r.body.code, 'change', 'provisoire : il faut d’abord choisir son mot de passe');
+  r = await post('/auth/change', { password: 'sara2026' }, tTemp);
+  assert.strictEqual(r.body.ok, true, JSON.stringify(r.body));
+  r = await apiTok(tTemp, 'api_bootstrap');
+  assert.strictEqual(r.body.ok, true);
+  assert.deepStrictEqual([r.body.data.user.name, r.body.data.user.admin], ['Sara', false]);
+  assert.strictEqual((await apiTok(tTemp, 'api_teamList')).body.ok, false, 'pas l’administration');
+  // Mauvais mot de passe : refusé, message identique pour un numéro inconnu.
+  r = await post('/auth/login', { phone: '0661223344', password: 'faux' });
+  assert.deepStrictEqual([r.status, r.body.error], [401, 'Téléphone ou mot de passe incorrect.']);
+  r = await post('/auth/login', { phone: '0699999999', password: 'faux' });
+  assert.deepStrictEqual([r.status, r.body.error], [401, 'Téléphone ou mot de passe incorrect.']);
+  // Deuxième appareil.
+  r = await post('/auth/login', { phone: '0661223344', password: 'sara2026' });
+  const tSara2 = r.body.data.token;
+  const team1 = await api('api_teamList');
+  assert.strictEqual(team1.members.filter((m) => m.key === 'tel:0661223344')[0].auth.devices, 2);
+
+  // Mot de passe oublié : code par SMS (sur son téléphone), 10 minutes.
+  const before = __fakeHttpsms.messages.length;
+  r = await post('/auth/sms', { phone: '0661 22 33 44' });
+  assert.ok(r.body.ok && /code/.test(r.body.data.message), JSON.stringify(r.body));
+  const sms = __fakeHttpsms.messages.slice(before)[0];
+  assert.ok(/0661223344$/.test(sms.to.replace(/\D/g, '')) || /661223344/.test(sms.to), sms.to);
+  const code = sms.content.match(/(\d{6})/)[1];
+  r = await post('/auth/sms-check', { phone: '0661223344', code: '000000', password: 'nouveau22' });
+  assert.ok(!r.body.ok && /Code incorrect/.test(r.body.error));
+  r = await post('/auth/sms-check', { phone: '0661223344', code: code, password: 'nouveau22' });
+  assert.ok(r.body.ok, JSON.stringify(r.body));
+  assert.strictEqual((await apiTok(tSara2, 'api_bootstrap')).body.code, 'auth', 'nouveau mot de passe : les autres appareils sont déconnectés');
+  const tSara3 = r.body.data.token;
+  assert.strictEqual((await apiTok(tSara3, 'api_bootstrap')).body.ok, true);
+
+  // 5 essais faux : bloqué 15 minutes, même avec le bon mot de passe.
+  for (let i = 0; i < 5; i++) await post('/auth/login', { phone: '0661223344', password: 'mauvais' + i });
+  r = await post('/auth/login', { phone: '0661223344', password: 'nouveau22' });
+  assert.deepStrictEqual([r.status, /réessayez dans 15 min/.test(r.body.error)], [429, true]);
+  await env.DB.prepare("UPDATE auth SET locked = '' WHERE phone = '0661223344'").run();
+
+  // Téléphone perdu : l'administrateur déconnecte tous ses appareils.
+  const rv = await api('api_authRevoke', 'tel:0661223344');
+  assert.ok(/déconnectée/.test(rv.message));
+  assert.strictEqual((await apiTok(tSara3, 'api_bootstrap')).body.code, 'auth');
+
+  // Code de secours de l'administrateur : nouveau mot de passe, et un nouveau code (l'ancien ne sert qu'une fois).
+  r = await post('/auth/rescue', { phone: '0550112233', code: mine.rescue.toLowerCase(), password: 'secours99' });
+  assert.ok(r.body.ok && r.body.data.rescue && r.body.data.rescue !== mine.rescue, JSON.stringify(r.body));
+  r = await post('/auth/rescue', { phone: '0550112233', code: mine.rescue, password: 'secours98' });
+  assert.ok(!r.body.ok, 'ancien code refusé');
+  r = await post('/auth/login', { phone: '0550112233', password: 'secours99' });
+  const tAdmin = r.body.data.token;
+
+  // Mot de passe seulement : la connexion par Google est coupée.
+  const set = (await apiTok(tAdmin, 'api_authSettings', { pwdOnly: true })).body;
+  assert.ok(set.ok && set.data.pwdOnly, JSON.stringify(set));
+  r = await apiRaw('admin@example.com', 'api_bootstrap', []);
+  assert.deepStrictEqual([r.status, r.body.code], [401, 'auth']);
+  assert.strictEqual((await call(new Request(HOST + '/auth/info'))).body.data.gateway, '');
+  assert.strictEqual((await apiTok(tAdmin, 'api_bootstrap')).body.ok, true);
+
+  // Retirée de l'équipe : plus de connexion possible.
+  r = await post('/auth/login', { phone: '0661223344', password: 'nouveau22' });
+  const tSara4 = r.body.data.token;
+  assert.ok((await apiTok(tAdmin, 'api_teamRemove', 'tel:0661223344')).body.ok);
+  assert.strictEqual((await apiTok(tSara4, 'api_bootstrap')).body.ok, false);
+  r = await post('/auth/login', { phone: '0661223344', password: 'nouveau22' });
+  assert.strictEqual(r.status, 401);
+  // Journal : connexions, refus, mots de passe.
+  const j = (await env.DB.prepare("SELECT action FROM journal WHERE action LIKE 'Connexion%' OR action LIKE 'Mot de passe%'").all()).results.map((x) => x.action);
+  ['Connexion', 'Connexion refusée', 'Mot de passe provisoire', 'Mot de passe changé', 'Mot de passe changé (code SMS)', 'Mot de passe changé (code de secours)'].forEach((a) => assert.ok(j.indexOf(a) >= 0, a));
+});
+
+test('v1.11 · Alertes par SMS (relais muet puis rétabli) ; sauvegarde « Tout exporter »', async () => {
+  await fresh(true, true);
+  await api('api_authMine', { phone: '0550112233', password: 'motdepasse1' }); // l'administrateur a un téléphone
+  await bridge('/bridge/releasit', { install: true, version: APP_VERSION });
+  await cron(env);
+  const n0 = __fakeHttpsms.messages.length;
+  // Le relais ne répond plus depuis 15 minutes : un SMS à l'administrateur, une seule fois.
+  await env.DB.prepare("UPDATE kv SET value = ? WHERE key = 'cf:relayAt'").bind(new Date(Date.now() - 15 * 60000).toISOString()).run();
+  await cron(env);
+  await cron(env);
+  const alerts = __fakeHttpsms.messages.slice(n0).filter((m) => /problème/.test(m.content));
+  assert.strictEqual(alerts.length, 1, JSON.stringify(__fakeHttpsms.messages.slice(n0)));
+  assert.ok(/Relais RELEASIT/.test(alerts[0].content) && /550112233/.test(alerts[0].to));
+  const h = await api('api_health');
+  assert.ok(h.problems.some((p) => p.key === 'sheet'), 'visible dans l’état de l’outil');
+  // Il revient : SMS « rétabli ».
+  await bridge('/bridge/releasit', { version: APP_VERSION, lastRow: 1 });
+  await cron(env);
+  assert.ok(__fakeHttpsms.messages.slice(n0).some((m) => /rétabli/.test(m.content)));
+  assert.ok((await env.DB.prepare("SELECT COUNT(*) AS n FROM journal WHERE action = 'Alerte SMS'").first()).n >= 2);
+
+  // Tout exporter : commandes (archive comprise) par morceaux, onglets, mouvements, Journal.
+  const meta = await api('api_exportAll', 'meta');
+  assert.ok(meta.orders > 0 && meta.columns.some((c) => c.key === 'phone' && c.title === 'Téléphone'));
+  let rows = [];
+  for (let off = 0; off >= 0;) { const r = await api('api_exportAll', 'orders', off); rows = rows.concat(r.rows); off = r.next; }
+  assert.strictEqual(rows.length, meta.orders);
+  const tabs = await api('api_exportAll', 'tabs');
+  assert.ok(tabs.tabs['Produits'].length > 1 && tabs.tabs['Équipe'].length > 1);
+  assert.ok(!JSON.stringify(tabs).includes('motdepasse1') && !JSON.stringify(tabs).includes('cf:authKey'), 'pas de mot de passe dans l’export');
+  assert.ok((await api('api_exportAll', 'journal')).rows.length > 0);
+  await api('api_exportAll', 'done');
+  assert.ok((await api('api_bootstrap')).cloud.lastExport, 'date du dernier export (rappel chaque semaine)');
+});
+
+/** Onglet Équipe tel que gardé dans la base (étape 3). */
+async function teamTabCf() {
+  const r = await env.DB.prepare("SELECT rows FROM tabs WHERE name = 'Équipe' ORDER BY part").all();
+  return (r.results || []).reduce((a, x) => a.concat(JSON.parse(x.rows)), []);
+}
+
 /* ================================================================ */
 
 let cron;
