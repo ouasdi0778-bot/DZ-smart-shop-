@@ -156,7 +156,7 @@ function placeholders(n) { return new Array(n).fill('?').join(','); }
 async function loadBase(env) {
   const [cfg, kv] = await env.DB.batch([
     env.DB.prepare('SELECT key, value FROM config'),
-    env.DB.prepare('SELECT key, value FROM kv')
+    env.DB.prepare("SELECT key, value FROM kv WHERE key NOT LIKE 'big:%'") // big:… : gros contenus, lus à la demande
   ]);
   const config = {};
   (cfg.results || []).forEach((r) => { config[r.key] = r.value; });
@@ -1028,11 +1028,43 @@ async function cron(env) {
   if (base.full) out.alerts = await alertCheck(env, await loadBase(env)).catch((e) => ({ error: String(e && e.message ? e.message : e) }));
   // 7. Notifications : rappels arrivés à leur heure.
   if (base.full) out.callbacks = await notifyCallbacks(env, base).catch((e) => ({ error: String(e && e.message ? e.message : e) }));
+  // 8. Communes d'Ecotrack : la liste officielle, relue une fois par semaine (une heure après un échec).
+  if (base.props.ECOTRACK_TOKEN && due(base, 'cf:ecoCommunesAt', base.secret['cf:ecoCommunesOk'] ? 7 * 1440 : 60)) {
+    await kvSet(env, 'cf:ecoCommunesAt', new Date().toISOString()).run();
+    out.communes = await ecotrackCommunes(env, base).catch((e) => ({ error: String(e && e.message ? e.message : e) }));
+  }
   let runs = { day: today, n: 0 };
   try { const c = JSON.parse(base.secret['cf:runs'] || 'null'); if (c && c.day === today) runs = c; } catch (e) { /* nouveau jour */ }
   runs.n++;
   await env.DB.batch([kvSet(env, 'cf:cronAt', new Date().toISOString()), kvSet(env, 'cf:runs', JSON.stringify(runs))]);
   return out;
+}
+
+/**
+ * Communes desservies par Ecotrack (GET /api/v1/get/communes) : [{ w: n° de wilaya, n: nom, p: code postal,
+ * s: 1 si bureau stop desk }], gardées dans kv « big:ecoCommunes » (lu seulement quand on en a besoin).
+ */
+function communeList(raw) {
+  const items = Array.isArray(raw) ? raw : raw && Array.isArray(raw.data) ? raw.data : raw && typeof raw === 'object' ? Object.values(raw) : [];
+  return items.filter((c) => c && typeof c === 'object').map((c) => ({
+    w: parseInt(c.wilaya_id, 10) || 0,
+    n: String(c.nom || c.name || c.commune || '').trim(),
+    p: String(c.code_postal || ''),
+    s: Number(c.has_stop_desk) === 1 ? 1 : 0
+  })).filter((c) => c.n);
+}
+async function ecotrackCommunes(env, base) {
+  const R = newReq(base, { email: '' });
+  let raw = null;
+  let err = '';
+  try { raw = await exec(env, R, () => F.ecotrackGet_('/api/v1/get/communes')); } catch (e) { err = String(e && e.message ? e.message : e); }
+  const list = communeList(raw);
+  const at = new Date().toISOString();
+  const shape = raw === null ? '' : (Array.isArray(raw) ? 'liste' : typeof raw) + ' · ' + Object.keys(raw || {}).slice(0, 5).join(',') + ' · ' +
+    JSON.stringify(Array.isArray(raw) ? raw[0] : raw && raw.data ? raw.data[0] : raw && typeof raw === 'object' ? raw[Object.keys(raw)[0]] : raw).slice(0, 300);
+  await env.DB.batch([kvSet(env, 'big:ecoCommunes', JSON.stringify({ at: at, n: list.length, error: err.slice(0, 300), shape: shape, list: list })),
+    kvSet(env, 'cf:ecoCommunesOk', list.length ? at : '')]);
+  return { communes: list.length, error: err };
 }
 
 /**

@@ -444,8 +444,14 @@ test('Étape 2 · Suivi : statuts Ecotrack lus (bouton et tâche automatique), a
   const out = await cron(env);
   assert.ok(out.ecotrack && !out.ecotrackError, JSON.stringify(out));
   assert.strictEqual((await dbOrder(conf[0])).status, STATUS.DELIVERED);
+  // Communes d'Ecotrack (objet { "0": …, "1": … } comme l'API) : gardées à part, pas lues à chaque requête.
+  assert.strictEqual(out.communes && out.communes.communes, 5, JSON.stringify(out.communes));
+  const big = JSON.parse((await env.DB.prepare("SELECT value FROM kv WHERE key = 'big:ecoCommunes'").first()).value);
+  assert.deepStrictEqual(big.list[1], { w: 16, n: 'Bab Ezzouar', p: '16024', s: 1 });
+  assert.strictEqual(big.error, '');
   const again = await cron(env);
   assert.ok(!again.ecotrack, 'pas avant l’intervalle réglé (60 min)');
+  assert.ok(!again.communes, 'communes : une fois par semaine');
   // Revenu en essai : la tâche automatique ne fait plus rien.
   await bridge('/bridge/live', { live: false });
   assert.deepStrictEqual(await cron(env), { live: false });

@@ -2440,6 +2440,8 @@ function localStamp(d) {
   return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' +
     pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
 }
+/** Hier à l'heure donnée (les lignes de plus de 7 jours ne sont plus reprises). */
+function yesterdayAt(h, m, sec) { var d = new Date(); d.setDate(d.getDate() - 1); d.setHours(h, m, sec, 0); return d; }
 function releasitTab(header) {
   var s = sheet('RELEASIT') || __mock.ss().insertSheet('RELEASIT');
   var h = header || RELEASIT_HEADER;
@@ -2483,7 +2485,8 @@ test('Releasit : colonnes reconnues par leur titre (titres réels de l’onglet)
 
 test('Releasit : une ligne devient une commande prête à confirmer (onglet RELEASIT jamais modifié)', function () {
   releasitSetup();
-  releasitAdd({ id: '#1038', date: '2026-11-13 18:01:14', client: 'Client  Test', qty: 3, line: 5400, sub: 5400, ship: 450, total: 5850 });
+  var d1038 = yesterdayAt(18, 1, 14);
+  releasitAdd({ id: '#1038', date: localStamp(d1038), client: 'Client  Test', qty: 3, line: 5400, sub: 5400, ship: 450, total: 5850 });
   var before = releasitSnapshot();
   var s = transferReleasitOrders_();
   assert.deepStrictEqual([s.found, s.read, s.added, s.skipped, s.ignored], [true, 1, 1, 0, 0]);
@@ -2504,11 +2507,11 @@ test('Releasit : une ligne devient une commande prête à confirmer (onglet RELE
   assert.strictEqual(o.total, 5850);
   assert.strictEqual(o.mode, 'Stop desk');
   assert.strictEqual(o.attempts, 0);
-  assert.strictEqual(o.date, new Date(2026, 10, 13, 18, 1, 14).toISOString(), 'heure d’Algérie, à la seconde');
+  assert.strictEqual(o.date, d1038.toISOString(), 'heure d’Algérie, à la seconde');
   assert.ok(logActions().indexOf('Transfert Releasit') >= 0);
   assert.strictEqual(api_queue().due[0].id, '#1038', 'directement dans la file de confirmation');
   // Nom de famille absent : Releasit écrit « Malouche - » ; le tiret seul est enlevé (pas celui d'un nom composé).
-  releasitAdd({ id: '#1039', date: '2026-11-13 18:05:00', client: 'Malouche -', qty: 1, line: 1800, sub: 1800, ship: 450, total: 2250 });
+  releasitAdd({ id: '#1039', date: localStamp(yesterdayAt(18, 5, 0)), client: 'Malouche -', qty: 1, line: 1800, sub: 1800, ship: 450, total: 2250 });
   transferReleasitOrders_();
   assert.strictEqual(order('#1039').client, 'Malouche');
   assert.deepStrictEqual(['Jean-Pierre Kaci', '- Amina .', 'سعد -', 'Nadia'].map(cleanClientName_), ['Jean-Pierre Kaci', 'Amina', 'سعد', 'Nadia']);
@@ -2646,7 +2649,7 @@ test('Releasit : dates et nombres tels que Google Sheets peut les renvoyer', fun
   assert.strictEqual(releasitDate_('hier'), null);
 
   releasitSetup();
-  sheet('RELEASIT').appendRow(['#6001', d, 'Client', 'Alger', 'Bab Ezzouar', 'Rue 1', 2130550123456, 'Coque', 2, 3600, 3600, 400, 4000, 'توصيل للمكتب']);
+  sheet('RELEASIT').appendRow(['#6001', yesterdayAt(18, 1, 14), 'Client', 'Alger', 'Bab Ezzouar', 'Rue 1', 2130550123456, 'Coque', 2, 3600, 3600, 400, 4000, 'توصيل للمكتب']);
   transferReleasitOrders_();
   var o = order('#6001');
   assert.deepStrictEqual([o.phone, o.wilaya, o.qty, o.price, o.shipping, o.total, o.mode, o.commune],

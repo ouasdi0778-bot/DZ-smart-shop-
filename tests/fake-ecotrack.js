@@ -222,6 +222,20 @@
     return list;
   }
 
+  /** Comme Ecotrack : un objet { "0": {...}, "1": {...} } (pas une liste). */
+  function communes(q) {
+    var all = [
+      { nom: 'Alger Centre', wilaya_id: 16, code_postal: '16001', has_stop_desk: 1 },
+      { nom: 'Bab Ezzouar', wilaya_id: 16, code_postal: '16024', has_stop_desk: 1 },
+      { nom: 'Hydra', wilaya_id: 16, code_postal: '16035', has_stop_desk: 0 },
+      { nom: 'Oran', wilaya_id: 31, code_postal: '31001', has_stop_desk: 1 },
+      { nom: 'Bir El Djir', wilaya_id: 31, code_postal: '31024', has_stop_desk: 0 }
+    ].filter(function (c) { return !q.wilaya_id || String(c.wilaya_id) === String(q.wilaya_id); });
+    var out = {};
+    all.forEach(function (c, i) { out[String(i)] = c; });
+    return out;
+  }
+
   function fees() {
     var list = [];
     for (var id = 1; id <= 58; id++) {
@@ -346,6 +360,7 @@
       if (method === 'GET' && u.path === '/api/v1/get/orders/status') return statusOrders(u.query);
       if (method === 'GET' && u.path === '/api/v1/get/tracking/info') return trackingInfo(u.query);
       if (method === 'GET' && u.path === '/api/v1/get/wilayas') return respond(200, wilayas());
+      if (method === 'GET' && u.path === '/api/v1/get/communes') return respond(200, communes(u.query));
       if (method === 'GET' && u.path === '/api/v1/get/fees') return respond(200, fees());
       if (method === 'GET' && u.path === '/api/v1/get/orders') return listOrders(u.query);
       if (method === 'DELETE' && u.path === '/api/v1/delete/order') return deleteOrder(u.query);
