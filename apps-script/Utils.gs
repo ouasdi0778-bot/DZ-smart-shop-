@@ -23,10 +23,28 @@ function sheet_(name) {
 }
 
 /** Texte simplifié pour comparer : minuscules, sans accents ni ponctuation. */
+/**
+ * Textes déjà normalisés (mêmes produits, wilayas, sources… des milliers de fois dans les statistiques) :
+ * gardés en mémoire pendant l'exécution, pour aller plus vite.
+ */
+var NORM_MEMO_ = null;
+/** La mémoire (créée au premier usage : un autre fichier peut normaliser un texte avant celui-ci). */
+function normMemo_() {
+  if (!NORM_MEMO_ || NORM_MEMO_.n > 20000) NORM_MEMO_ = { text: Object.create(null), loose: Object.create(null), n: 0 };
+  return NORM_MEMO_;
+}
+function memoNorm_(kind, key, value) {
+  var m = normMemo_();
+  m.n++;
+  m[kind][key] = value;
+  return value;
+}
+
 function normalizeText_(value) {
-  return String(value == null ? '' : value)
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  var key = String(value == null ? '' : value);
+  var hit = normMemo_().text[key];
+  if (hit !== undefined) return hit;
+  return memoNorm_('text', key, key.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim());
 }
 
 function isBlank_(value) {
@@ -171,6 +189,7 @@ function readSettings_() {
   s.ANNULATION_AUTO = !/^(non|no|false|faux|0)$/i.test(String(s.ANNULATION_AUTO == null ? 'OUI' : s.ANNULATION_AUTO).trim());
   s.ORDRE_FILE = /anc/i.test(String(s.ORDRE_FILE || '')) ? 'anciennes' : 'récentes';
   s.MAX_TENTATIVES = s.APPELS_PAR_JOUR * s.JOURS_D_APPELS; // total des appels possibles
+  s.OBJECTIF_JOUR = Math.max(0, Math.round(toNumber_(s.OBJECTIF_JOUR)) || 0);
   s.DELAI_RAPPEL_MINUTES = Math.max(5, toNumber_(s.DELAI_RAPPEL_MINUTES) || 120);
   s.DOUBLON_HEURES = Math.max(0, toNumber_(s.DOUBLON_HEURES));
   s.SOCIETE_PAR_DEFAUT = String(s.SOCIETE_PAR_DEFAUT || CARRIERS[0]).trim();

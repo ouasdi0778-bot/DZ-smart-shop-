@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.8.1
+## Ce que fait la version 1.9
 
 | Écran | Contenu |
 |---|---|
@@ -17,7 +17,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 | **Suivi** | Statut de chaque colis relu **toutes les heures** (réglable : 30 min, 1 h ou 2 h), **alertes « à traiter »** (colis suspendu, retour en cours ou bloqué, sans mouvement selon l'étape, argent en retard…), **résultat de l'appel** (remarque au livreur, demande de retour), motif du livreur et **chronologie** de chaque colis (heures d'Algérie) |
 | **Stock** | Une ligne par modèle avec le **disponible en couleur**, recherche, filtres et tri, photos, **packs**, variantes créées d'un coup, commandes qui réservent, fusionner, masquer ou supprimer un modèle, entrées, inventaire, **annuler un mouvement mal tapé**, export Excel / feuille d'inventaire / **valeur du stock à une date** (administrateur et magasinier) |
 | **Bénéfices** | Bénéfice net sur la **période de votre choix** comparé à la période d'avant, **graphiques** (bénéfice par jour, où part l'argent, seuil de rentabilité, simulateur du taux de livraison), produits classés par bénéfice, publicité (coût par livrée, ROAS), **dépenses et gains** sur un jour ou un intervalle, à corriger ou supprimer (administrateur) |
-| **Statistiques** | Commandes et argent par période, comparés à la période d'avant : parcours des commandes, motifs, heures, wilayas, produits, équipe (avec la prime), publicité, **où est l'argent et versements d'Ecotrack** ; export pour Excel (administrateur) |
+| **Statistiques** | Commandes et argent par période, comparés à la période d'avant : **ce qui a changé** en phrases, parcours des commandes avec les pertes et leurs motifs, **carte des wilayas**, heures × jours, **meilleure heure pour appeler**, vitesse de confirmation, bureau ou domicile, produits, **équipe** (appels, réponses, objectif du jour, prime), publicité (**qualité des sources**), **filtre croisé** (une wilaya, un produit, une campagne, une source ou une confirmatrice), où est l'argent et versements d'Ecotrack ; tableaux triables, export pour Excel (administrateur) |
 | **Administration** | État de l'outil, connexions (Ecotrack, SMS, Shopify, Releasit), réglages en formulaires, équipe, clients, entretien du classeur (administrateur) |
 
 Ce qui se passe tout seul :
@@ -351,20 +351,21 @@ Page **Statistiques** (administrateur ; sur téléphone : **☰ Plus**).
 
 - **Période** : aujourd'hui, 7 jours, 30 jours, ce mois, le mois dernier, ou des dates précises. Chaque chiffre est **comparé à la période d'avant** (▲ / ▼ en % pour un nombre, en points pour un taux).
 - Les commandes comptent à leur **date de commande**, archives comprises.
+- **Filtre croisé** (v1.9) : touchez une wilaya (sur la carte ou dans un tableau), un produit, une campagne, une source ou une confirmatrice : **toute la page** ne montre plus que ces commandes (le filtre s'affiche en haut, ✕ pour l'enlever). Dépenses : seulement la publicité de la campagne ou de la source choisie. Version Cloudflare gratuite : 800 commandes au plus (période et période d'avant) ; au-delà, choisissez une période plus courte.
 
 | Onglet | Contenu |
 |---|---|
-| **Vue d'ensemble** | Commandes, taux de confirmation, de livraison, retours, annulées, encaissé, bénéfice net ; parcours reçues → confirmées → expédiées → livrées ; graphique par jour |
-| **Commandes** | Motifs d'annulation, motifs du livreur (injoignable, refus…), commandes **par heure** et **par jour de la semaine** |
+| **Vue d'ensemble** | **Ce qui a changé** : 3 ou 4 phrases (taux de livraison et la wilaya en cause, commandes et la campagne en cause, confirmation et le premier motif d'annulation, vitesse de confirmation, bénéfice, produit qui revient souvent), avec un lien vers le détail ; commandes, taux de confirmation, de livraison, retours, annulées, encaissé, bénéfice net ; **parcours** reçues → confirmées → expédiées → livrées avec, à chaque étape, combien sont perdues et pourquoi ; graphique par jour |
+| **Commandes** | **Grille heure × jour** des commandes ; **meilleure heure pour appeler** (clients qui répondent selon l'heure de l'appel, d'après l'historique des appels) ; **la vitesse compte** (colis livrés selon le délai avant confirmation : moins d'1 h, 1 à 6 h, 6 à 24 h, plus de 24 h) et délais moyens ; motifs d'annulation et du livreur |
 | **Argent** | À recevoir, chez le livreur, **argent prévu** (en route × taux de livraison) ; encaissé, bénéfice, dépenses, bénéfice net, panier moyen, bénéfice par livrée, **perdu à cause des retours**, délai moyen de livraison ; graphique par jour |
-| **Wilayas** | Commandes, taux de confirmation et de livraison, retours, délai moyen, encaissé, bénéfice, perdu ; les wilayas avec beaucoup de retours sont **en rouge** |
-| **Produits** | Par produit et modèle : commandes, livrées, retours, taux de retour, encaissé, bénéfice |
-| **Équipe** | Par confirmatrice : commandes, confirmées, livrées, **taux de livraison**, **délai avant confirmation** (colonne « Confirmée le »), **prime** |
-| **Publicité** | Par source et par campagne : commandes, livrées, dépense, **coût par livrée**, bénéfice, net |
+| **Wilayas** | **Carte** (une case par wilaya, verte, orange ou rouge selon le taux de livraison) ; tableau : commandes, livraison, **tendance**, **bureau et domicile**, confirmation, retours, délai, bénéfice, perdu ; conseil quand le bureau livre bien mieux que le domicile (ou l'inverse) |
+| **Produits** | Par produit et modèle : commandes, tendance, livrées, taux de livraison, retours, encaissé, bénéfice |
+| **Équipe** | Par confirmatrice : commandes, **appels**, **taux de réponse**, **appels par confirmation**, confirmées, taux de livraison, délai avant confirmation, **premier motif d'annulation**, **prime** ; **objectif du jour** (commandes confirmées par jour et par confirmatrice, réglage `OBJECTIF_JOUR`) avec une barre de progression |
+| **Publicité** | Par source et par campagne : commandes, tendance, livraison, dépense, **coût par livrée**, net après pub, et **qualité** : faux numéros, doublons, liste noire, refus au livreur, note Bonne / Moyenne / Faible (à partir de 10 commandes) |
 
-- **Exporter** : chaque tableau se télécharge en fichier pour Excel.
+- **Tableaux** : triez d'un clic sur un titre, cherchez une ligne (wilaya, produit, campagne), exportez pour Excel. **Sur téléphone**, les tableaux deviennent des cartes.
 - **Prime des confirmatrices** (onglet Équipe) : un montant en dinars **par commande livrée**, avec sa date de début. Un nouveau montant ne change pas les jours d'avant (réglage `PRIMES`, ex. `2026-11-01=50; 2027-01-01=60`). La prime d'un mois se complète au fil des livraisons.
-- **Rapide** : chaque nuit, un résumé par jour est calculé dans l'onglet caché **Stats** ; la page lit seulement les jours de la période et calcule aujourd'hui en direct. Bouton **Recalculer** pour tout refaire tout de suite.
+- **Rapide** : chaque nuit, un résumé par jour est calculé (onglet caché **Stats** ; version Cloudflare : sa base) ; la page lit seulement les jours de la période et calcule aujourd'hui en direct. Bouton **Recalculer** pour tout refaire tout de suite. Après la mise à jour 1.9, les résumés sont tous recalculés une fois (« jours encore en calcul » pendant quelques minutes).
 
 ## Administration et état de l'outil
 
@@ -659,7 +660,7 @@ apps-script/Cloud.gs  côté Google : relier, copier les données, page de conne
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 146 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 148 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```

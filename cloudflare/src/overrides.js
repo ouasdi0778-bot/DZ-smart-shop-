@@ -212,6 +212,13 @@ function cloudTabEdited_() {}
 /** Argent et versements : colis suivis (chargés un par un) + colis payés regroupés par la base (server.js, __n). */
 function moneyOrders_(ctx) { return ctx.orders.concat(REQ.moneyRows || []); }
 
+/** Confirmations du jour par confirmatrice : comptées par la base (server.js, REQ.goalCounts). */
+function confirmationsToday_() {
+  var out = {};
+  (REQ.goalCounts || []).forEach(function (x) { var a = String(x.a || '').trim(); if (a) out[a] = (out[a] || 0) + Number(x.n || 0); });
+  return out;
+}
+
 /** Libellés des commandes récentes : regroupés par la base (server.js), avec leur nombre (__n). */
 function recentOrdersForLabels_(ctx) { return REQ.labelRows || ctx.orders; }
 

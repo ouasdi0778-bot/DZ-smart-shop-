@@ -1089,7 +1089,7 @@ const FN_TABS = {
   api_stockAt: ['Produits'], api_shopifyPhotos: ['Produits'],
   api_markReturnDamaged: ['Produits'], api_validateParcels: ['Produits'], api_ecotrackSyncStatuses: ['Produits'], api_updateOrder: [], api_recordCall: [],
   api_addExpense: ['Dépenses'], api_updateExpense: ['Dépenses'], api_deleteExpenses: ['Dépenses'], api_profit: ['Dépenses'], api_stats: ['Dépenses'],
-  api_settingsGet: ['Paramètres'], api_settingsSave: ['Paramètres'], api_setPrime: ['Paramètres'],
+  api_settingsGet: ['Paramètres'], api_settingsSave: ['Paramètres'], api_setPrime: ['Paramètres'], api_setGoal: ['Paramètres'],
   api_teamList: ['Équipe'], api_teamSave: ['Équipe'], api_teamRemove: ['Équipe'], api_clientsAdmin: ['Clients'], api_clearFlag: ['Clients'], api_setBlacklist: ['Clients']
 };
 async function preloadTabs(env, R, fn) {
@@ -1155,6 +1155,31 @@ async function loadMovesSince(env, R, args) {
     'WHERE at > ? GROUP BY 1, 2').bind(end).all();
   R.movesSince = (r.results || []).map((x) => ({ product: x.p || '', model: x.m || '', qty: Number(x.q) || 0 }));
 }
+
+/**
+ * Statistiques filtrées (wilaya, produit, campagne, source, confirmatrice) : la base donne les valeurs
+ * du champ vues sur la période, l'outil garde celles du filtre, puis seules ces commandes sont lues.
+ */
+const STATS_FILTER_FIELD = { w: 'wilaya', a: 'agent', cp: 'campaign', src: 'adSource', p: 'product' };
+async function loadStatsFilter(env, R, filter, from, to) {
+  const field = STATS_FILTER_FIELD[filter.kind];
+  const path = "json_extract(data, '$." + field + "')";
+  const vals = await env.DB.prepare('SELECT DISTINCT ' + path + ' AS v FROM orders WHERE day >= ? AND day <= ?').bind(from, to).all();
+  const catalog = filter.kind === 'p' ? run(R, () => F.readCatalog_()) : null;
+  const keep = (vals.results || []).map((x) => (x.v === null || x.v === undefined ? '' : x.v))
+    .filter((v) => run(R, () => F.statsFilterMatch_({ [field]: v, qty: 1 }, filter, catalog)));
+  if (!keep.length) return;
+  const blank = keep.indexOf('') >= 0;
+  const where = 'day >= ? AND day <= ? AND (' + path + ' IN (SELECT value FROM json_each(?))' + (blank ? ' OR IFNULL(' + path + ", '') = ''" : '') + ')';
+  const binds = [from, to, JSON.stringify(keep.filter((v) => v !== ''))];
+  // Limite de calcul de la version gratuite : au-delà, une période plus courte est demandée.
+  const c = await env.DB.prepare('SELECT COUNT(*) AS n FROM orders WHERE ' + where).bind(...binds).first();
+  if (c.n > STATS_FILTER_MAX) {
+    throw new HttpError(400, 'Ce filtre compte ' + c.n + ' commandes (période et période d’avant) : c’est trop pour la version gratuite de Cloudflare. Choisissez une période plus courte (par exemple 7 jours), puis filtrez de nouveau.');
+  }
+  await loadWhere(env, R, where, binds);
+}
+const STATS_FILTER_MAX = 800;
 
 /** Résumés par jour d'une période (table days) ; les jours à refaire le sont d'abord, au plus `cap` (les plus récents). */
 async function loadDays(env, R, from, to, cap) {
@@ -1287,18 +1312,31 @@ Object.assign(PAGES, {
     const range = run(R, () => F.statsRange_(String(args[0] || '30'), args[1], args[2]));
     const len = run(R, () => F.dayCount_(range.from, range.to));
     const prevFrom = run(R, () => F.addDayDays_(range.from, -len));
-    await loadDays(env, R, prevFrom, range.to, 6);
     const today = F.ymd_(new Date());
-    const back = Math.min(Math.max(run(R, () => F.dayCount_(range.from, today)), 1), 120);
-    const since = new Date(Date.now() - back * 86400000).toISOString();
-    await loadMany(env, R, [['archived = 0 AND track = 1', []], ['archived = 0 AND day = ?', [today]]]);
-    // Colis terminés (payés…) de la période : regroupés par la base (versement, statut), pas lus un par un.
-    const moved = "COALESCE(NULLIF(json_extract(data, '$.carrierMoved'), ''), NULLIF(updated, ''), date)";
-    const paid = await env.DB.prepare("SELECT json_extract(data, '$.carrierStatus') AS cs, json_extract(data, '$.paymentId') AS pid, status, " +
-      'SUM(total) AS amount, COUNT(*) AS n, MAX(' + moved + ') AS moved FROM orders WHERE archived = 0 AND track = 0 AND carrier = ? AND tracking != \'\' ' +
-      'AND day != ? AND ' + moved + ' >= ? GROUP BY 1, 2, 3').bind(K.ECO.NAME, today, since).all();
-    R.moneyRows = (paid.results || []).map((x) => ({ carrier: K.ECO.NAME, tracking: '-', carrierStatus: x.cs || '', paymentId: x.pid || '', status: x.status,
-      total: x.amount, __n: x.n, carrierMoved: x.moved, updated: x.moved, date: x.moved }));
+    const filter = run(R, () => F.statsFilter_(args[3]));
+    if (filter) {
+      // Filtre croisé : seulement les commandes du filtre (période et période d'avant, archives comprises).
+      await loadStatsFilter(env, R, filter, prevFrom, range.to);
+    } else {
+      await loadDays(env, R, prevFrom, range.to, 6);
+      const back = Math.min(Math.max(run(R, () => F.dayCount_(range.from, today)), 1), 120);
+      const since = new Date(Date.now() - back * 86400000).toISOString();
+      await loadMany(env, R, [['archived = 0 AND track = 1', []], ['archived = 0 AND day = ?', [today]]]);
+      // Colis terminés (payés…) de la période : regroupés par la base (versement, statut), pas lus un par un.
+      const moved = "COALESCE(NULLIF(json_extract(data, '$.carrierMoved'), ''), NULLIF(updated, ''), date)";
+      const paid = await env.DB.prepare("SELECT json_extract(data, '$.carrierStatus') AS cs, json_extract(data, '$.paymentId') AS pid, status, " +
+        'SUM(total) AS amount, COUNT(*) AS n, MAX(' + moved + ') AS moved FROM orders WHERE archived = 0 AND track = 0 AND carrier = ? AND tracking != \'\' ' +
+        'AND day != ? AND ' + moved + ' >= ? GROUP BY 1, 2, 3').bind(K.ECO.NAME, today, since).all();
+      R.moneyRows = (paid.results || []).map((x) => ({ carrier: K.ECO.NAME, tracking: '-', carrierStatus: x.cs || '', paymentId: x.pid || '', status: x.status,
+        total: x.amount, __n: x.n, carrierMoved: x.moved, updated: x.moved, date: x.moved }));
+    }
+    // Objectif du jour : confirmations faites aujourd'hui (heure d'Algérie), comptées par la base.
+    const start = new Date(today + 'T00:00:00+01:00').toISOString();
+    const end = new Date(F.addDayDays_(today, 1) + 'T00:00:00+01:00').toISOString();
+    const goal = await env.DB.prepare("SELECT json_extract(data, '$.agent') AS a, COUNT(*) AS n FROM orders WHERE archived = 0 AND day >= ? " +
+      "AND json_extract(data, '$.confirmedAt') >= ? AND json_extract(data, '$.confirmedAt') < ? AND json_extract(data, '$.status') IN (SELECT value FROM json_each(?)) GROUP BY 1")
+      .bind(F.addDayDays_(today, -20), start, end, JSON.stringify(K.CONFIRMED_STATUSES)).all();
+    R.goalCounts = (goal.results || []).map((x) => ({ a: x.a || '', n: x.n }));
     R.props.STATS_BUILT = new Date().toISOString(); // résumés à jour : seule la journée en cours est calculée en direct
     const res = await exec(env, R, () => F.api_stats.apply(null, args));
     await flush(env, R);
@@ -1306,6 +1344,7 @@ Object.assign(PAGES, {
     return res;
   },
   api_setPrime: gasPage('api_setPrime'),
+  api_setGoal: gasPage('api_setGoal'),
   async api_rebuildStats(env, R) {
     needFull(R);
     requireAdmin(R, 'recalculer les statistiques');

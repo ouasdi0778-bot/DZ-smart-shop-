@@ -1324,6 +1324,103 @@ test('Statistiques : résumés par jour, aujourd’hui en direct, comparaison, w
   assert.throws(function () { api_stats('30'); }, /administrateur/);
 });
 
+test('Statistiques v1.9 : appels par heure, vitesse de confirmation, bureau ou domicile, qualité des sources, équipe', function () {
+  assert.deepStrictEqual(['Confirmée', 'A répondu, rappel demandé pour le 12/11 10:00', 'Annulée : Trop cher', 'Annulée : Faux numéro', 'Pas de réponse', 'Pas de réponse, injoignable'].map(callAnswered_),
+    [true, true, true, false, false, false]);
+  baseSetup();
+  setCatalog([{ 'Produit': 'Coque', 'Modèle': 'A', 'Prix de vente': 1800, "Coût d'achat": 600, 'Stock': 50 }]);
+  var at = function (d, hours) { return new Date(d.getTime() + hours * 3600000); };
+  var o = function (id, status, extra) {
+    var d = daysAgo(2, 9);
+    var f = { 'Date': d, 'Statut': status, 'Confirmatrice': 'Imane', 'Wilaya': '31 - Oran', 'Frais livraison': 400, 'Total': 2200, 'Prix': 1800, 'Campagne': 'Promo', 'Source pub': 'facebook', 'Alerte client': 'Nouveau client' };
+    Object.keys(extra || {}).forEach(function (k) { f[k] = typeof extra[k] === 'function' ? extra[k](d) : extra[k]; });
+    addOrder(id, 'Coque — A', f);
+  };
+  o('#A1', 'Livrée', { 'Livraison': 'Domicile', 'Confirmée le': function (d) { return at(d, 0.5); }, 'Historique appels': '10/11 18:05 Pas de réponse · Imane | 10/11 19:10 Confirmée · Imane' });
+  o('#A2', 'Retour', { 'Livraison': 'Stop desk', 'Confirmatrice': 'Sara', 'Confirmée le': function (d) { return at(d, 30); }, 'Historique appels': '11/11 10:00 Confirmée · Sara',
+    'Remarque livreur': 'client a refusé le colis', 'Alerte client': 'Doublon' });
+  o('#A3', 'Annulée', { 'Confirmatrice': 'Sara', 'Motif annulation': 'Faux numéro', 'Historique appels': '10/11 12:30 Annulée : Faux numéro · Sara', 'Alerte client': 'Numéro invalide' });
+  o('#A4', 'Livrée', { 'Livraison': 'Stop desk', 'Confirmée le': function (d) { return at(d, 2); }, 'Campagne': 'Autre', 'Alerte client': 'Liste noire' });
+  asAdmin();
+  var s = api_stats('7');
+  assertSerializable(s, 'api_stats');
+  assert.deepStrictEqual([s.calls.hours[18], s.calls.answered[18], s.calls.hours[19], s.calls.answered[19], s.calls.hours[10], s.calls.answered[10], s.calls.hours[12], s.calls.answered[12]],
+    [1, 0, 1, 1, 1, 1, 1, 0], 'appels par heure et réponses');
+  assert.deepStrictEqual(s.speed.buckets.map(function (b) { return [b.delivered, b.finished]; }), [[1, 1], [1, 1], [0, 0], [0, 1]], 'livrées selon le délai avant confirmation');
+  assert.strictEqual(s.speed.confirmHours, Math.round((0.5 + 30 + 2) / 3 * 10) / 10);
+  var oran = s.wilayas.filter(function (w) { return w.name === '31 - Oran'; })[0];
+  assert.strictEqual(oran.code, 31);
+  assert.deepStrictEqual([oran.modes.home.delivered, oran.modes.desk.delivered, oran.modes.desk.returned, oran.modes.desk.deliveryRate], [1, 1, 1, 0.5]);
+  assert.ok(oran.trend.length >= 2 && oran.trend.reduce(function (a, b) { return a + b; }, 0) === 4, 'tendance : 4 commandes');
+  var promo = s.campaigns.filter(function (c) { return c.name === 'Promo'; })[0];
+  assert.deepStrictEqual([promo.quality.orders, Math.round(promo.quality.fake * 100), Math.round(promo.quality.dup * 100), promo.quality.black, promo.quality.refus], [3, 33, 33, 0, 0.5]);
+  assert.strictEqual(promo.quality.score, '', 'moins de 10 commandes : pas de note');
+  var fb = s.sources.filter(function (c) { return c.name === 'Facebook'; })[0];
+  assert.strictEqual(fb.quality.orders, 4);
+  var ag = {};
+  s.agents.forEach(function (a) { ag[a.name] = a; });
+  assert.deepStrictEqual([ag.Imane.calls, ag.Imane.answerRate, ag.Sara.calls, ag.Sara.answerRate], [2, 0.5, 2, 0.5]);
+  assert.deepStrictEqual(ag.Sara.topCancel, { name: 'Faux numéro', count: 1 });
+  assert.strictEqual(ag.Imane.callsPerConfirmation, 1, '2 appels pour 2 confirmées');
+  var heat = s.heat.reduce(function (a, r) { return a + r.reduce(function (x, y) { return x + y; }, 0); }, 0);
+  assert.strictEqual(heat, 4, 'grille heure × jour : toutes les commandes');
+  var wd = (daysAgo(2, 9).getDay() + 6) % 7;
+  assert.strictEqual(s.heat[wd][9], 4, 'jour et heure de la commande');
+});
+
+test('Statistiques v1.9 : filtre croisé (wilaya, produit, campagne, confirmatrice), « ce qui a changé », objectif du jour', function () {
+  baseSetup();
+  setCatalog([{ 'Produit': 'Coque', 'Modèle': 'A', 'Prix de vente': 1800, "Coût d'achat": 600, 'Stock': 50 }, { 'Produit': 'Montre', 'Prix de vente': 4300, "Coût d'achat": 2000, 'Stock': 50 }]);
+  var n = 0;
+  var o = function (days, status, extra) {
+    n++;
+    var f = { 'Date': daysAgo(days, 11), 'Statut': status, 'Confirmatrice': 'Imane', 'Wilaya': '16 - Alger', 'Frais livraison': 400, 'Total': 2200, 'Prix': 1800, 'Campagne': 'Promo' };
+    Object.keys(extra || {}).forEach(function (k) { f[k] = extra[k]; });
+    addOrder('#F' + n, f['Produit'] || 'Coque — A', f);
+  };
+  for (var i = 0; i < 12; i++) o(9 + (i % 4), 'Livrée');                       // période d'avant : tout livré
+  for (var j = 0; j < 6; j++) o(1 + (j % 3), 'Livrée', { 'Produit': 'Montre', 'Campagne': 'Été' });
+  for (var k = 0; k < 6; k++) o(1 + (k % 3), 'Retour', { 'Wilaya': '31 - Oran', 'Remarque livreur': 'refus du client', 'Confirmatrice': 'Sara' });
+  o(0, 'Livrée', { 'Confirmée le': new Date(), 'Confirmatrice': 'Sara' });
+  api_addExpense({ category: 'Publicité Facebook', campaign: 'Promo', amount: 700, currency: 'DA', date: daysAgo(1).toISOString() });
+  api_addExpense({ category: 'Loyer', amount: 5000, currency: 'DA', date: daysAgo(1).toISOString() });
+  asAdmin();
+  var s = api_stats('7');
+  assert.strictEqual(s.filter, null);
+  assert.strictEqual(s.kpis.orders, 13);
+  var first = s.insights[0];
+  assert.ok(first, JSON.stringify(s.insights));
+  assert.strictEqual(first.level, 'bad');
+  assert.ok(/Taux de livraison \*\*−\d+ points\*\*/.test(first.text) && /\*\*Oran\*\*/.test(first.text) && /refus/.test(first.text), first.text);
+  assert.deepStrictEqual(first.filter, { kind: 'w', value: '31 - Oran' });
+  assert.ok(s.insights.length <= 4);
+  // Filtre wilaya : toute la page ne compte que ses commandes ; pas de dépenses.
+  var w = api_stats('7', '', '', { kind: 'w', value: '31 - Oran' });
+  assertSerializable(w, 'api_stats filtré');
+  assert.deepStrictEqual([w.filter.kind, w.filter.label, w.kpis.orders, w.kpis.returned, w.prev.orders, w.kpis.expenses], ['w', 'Wilaya', 6, 6, 0, 0]);
+  assert.deepStrictEqual(w.wilayas.map(function (x) { return x.name; }), ['31 - Oran']);
+  assert.deepStrictEqual(w.agents.map(function (x) { return x.name; }), ['Sara']);
+  // Produit, campagne (dépense de sa publicité seulement), confirmatrice.
+  assert.strictEqual(api_stats('7', '', '', { kind: 'p', value: 'Montre' }).kpis.orders, 6);
+  var cp = api_stats('7', '', '', { kind: 'cp', value: 'Promo' });
+  assert.deepStrictEqual([cp.kpis.orders, cp.kpis.expenses, cp.prev.orders], [7, 700, 12]);
+  assert.strictEqual(api_stats('7', '', '', { kind: 'a', value: 'Sara' }).kpis.orders, 7);
+  assert.strictEqual(api_stats('7', '', '', { kind: 'zz', value: 'x' }).filter, null, 'filtre inconnu : ignoré');
+  // Objectif du jour.
+  assert.strictEqual(s.goal.perDay, 0);
+  assert.deepStrictEqual(s.goal.today, { Sara: 1 }, 'confirmations faites aujourd’hui');
+  assert.ok(/25 commandes confirmées par jour/.test(api_setGoal(25).message));
+  assert.strictEqual(api_stats('7').goal.perDay, 25);
+  assert.throws(function () { api_setGoal(-3); }, /invalide/);
+  assert.ok(/retiré/.test(api_setGoal(0).message));
+  // Nouvelle version des résumés : tout est recalculé une fois.
+  PropertiesService.getScriptProperties().setProperty('STATS_VERSION', '1');
+  api_stats('7');
+  assert.strictEqual(PropertiesService.getScriptProperties().getProperty('STATS_VERSION'), String(STATS.VERSION));
+  asAgent();
+  assert.throws(function () { api_setGoal(5); }, /administrateur/);
+});
+
 test('Statistiques : la date de confirmation est notée (délai avant confirmation de l’équipe)', function () {
   baseSetup();
   addRaw({ 'N°': '#Q1', 'Date': new Date(Date.now() - 3 * 3600000), 'Client': 'Q', 'Téléphone': '0550001234', 'Wilaya': 'Alger', 'Prix': 2000 });

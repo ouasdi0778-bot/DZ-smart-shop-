@@ -7,7 +7,7 @@
  */
 
 var APP_NAME = 'DZ Smart Shop';
-var APP_VERSION = '1.8.1';
+var APP_VERSION = '1.9.0';
 
 /** Noms des onglets du classeur. */
 var SHEET = {
@@ -156,6 +156,7 @@ var DEFAULT_SETTINGS = [
   ['COUT_EMBALLAGE', 0, 'Coût d’emballage par commande expédiée (DA). 0 = pas compté'],
   ['TAUX_DOLLAR', 250, 'Prix d’un dollar en dinars, pour les dépenses en USD (publicité). Mettez-le à jour quand il change : les dépenses déjà saisies gardent leur taux'],
   ['PRIMES', '', 'Prime des confirmatrices par commande livrée, en dinars, avec sa date de début : « 2026-11-01=50; 2027-01-01=60 ». Chaque commande prend le montant valable à sa date (se règle dans Statistiques › Équipe). Vide = pas de prime'],
+  ['OBJECTIF_JOUR', 0, 'Objectif de commandes confirmées par confirmatrice et par jour (Statistiques › Équipe). 0 = pas d’objectif'],
   ['CATEGORIES_DEPENSES', 'Publicité Facebook; Publicité TikTok; Emballage; Salaires; Loyer; Autre', 'Catégories proposées dans l’onglet Dépenses, séparées par des points-virgules'],
   ['CATEGORIES_GAINS', 'Remboursement; Vente directe; Bonus; Autre', 'Catégories proposées pour les gains (argent reçu en dehors des commandes), séparées par des points-virgules'],
   ['COUT_MOYEN', 'OUI', 'OUI : à chaque entrée de marchandise, le coût d’achat devient la moyenne (ancien stock et nouvelle entrée). NON : le coût d’achat ne change que si vous le modifiez'],

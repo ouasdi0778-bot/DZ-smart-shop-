@@ -215,14 +215,17 @@ function latinDigits_(value) {
 
 /** Texte comparable : minuscules, sans accents ni voyelles arabes, alef/ya/ta marbouta unifiés. */
 function normalizeLoose_(value) {
-  return latinDigits_(value)
+  var key = String(value == null ? '' : value);
+  var hit = normMemo_().loose[key];
+  if (hit !== undefined) return hit;
+  return memoNorm_('loose', key, latinDigits_(key)
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
     .replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/ؤ/g, 'و').replace(/ئ/g, 'ي')
     .toLowerCase()
     .replace(/[^a-z0-9\u0621-\u064A ]+/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim();
+    .trim());
 }
 
 var WILAYA_LOOKUP_ = null;

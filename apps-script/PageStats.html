@@ -127,21 +127,75 @@
     return html + '</section>';
   }
 
-  /* ---------------- Tableaux et export ---------------- */
+  /* ---------------- Tableaux (tri, recherche, cartes sur téléphone) et export ---------------- */
 
   var TABLES = {};
-  /** cols = [[titre, fonction(ligne) → texte, numérique ?]] */
+  if (!ST.sort) ST.sort = {};
+  if (!ST.q) ST.q = {};
+
+  /**
+   * cols = [[titre, fonction(ligne) → texte (export), numérique ?, valeur de tri (facultatif), fonction(ligne) → HTML (facultatif)]].
+   * opts : bad(ligne), filter (type du filtre croisé : w, p, cp, src, a), card(ligne) → HTML (téléphone), search (titre de la recherche).
+   */
   function dataTable(id, cols, rows, opts) {
     opts = opts || {};
-    TABLES[id] = { cols: cols, rows: rows };
+    TABLES[id] = { cols: cols, rows: rows, opts: opts };
     if (!rows.length) return '<p class="empty">Rien sur la période.</p>';
-    return '<div class="quick" style="justify-content:flex-end;margin-bottom:6px"><button type="button" class="btn" style="min-height:34px" data-act="stats-export" data-table="' + id + '">' + icon('download') + 'Exporter</button></div>' +
-      '<div class="table-wrap"><table class="data cards"><thead><tr>' + cols.map(function (c) { return '<th scope="col"' + (c[2] ? ' class="num"' : '') + '>' + h(c[0]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-      rows.map(function (r) {
-        return '<tr' + (opts.bad && opts.bad(r) ? ' class="row-bad"' : '') + '>' + cols.map(function (c) {
-          return '<td data-label="' + h(c[0]) + '"' + (c[2] ? ' class="num"' : '') + '>' + h(c[1](r)) + '</td>';
+    return '<div class="st-tools">' +
+      (opts.search ? '<label class="st-search">' + icon('search') + '<input type="search" data-role="stats-q" data-table="' + id + '" placeholder="' + h(opts.search) + '" value="' + h(ST.q[id] || '') + '" aria-label="' + h(opts.search) + '"></label>' : '<span></span>') +
+      '<button type="button" class="btn" style="min-height:34px" data-act="stats-export" data-table="' + id + '">' + icon('download') + 'Exporter</button></div>' +
+      '<div id="tbl-' + id + '">' + tableInner(id) + '</div>';
+  }
+
+  function sortedRows(id) {
+    var t = TABLES[id];
+    var rows = t.rows.slice();
+    var q = String(ST.q[id] || '').trim().toLowerCase();
+    if (q) rows = rows.filter(function (r) { return String(t.cols[0][1](r)).toLowerCase().indexOf(q) >= 0; });
+    var srt = ST.sort[id];
+    if (srt) {
+      var c = t.cols[srt.col];
+      var val = c[3] || function (r) { return c[1](r); };
+      rows.sort(function (a, b) {
+        var x = val(a);
+        var y = val(b);
+        if (x === null || x === undefined || x === '—') return 1;
+        if (y === null || y === undefined || y === '—') return -1;
+        var r = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'fr');
+        return srt.dir * r;
+      });
+    }
+    return rows;
+  }
+
+  function tableInner(id) {
+    var t = TABLES[id];
+    var cols = t.cols;
+    var opts = t.opts;
+    var rows = sortedRows(id);
+    var srt = ST.sort[id];
+    var nameCell = function (r) {
+      var name = h(cols[0][1](r));
+      return opts.filter ? '<button type="button" class="st-link" data-act="stats-filter" data-kind="' + opts.filter + '" data-value="' + h(r.name) + '" title="Filtrer toute la page">' + name + '</button>' : name;
+    };
+    var html = '<div class="table-wrap st-table' + (opts.card ? ' has-cards' : '') + '"><table class="data"><thead><tr>' + cols.map(function (c, i) {
+      var on = srt && srt.col === i;
+      return '<th scope="col"' + (c[2] ? ' class="num"' : '') + (on ? ' aria-sort="' + (srt.dir > 0 ? 'ascending' : 'descending') + '"' : '') + '>' +
+        '<button type="button" class="st-sort" data-act="stats-sort" data-table="' + id + '" data-col="' + i + '">' + h(c[0]) + (on ? (srt.dir > 0 ? ' ▲' : ' ▼') : '') + '</button></th>';
+    }).join('') + '</tr></thead><tbody>' +
+      (rows.length ? rows.map(function (r) {
+        return '<tr' + (opts.bad && opts.bad(r) ? ' class="row-bad"' : '') + '>' + cols.map(function (c, i) {
+          return '<td' + (c[2] ? ' class="num"' : '') + '>' + (i === 0 ? nameCell(r) : c[4] ? c[4](r) : h(c[1](r))) + '</td>';
         }).join('') + '</tr>';
-      }).join('') + '</tbody></table></div>';
+      }).join('') : '<tr><td colspan="' + cols.length + '" class="small">Aucune ligne ne correspond.</td></tr>') + '</tbody></table></div>';
+    if (opts.card) {
+      html += '<div class="st-cards">' + rows.map(function (r) {
+        var inner = opts.card(r);
+        return opts.filter ? '<button type="button" class="st-card" data-act="stats-filter" data-kind="' + opts.filter + '" data-value="' + h(r.name) + '"' + (inner.color ? ' style="border-left-color:' + inner.color + '"' : '') + '>' + inner.html + '</button>'
+          : '<div class="st-card"' + (inner.color ? ' style="border-left-color:' + inner.color + '"' : '') + '>' + inner.html + '</div>';
+      }).join('') + '</div>';
+    }
+    return html;
   }
 
   /** CSV pour Excel (point-virgule, accents gardés). */
@@ -149,7 +203,7 @@
     var t = TABLES[id];
     if (!t) return;
     var esc = function (v) { v = String(v == null ? '' : v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-    var lines = [t.cols.map(function (c) { return esc(c[0]); }).join(';')].concat(t.rows.map(function (r) {
+    var lines = [t.cols.map(function (c) { return esc(c[0]); }).join(';')].concat(sortedRows(id).map(function (r) {
       return t.cols.map(function (c) { return esc(c[1](r)); }).join(';');
     }));
     var url = URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
@@ -162,12 +216,41 @@
     setTimeout(function () { URL.revokeObjectURL(url); a.parentNode.removeChild(a); }, 1000);
   }
 
+  /* ---------------- Petits éléments ---------------- */
+
+  /** Taux en pastille verte (≥ 75 %), orange (≥ 60 %) ou rouge. */
+  function ratePill(r, good, ok) {
+    if (r === null || r === undefined) return '<span class="st-pill none">—</span>';
+    good = good || 0.75;
+    ok = ok || 0.6;
+    return '<span class="st-pill ' + (r >= good ? 'g' : r >= ok ? 'o' : 'r') + '">' + Math.round(r * 100) + ' %</span>';
+  }
+  function rateColor(r, good, ok) {
+    if (r === null || r === undefined) return '#C9CED6';
+    return r >= (good || 0.75) ? '#2E9E6A' : r >= (ok || 0.6) ? '#E8A33C' : '#D9534F';
+  }
+  /** Petite courbe (commandes par tranche de jours). */
+  function spark(vals, color) {
+    if (!vals || vals.length < 2) return '';
+    var w = 72;
+    var hh = 20;
+    var max = Math.max.apply(null, vals.concat([1]));
+    return '<svg class="st-spark" width="' + w + '" height="' + hh + '" viewBox="0 0 ' + w + ' ' + hh + '" aria-hidden="true"><polyline fill="none" stroke="' + (color || '#5B6270') +
+      '" stroke-width="1.8" stroke-linejoin="round" points="' + vals.map(function (v, i) { return (i * w / (vals.length - 1)).toFixed(1) + ',' + (hh - 2 - v / max * (hh - 4)).toFixed(1); }).join(' ') + '"/></svg>';
+  }
+  /** « **gras** » → <b>gras</b> (le reste est échappé). */
+  function rich(text) {
+    return h(text).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  }
+  function shortWilaya(name) { return String(name || '').replace(/^\d+\s*-\s*/, ''); }
+
   /* ---------------- Page ---------------- */
 
   function pageStats() {
     view.innerHTML = '<div id="stats"><p class="loading">Chargement…</p></div>';
-    if (ST.data && ST.data.period === ST.period) { renderStats(); loadStats(true); } else loadStats();
+    if (ST.data && ST.data.period === ST.period && sameFilter(ST.data.filter, ST.filter)) { renderStats(); loadStats(true); } else loadStats();
   }
+  function sameFilter(a, b) { return (!a && !b) || (a && b && a.kind === b.kind && a.value === b.value); }
 
   function loadStats(keep) {
     var t = ++S.token;
@@ -176,7 +259,7 @@
     var custom = ST.period === 'custom';
     var period = ST.period;
     DZ.syncStart();
-    return call('api_stats', custom ? '' : ST.period, custom ? ST.from : '', custom ? ST.to : '').then(function (d) {
+    return call('api_stats', custom ? '' : ST.period, custom ? ST.from : '', custom ? ST.to : '', ST.filter || null).then(function (d) {
       DZ.syncEnd();
       if (t !== S.token || S.route !== 'stats') return;
       d.period = period;
@@ -185,7 +268,10 @@
       renderStats();
     }).catch(function (e) {
       DZ.syncEnd();
-      if (t === S.token && S.route === 'stats') $('#stats').innerHTML = errorBox(e);
+      if (t !== S.token || S.route !== 'stats') return;
+      // Filtre impossible (trop de commandes) : il est retiré, la page revient sans filtre.
+      if (ST.filter) { toast(errText(e), true); ST.filter = null; loadStats(); return; }
+      $('#stats').innerHTML = errorBox(e);
     });
   }
 
@@ -197,7 +283,7 @@
       ' · comparé au ' + dayText(d.range.prevFrom) + '–' + dayText(d.range.prevTo) +
       (d.pending ? ' · ' + plural(d.pending, 'jour encore en calcul', 'jours encore en calcul') + ' (quelques minutes)' : d.builtAt ? ' · calcul complet ' + h(DZ.ago(d.builtAt)) + ', aujourd’hui en direct' : '') + '</p></div>' +
       '<button type="button" class="btn" data-act="stats-rebuild">Recalculer</button></div>';
-    html += '<div class="chips" role="group" aria-label="Période">' + PERIODS.map(function (p) {
+    html += '<div class="chips st-chips" role="group" aria-label="Période">' + PERIODS.map(function (p) {
       return '<button type="button" class="chip" data-act="stats-period" data-period="' + p[0] + '" aria-pressed="' + (ST.period === p[0]) + '">' + p[1] + '</button>';
     }).join('') + '</div>';
     if (ST.period === 'custom') {
@@ -206,10 +292,14 @@
         DZ.field('Au', '<input type="date" id="stats-to" value="' + h(ST.to || d.range.to) + '">') +
         '<button type="button" class="btn primary" data-act="stats-custom">Afficher</button></div>';
     }
-    html += '<div class="chips tabs" role="tablist" aria-label="Onglets" style="margin-top:12px">' + TABS.map(function (t) {
+    html += '<div class="chips tabs st-chips" role="tablist" aria-label="Onglets" style="margin-top:12px">' + TABS.map(function (t) {
       return '<button type="button" class="chip" role="tab" data-act="stats-tab" data-tab="' + t[0] + '" aria-selected="' + (ST.tab === t[0]) + '" aria-pressed="' + (ST.tab === t[0]) + '">' + t[1] + '</button>';
     }).join('') + '</div>';
-    html += '<div id="stats-body" class="stack" style="margin-top:14px">' + (RENDER[ST.tab] || RENDER.overview)(d) + '</div>';
+    html += '<div class="st-filter">' + (d.filter
+      ? 'Filtre : <button type="button" class="st-fchip" data-act="stats-unfilter" title="Enlever le filtre">' + h(d.filter.label) + ' · ' + h(d.filter.kind === 'w' ? d.filter.value : d.filter.value) + ' <span aria-hidden="true">✕</span></button>' +
+        '<span>toute la page ne montre que ces commandes' + (d.filter.kind === 'cp' || d.filter.kind === 'src' ? ' (dépenses : sa publicité seulement)' : ' (sans les dépenses)') + '</span>'
+      : '<span>Astuce : touchez une wilaya, un produit, une campagne, une source ou une confirmatrice pour filtrer toute la page.</span>') + '</div>';
+    html += '<div id="stats-body" class="stack" style="margin-top:12px">' + (RENDER[ST.tab] || RENDER.overview)(d) + '</div>';
     box.innerHTML = html;
   }
 
@@ -218,40 +308,161 @@
   var RED = '#A12626';
   var BLUE = '#1E4FA8';
 
+  /* ---------------- Vue d'ensemble ---------------- */
+
+  function insightsCard(d) {
+    var list = d.insights || [];
+    if (!list.length) return '';
+    return '<section class="card"><h2 style="margin-bottom:10px">Ce qui a changé</h2><div class="st-ins">' + list.map(function (x, i) {
+      return '<div class="st-it ' + h(x.level) + '"><span class="ic" aria-hidden="true">' + (x.level === 'good' ? '▲' : x.level === 'bad' ? '▼' : '!') + '</span>' +
+        '<span class="tx">' + rich(x.text) + '</span>' +
+        (x.link && (x.filter || x.tab) ? '<button type="button" class="st-more" data-act="stats-insight" data-i="' + i + '">' + h(x.link) + '</button>' : '') + '</div>';
+    }).join('') + '</div></section>';
+  }
+
+  function funnelCard(d) {
+    var k = d.kpis;
+    var top = function (list, n) { return (list || []).slice(0, n || 3).map(function (x) { return '« ' + x.name.toLowerCase() + ' » ' + num(x.count); }).join(', '); };
+    var waitShip = Math.max(k.confirmed - k.shipped, 0);
+    var enRoute = Math.max(k.inProgress - waitShip, 0);
+    var steps = [
+      ['Reçues', k.orders, ''],
+      ['Confirmées', k.confirmed, k.orders - k.confirmed > 0 ? '<b>−' + num(k.orders - k.confirmed) + '</b> · ' +
+        [k.cancelled ? 'annulées ' + num(k.cancelled) + (d.cancelReasons.length ? ' : ' + top(d.cancelReasons) : '') : '', k.pending ? 'pas encore confirmées ' + num(k.pending) : ''].filter(Boolean).join(' · ') : ''],
+      ['Expédiées', k.shipped, waitShip ? '<b>−' + num(waitShip) + '</b> · en attente d’envoi' : ''],
+      ['Livrées', k.delivered, k.shipped - k.delivered > 0 ? '<b>−' + num(k.shipped - k.delivered) + '</b> · ' +
+        [enRoute ? 'en route ' + num(enRoute) : '', k.returned ? 'retours ' + num(k.returned) + (d.courierTags.length ? ' : ' + top(d.courierTags, 2) : '') : ''].filter(Boolean).join(' · ') : '']
+    ];
+    return '<section class="card"><h2 style="margin-bottom:12px">Parcours des commandes</h2><div class="st-funnel">' + steps.map(function (s) {
+      var w = k.orders ? s[1] / k.orders * 100 : 0;
+      return '<div class="st-step"><span class="lab">' + s[0] + '<small>' + (k.orders ? Math.round(w) + ' % des reçues' : '') + '</small></span>' +
+        '<span class="trk"><span class="bar" style="width:' + Math.max(w, 6).toFixed(1) + '%">' + num(s[1]) + '</span></span>' +
+        '<span class="loss">' + s[2] + '</span></div>';
+    }).join('') + '</div></section>';
+  }
+
+  /* ---------------- Carte des wilayas (une case par wilaya, à sa place) ---------------- */
+
+  var TILE = { 13: [0, 0], 46: [1, 0], 31: [2, 0], 27: [3, 0], 2: [4, 0], 42: [5, 0], 16: [6, 0], 35: [7, 0], 15: [8, 0], 6: [9, 0], 18: [10, 0], 21: [11, 0], 23: [12, 0], 36: [13, 0],
+    22: [1, 1], 29: [2, 1], 48: [3, 1], 44: [4, 1], 9: [5, 1], 26: [6, 1], 10: [7, 1], 34: [8, 1], 19: [9, 1], 43: [10, 1], 25: [11, 1], 24: [12, 1], 41: [13, 1],
+    20: [2, 2], 14: [3, 2], 38: [4, 2], 17: [6, 2], 28: [7, 2], 5: [9, 2], 4: [10, 2], 40: [11, 2], 12: [12, 2],
+    45: [1, 3], 32: [3, 3], 3: [5, 3], 51: [7, 3], 7: [8, 3], 57: [9, 3], 39: [10, 3],
+    8: [1, 4], 47: [5, 4], 30: [8, 4], 55: [9, 4], 52: [1, 5], 49: [3, 5], 58: [5, 5], 37: [0, 6], 1: [2, 6], 53: [5, 6], 33: [10, 6], 50: [2, 7], 11: [6, 7], 56: [11, 7], 54: [6, 8] };
+
+  function wilayaMap(d) {
+    var byCode = {};
+    d.wilayas.forEach(function (w) { if (w.code) byCode[w.code] = w; });
+    var sel = d.filter && d.filter.kind === 'w' ? d.filter.value : '';
+    var tiles = Object.keys(TILE).map(function (code) {
+      var p = TILE[code];
+      var w = byCode[code];
+      var color = w ? rateColor(w.deliveryRate) : '#E5E7EB';
+      var title = w ? w.name + ' : ' + num(w.orders) + ' commandes · livraison ' + rate(w.deliveryRate) + ' · retours ' + num(w.returned) : 'Wilaya ' + code + ' : pas de commande';
+      return '<button type="button" class="st-tile' + (w && w.name === sel ? ' on' : '') + (w ? '' : ' none') + '" style="--x:' + p[0] + ';--y:' + p[1] + ';background:' + color + '" title="' + h(title) + '"' +
+        (w ? ' data-act="stats-filter" data-kind="w" data-value="' + h(w.name) + '"' : ' disabled') + ' aria-label="' + h(title) + '">' + ('0' + code).slice(-2) + '</button>';
+    }).join('');
+    return '<section class="card"><h2 style="margin-bottom:10px">Carte : taux de livraison par wilaya</h2><div class="st-map-wrap"><div class="st-map">' + tiles + '</div></div>' +
+      '<div class="st-legend"><span><i style="background:#2E9E6A"></i>75 % et plus livrées</span><span><i style="background:#E8A33C"></i>60 à 74 %</span><span><i style="background:#D9534F"></i>moins de 60 %</span><span><i style="background:#C9CED6"></i>pas encore de colis terminé</span><span><i style="background:#E5E7EB"></i>pas de commande</span></div>' +
+      '<p class="small" style="margin-top:6px">Touchez une wilaya pour filtrer toute la page.</p></section>';
+  }
+
+  /** Conseil bureau / domicile : la wilaya où l'écart est le plus grand. */
+  function modeTip(d) {
+    var best = null;
+    d.wilayas.forEach(function (w) {
+      var a = w.modes && w.modes.desk;
+      var b = w.modes && w.modes.home;
+      if (!a || !b || a.deliveryRate === null || b.deliveryRate === null) return;
+      if (a.delivered + a.returned < 8 || b.delivered + b.returned < 8) return;
+      var gap = a.deliveryRate - b.deliveryRate;
+      if (Math.abs(gap) >= 0.15 && (!best || Math.abs(gap) > Math.abs(best.gap))) best = { w: w, gap: gap, a: a, b: b };
+    });
+    if (!best) return '';
+    var name = shortWilaya(best.w.name);
+    var homeFinished = best.b.delivered + best.b.returned;
+    var gain = Math.round(Math.abs(best.gap) * homeFinished);
+    return '<div class="st-note">💡 Bureau ou domicile : à <b>' + h(name) + '</b>, le bureau livre ' + rate(best.a.deliveryRate) + ' et le domicile ' + rate(best.b.deliveryRate) + '. ' +
+      (best.gap > 0 ? 'Proposer le bureau aux clients de ' + h(name) + ' aurait fait environ <b>' + plural(gain, 'livraison de plus', 'livraisons de plus') + '</b> sur la période.' : 'Ici, la livraison à domicile marche mieux.') + '</div>';
+  }
+
+  /* ---------------- Commandes : heures, appels, vitesse ---------------- */
+
+  var HEAT_DAYS = [[5, 'Sam'], [6, 'Dim'], [0, 'Lun'], [1, 'Mar'], [2, 'Mer'], [3, 'Jeu'], [4, 'Ven']];
+  function heatCard(d) {
+    var heat = d.heat || [];
+    var max = 1;
+    heat.forEach(function (r) { r.forEach(function (v) { max = Math.max(max, v); }); });
+    var peak = null;
+    HEAT_DAYS.forEach(function (x) { (heat[x[0]] || []).forEach(function (v, hr) { if (!peak || v > peak.v) peak = { v: v, hr: hr, day: x[1] }; }); });
+    var html = '<div class="st-heat"><span></span>';
+    for (var i = 0; i < 24; i++) html += '<span class="hl">' + (i % 3 === 0 ? i + 'h' : '') + '</span>';
+    HEAT_DAYS.forEach(function (x) {
+      html += '<span class="dl">' + x[1] + '</span>';
+      for (var hr = 0; hr < 24; hr++) {
+        var v = (heat[x[0]] || [])[hr] || 0;
+        html += '<span class="c" style="background:rgba(11,107,76,' + (v ? (0.12 + 0.88 * v / max).toFixed(2) : '0.04') + ')" title="' + h(x[1] + ' ' + hr + ' h : ' + plural(v, 'commande', 'commandes')) + '"></span>';
+      }
+    });
+    html += '</div>';
+    return '<section class="card"><h2 style="margin-bottom:10px">Quand arrivent les commandes (heure × jour)</h2><div class="st-heat-wrap">' + html + '</div>' +
+      '<p class="small" style="margin-top:8px">Plus la case est foncée, plus il y a de commandes.' + (peak && peak.v ? ' Le plus : <b>' + h(peak.day) + ' ' + peak.hr + ' h – ' + (peak.hr + 1) + ' h</b>.' : '') + '</p></section>';
+  }
+
+  var SLOTS = [[0, 8, 'nuit (0 h – 8 h)'], [8, 10, '8 h – 10 h'], [10, 12, '10 h – 12 h'], [12, 14, '12 h – 14 h'], [14, 16, '14 h – 16 h'], [16, 18, '16 h – 18 h'], [18, 20, '18 h – 20 h'], [20, 22, '20 h – 22 h'], [22, 24, '22 h – 24 h']];
+  function callsCard(d) {
+    var c = d.calls || { hours: [], answered: [] };
+    var rows = SLOTS.map(function (s) {
+      var n = 0;
+      var a = 0;
+      for (var i = s[0]; i < s[1]; i++) { n += c.hours[i] || 0; a += c.answered[i] || 0; }
+      return { label: s[2], calls: n, answered: a, rate: n ? a / n : null };
+    }).filter(function (r) { return r.calls; });
+    if (!rows.length) return '<section class="card"><h2>Meilleure heure pour appeler</h2><p class="empty">Pas encore d’appel noté sur la période (historique des appels).</p></section>';
+    var best = rows.filter(function (r) { return r.calls >= 10; }).sort(function (a, b) { return b.rate - a.rate; })[0];
+    return '<section class="card"><h2>Meilleure heure pour appeler</h2><p class="small" style="margin:4px 0 10px">Clients qui répondent, selon l’heure de l’appel</p><div class="st-bars">' + rows.map(function (r) {
+      return '<div class="st-brow"><span>' + h(r.label) + '</span><span class="b"><i style="width:' + Math.max((r.rate || 0) * 100, 2).toFixed(1) + '%;background:' + rateColor(r.rate, 0.65, 0.5) + '"></i></span>' +
+        '<span class="v">' + rate(r.rate) + '<small>' + plural(r.calls, 'appel', 'appels') + '</small></span></div>';
+    }).join('') + '</div>' + (best ? '<div class="st-note">💡 Appelez de préférence entre <b>' + h(best.label) + '</b> : ' + rate(best.rate) + ' répondent.</div>' : '') + '</section>';
+  }
+
+  function speedCard(d) {
+    var sp = d.speed || { buckets: [] };
+    var any = sp.buckets.some(function (b) { return b.finished; });
+    return '<section class="card"><h2>La vitesse compte</h2><p class="small" style="margin:4px 0 10px">Colis livrés, selon le délai entre la commande et la confirmation</p>' +
+      (any ? '<div class="st-bars">' + sp.buckets.map(function (b) {
+        return '<div class="st-brow"><span>' + h(b.label) + '</span><span class="b"><i style="width:' + Math.max((b.rate || 0) * 100, 2).toFixed(1) + '%;background:' + rateColor(b.rate) + '"></i></span>' +
+          '<span class="v">' + rate(b.rate) + '<small>' + plural(b.finished, 'colis', 'colis') + '</small></span></div>';
+      }).join('') + '</div>' : '<p class="empty">Pas encore de colis terminé sur la période.</p>') +
+      '<p class="small" style="margin-top:10px">Délais moyens : commande → confirmation <b>' + dur(sp.confirmHours) + '</b> · commande → livraison <b>' + dur(sp.deliveryHours) + '</b></p></section>';
+  }
+
+  /* ---------------- Onglets ---------------- */
+
   var RENDER = {
     overview: function (d) {
       var k = d.kpis;
       var p = d.prev;
-      var html = '<section class="card"><div class="grid-kpi">' +
+      var html = insightsCard(d);
+      html += '<section class="card"><div class="grid-kpi">' +
         kpi('Commandes', num(k.orders), '', delta(k.orders, p.orders)) +
         kpi('Taux de confirmation', rate(k.confirmRate), num(k.confirmed) + ' confirmées', delta(k.confirmRate, p.confirmRate, 'rate')) +
         kpi('Taux de livraison', rate(k.deliveryRate), num(k.delivered) + ' livrées / ' + num(k.delivered + k.returned) + ' terminées', delta(k.deliveryRate, p.deliveryRate, 'rate')) +
         kpi('Retours', num(k.returned), rate(k.returnRate), delta(k.returned, p.returned, null, false)) +
         kpi('Annulées', num(k.cancelled), rate(k.cancelRate), delta(k.cancelled, p.cancelled, null, false)) +
         kpi('Encaissé', money(k.revenue), '', delta(k.revenue, p.revenue)) +
-        kpi('Bénéfice net', '<span class="' + (k.net < 0 ? 'neg' : 'pos') + '">' + money(k.net) + '</span>', 'après dépenses', delta(k.net, p.net)) +
+        kpi('Bénéfice net', '<span class="' + (k.net < 0 ? 'neg' : 'pos') + '">' + money(k.net) + '</span>', d.filter && d.filter.kind !== 'cp' && d.filter.kind !== 'src' ? 'sans les dépenses' : 'après dépenses', delta(k.net, p.net)) +
         '</div></section>';
-      // Parcours des commandes
-      var steps = [['Reçues', k.orders], ['Confirmées', k.confirmed], ['Expédiées', k.shipped], ['Livrées', k.delivered]];
-      html += '<section class="card"><h2>Parcours des commandes</h2><div class="flow">' + steps.map(function (s) {
-        var w = k.orders ? s[1] / k.orders * 100 : 0;
-        return '<div class="flow-row"><span class="flow-label">' + s[0] + '</span><span class="flow-track"><span style="width:' + Math.max(w, 1).toFixed(1) + '%"></span></span>' +
-          '<span class="flow-n">' + num(s[1]) + ' <span class="small">' + (k.orders ? Math.round(w) + ' %' : '') + '</span></span></div>';
-      }).join('') + '</div><p class="small" style="margin-top:8px">En cours : ' + num(k.inProgress) + ' · en attente de confirmation : ' + num(k.pending) +
-        ' · retours : ' + num(k.returned) + ' · annulées : ' + num(k.cancelled) + '</p></section>';
+      html += funnelCard(d);
       html += '<section class="card"><h2>Par jour</h2>' + barChart(d.series, [
         { key: 'orders', label: 'Commandes', color: INK }, { key: 'delivered', label: 'Livrées', color: GREEN }, { key: 'returned', label: 'Retours', color: RED }
       ], { title: 'Commandes par jour' }) + '</section>';
       return html;
     },
     orders: function (d) {
-      var hours = (d.hours.length ? d.hours : new Array(24).fill(0)).map(function (n, i) { return { label: i + 'h', n: n }; });
-      var week = d.weekdays.map(function (n, i) { return { label: DAYS[i], n: n }; });
-      return '<section class="card"><h2>Motifs d’annulation</h2>' + hBars(d.cancelReasons, 'Aucune annulation sur la période.') + '</section>' +
-        '<section class="card"><h2>Motifs du livreur (retours et colis suspendus)</h2>' + hBars(d.courierTags, 'Aucune remarque du livreur sur la période.') + '</section>' +
-        '<section class="card"><h2>Commandes par heure</h2><p class="small">Pour placer les confirmatrices et la publicité aux bonnes heures.</p>' +
-        barChart(hours, [{ key: 'n', label: 'Commandes', color: BLUE }], { labels: false, title: 'Commandes par heure' }) + '</section>' +
-        '<section class="card"><h2>Commandes par jour de la semaine</h2>' + barChart(week, [{ key: 'n', label: 'Commandes', color: BLUE }], { labels: true, title: 'Commandes par jour de la semaine' }) + '</section>';
+      return heatCard(d) +
+        '<div class="st-2">' + callsCard(d) + speedCard(d) + '</div>' +
+        '<section class="card"><h2>Motifs d’annulation</h2>' + hBars(d.cancelReasons, 'Aucune annulation sur la période.') + '</section>' +
+        '<section class="card"><h2>Motifs du livreur (retours et colis suspendus)</h2>' + hBars(d.courierTags, 'Aucune remarque du livreur sur la période.') + '</section>';
     },
     money: function (d) {
       var k = d.kpis;
@@ -261,7 +472,7 @@
         kpi('À recevoir', money(m.toReceive), 'colis livrés, argent pas encore versé') +
         kpi('Chez le livreur', money(m.enRoute), 'colis en route') +
         kpi('Argent prévu', m.expected === null ? '—' : money(m.expected), 'en route × votre taux de livraison (' + rate(m.deliveryRate) + ')') +
-        '</div></section>';
+        '</div>' + (d.filter ? '<p class="small" style="margin-top:8px">Avec le filtre : seulement les commandes de la période.</p>' : '') + '</section>';
       html += whereMoney(m);
       html += '<section class="card"><h2>La période</h2><div class="grid-kpi">' +
         kpi('Encaissé', money(k.revenue), '', delta(k.revenue, p.revenue)) +
@@ -283,45 +494,83 @@
     },
     wilayas: function (d) {
       var bad = d.wilayas.filter(function (w) { return w.bad; });
-      return '<section class="card"><h2>Par wilaya</h2>' +
+      var mr = function (w, key) { return w.modes && w.modes[key] ? w.modes[key].deliveryRate : null; };
+      return wilayaMap(d) + '<section class="card"><h2>Par wilaya</h2>' +
         (bad.length ? '<div class="lock-box warn"><p>Beaucoup de retours : ' + bad.map(function (w) { return h(w.name) + ' (' + rate(w.returnRate) + ')'; }).join(', ') + '. Confirmez plus sérieusement ces commandes.</p></div>' : '') +
         dataTable('wilayas', [
           ['Wilaya', function (r) { return r.name; }],
-          ['Commandes', function (r) { return num(r.orders); }, true],
-          ['Confirmation', function (r) { return rate(r.confirmRate); }, true],
-          ['Livraison', function (r) { return rate(r.deliveryRate); }, true],
-          ['Retours', function (r) { return num(r.returned); }, true],
-          ['Délai moyen', function (r) { return dur(r.avgHours); }, true],
-          ['Encaissé', function (r) { return money(r.revenue); }, true],
-          ['Bénéfice', function (r) { return money(r.profit); }, true],
-          ['Perdu (retours)', function (r) { return money(r.lost); }, true]
-        ], d.wilayas, { bad: function (r) { return r.bad; } }) + '</section>';
+          ['Commandes', function (r) { return num(r.orders); }, true, function (r) { return r.orders; }],
+          ['Livraison', function (r) { return rate(r.deliveryRate); }, true, function (r) { return r.deliveryRate; }, function (r) { return ratePill(r.deliveryRate); }],
+          ['Tendance', function () { return ''; }, false, function (r) { return r.orders; }, function (r) { return spark(r.trend, rateColor(r.deliveryRate)); }],
+          ['Bureau', function (r) { return rate(mr(r, 'desk')); }, true, function (r) { return mr(r, 'desk'); }, function (r) { return ratePill(mr(r, 'desk')); }],
+          ['Domicile', function (r) { return rate(mr(r, 'home')); }, true, function (r) { return mr(r, 'home'); }, function (r) { return ratePill(mr(r, 'home')); }],
+          ['Confirmation', function (r) { return rate(r.confirmRate); }, true, function (r) { return r.confirmRate; }],
+          ['Retours', function (r) { return num(r.returned); }, true, function (r) { return r.returned; }],
+          ['Délai moyen', function (r) { return dur(r.avgHours); }, true, function (r) { return r.avgHours; }],
+          ['Bénéfice', function (r) { return money(r.profit); }, true, function (r) { return r.profit; }],
+          ['Perdu (retours)', function (r) { return money(r.lost); }, true, function (r) { return r.lost; }]
+        ], d.wilayas, {
+          bad: function (r) { return r.bad; }, filter: 'w', search: 'Chercher une wilaya…',
+          card: function (r) {
+            return { color: rateColor(r.deliveryRate), html: '<span class="t"><b>' + h(r.name) + '</b>' + ratePill(r.deliveryRate) + '</span><span class="s">' + num(r.orders) + ' commandes · ' + num(r.returned) + ' retours · bénéfice ' + money(r.profit) +
+              (mr(r, 'desk') !== null || mr(r, 'home') !== null ? ' · bureau ' + rate(mr(r, 'desk')) + ', domicile ' + rate(mr(r, 'home')) : '') + '</span>' };
+          }
+        }) + modeTip(d) + '</section>';
     },
     products: function (d) {
-      return '<section class="card"><h2>Par produit et modèle</h2><p class="small">Une commande de plusieurs articles est partagée selon les quantités.</p>' +
+      return '<section class="card"><h2>Par produit et modèle</h2><p class="small">Une commande de plusieurs articles est partagée selon les quantités. Touchez un produit pour filtrer toute la page.</p>' +
         dataTable('produits', [
           ['Produit', function (r) { return r.name; }],
-          ['Commandes', function (r) { return num(r.orders); }, true],
-          ['Livrées', function (r) { return num(r.delivered); }, true],
-          ['Retours', function (r) { return num(r.returned); }, true],
-          ['Taux de retour', function (r) { return rate(r.returnRate); }, true],
-          ['Encaissé', function (r) { return money(r.revenue); }, true],
-          ['Bénéfice', function (r) { return money(r.profit); }, true]
-        ], d.products) + '</section>';
+          ['Commandes', function (r) { return num(r.orders); }, true, function (r) { return r.orders; }],
+          ['Tendance', function () { return ''; }, false, function (r) { return r.orders; }, function (r) { return spark(r.trend, rateColor(r.deliveryRate)); }],
+          ['Livrées', function (r) { return num(r.delivered); }, true, function (r) { return r.delivered; }],
+          ['Livraison', function (r) { return rate(r.deliveryRate); }, true, function (r) { return r.deliveryRate; }, function (r) { return ratePill(r.deliveryRate); }],
+          ['Retours', function (r) { return num(r.returned); }, true, function (r) { return r.returned; }],
+          ['Encaissé', function (r) { return money(r.revenue); }, true, function (r) { return r.revenue; }],
+          ['Bénéfice', function (r) { return money(r.profit); }, true, function (r) { return r.profit; }]
+        ], d.products, {
+          filter: 'p', search: 'Chercher un produit…',
+          card: function (r) {
+            return { color: rateColor(r.deliveryRate), html: '<span class="t"><b>' + h(r.name) + '</b>' + ratePill(r.deliveryRate) + '</span><span class="s">' + num(r.orders) + ' commandes · ' + num(r.delivered) + ' livrées · ' + num(r.returned) + ' retours · bénéfice ' + money(r.profit) + '</span>' };
+          }
+        }) + '</section>';
     },
     team: function (d) {
       var today = new Date();
       var iso = today.getFullYear() + '-' + ('0' + (today.getMonth() + 1)).slice(-2) + '-' + ('0' + today.getDate()).slice(-2);
+      var people = d.agents.filter(function (a) { return a.name !== '(sans confirmatrice)'; });
       var html = '<section class="card"><h2>Par confirmatrice</h2>' +
         dataTable('equipe', [
           ['Confirmatrice', function (r) { return r.name; }],
-          ['Commandes', function (r) { return num(r.orders); }, true],
-          ['Confirmées', function (r) { return num(r.confirmed) + ' (' + rate(r.confirmRate) + ')'; }, true],
-          ['Livrées', function (r) { return num(r.delivered); }, true],
-          ['Taux de livraison', function (r) { return rate(r.deliveryRate); }, true],
-          ['Délai avant confirmation', function (r) { return dur(r.avgConfirmHours); }, true],
-          ['Prime', function (r) { return money(r.prime); }, true]
-        ], d.agents) + '<p class="small" style="margin-top:8px">La prime compte les commandes de la période qui sont livrées : le total se complète au fil des livraisons.</p></section>';
+          ['Commandes', function (r) { return num(r.orders); }, true, function (r) { return r.orders; }],
+          ['Appels', function (r) { return num(r.calls); }, true, function (r) { return r.calls; }],
+          ['Taux de réponse', function (r) { return rate(r.answerRate); }, true, function (r) { return r.answerRate; }, function (r) { return ratePill(r.answerRate, 0.65, 0.5); }],
+          ['Appels par confirmation', function (r) { return r.callsPerConfirmation === null ? '—' : String(r.callsPerConfirmation).replace('.', ','); }, true, function (r) { return r.callsPerConfirmation; }],
+          ['Confirmées', function (r) { return num(r.confirmed) + ' (' + rate(r.confirmRate) + ')'; }, true, function (r) { return r.confirmed; }],
+          ['Livraison', function (r) { return rate(r.deliveryRate); }, true, function (r) { return r.deliveryRate; }, function (r) { return ratePill(r.deliveryRate); }],
+          ['Délai avant confirmation', function (r) { return dur(r.avgConfirmHours); }, true, function (r) { return r.avgConfirmHours; }],
+          ['1er motif d’annulation', function (r) { return r.topCancel ? r.topCancel.name + ' (' + r.topCancel.count + ')' : '—'; }],
+          ['Prime', function (r) { return money(r.prime); }, true, function (r) { return r.prime; }]
+        ], d.agents, {
+          filter: 'a',
+          card: function (r) {
+            return { color: rateColor(r.deliveryRate), html: '<span class="t"><b>' + h(r.name) + '</b>' + ratePill(r.deliveryRate) + '</span><span class="s">' + num(r.confirmed) + ' confirmées · ' + num(r.calls) + ' appels · réponse ' + rate(r.answerRate) +
+              (r.topCancel ? ' · annulations : « ' + h(r.topCancel.name) + ' »' : '') + ' · prime ' + money(r.prime) + '</span>' };
+          }
+        }) + '<p class="small" style="margin-top:8px">Appels et réponses : historique des appels (noté depuis la version 1.2). La prime compte les commandes de la période qui sont livrées : le total se complète au fil des livraisons.</p></section>';
+      // Objectif du jour.
+      var goal = d.goal || { perDay: 0, today: {} };
+      var names = people.map(function (a) { return a.name; });
+      Object.keys(goal.today || {}).forEach(function (n) { if (names.indexOf(n) < 0) names.push(n); });
+      html += '<section class="card"><h2>Objectif du jour' + (goal.perDay ? ' : ' + plural(goal.perDay, 'confirmée', 'confirmées') + ' chacune' : '') + '</h2>' +
+        (goal.perDay ? (names.length ? '<div class="st-goal">' + names.map(function (n) {
+          var v = (goal.today || {})[n] || 0;
+          var r = v / goal.perDay;
+          return '<div class="st-g"><b>' + h(n) + '</b><span class="b"><i style="width:' + Math.min(r * 100, 100).toFixed(1) + '%;background:' + rateColor(r, 0.7, 0.4) + '"></i></span><span>' + v + ' / ' + goal.perDay + (v >= goal.perDay ? ' ✓' : '') + '</span></div>';
+        }).join('') + '</div>' : '<p class="empty">Personne n’a encore confirmé aujourd’hui.</p>') : '<p class="small">Pas d’objectif pour l’instant.</p>') +
+        '<div class="quick" style="align-items:flex-end;margin-top:12px">' +
+        DZ.field('Commandes confirmées par jour et par confirmatrice', '<input type="number" min="0" step="1" id="goal-n" value="' + h(goal.perDay || '') + '" placeholder="0 = pas d’objectif">') +
+        '<button type="button" class="btn primary" data-act="stats-goal">Enregistrer</button></div></section>';
       html += '<section class="card"><h2>Prime par commande livrée</h2>' +
         '<p>Montant actuel : <strong>' + money(d.primeNow) + '</strong> par commande livrée.</p>' +
         '<div class="quick" style="align-items:flex-end;margin-top:8px">' +
@@ -333,22 +582,38 @@
       return html;
     },
     ads: function (d) {
-      var cols = function () {
+      var q = function (r, k) { return r.quality ? r.quality[k] : null; };
+      var pc = function (v) { return v === null || v === undefined ? '—' : Math.round(v * 100) + ' %'; };
+      var score = function (r) {
+        var s = r.quality && r.quality.score;
+        return s ? '<span class="st-score ' + (s === 'Bonne' ? 'g' : s === 'Moyenne' ? 'o' : 'r') + '">' + s + '</span>' : '<span class="small">—</span>';
+      };
+      var cols = function (title) {
         return [
-          [' ', function (r) { return r.name; }],
-          ['Commandes', function (r) { return num(r.orders); }, true],
-          ['Livrées', function (r) { return num(r.delivered); }, true],
-          ['Taux de livraison', function (r) { return rate(r.deliveryRate); }, true],
-          ['Dépense', function (r) { return money(r.spend); }, true],
-          ['Coût par livrée', function (r) { return r.costPerDelivered === null ? '—' : money(r.costPerDelivered); }, true],
-          ['Bénéfice', function (r) { return money(r.profit); }, true],
-          ['Net (après pub)', function (r) { return money(r.net); }, true]
+          [title, function (r) { return r.name; }],
+          ['Commandes', function (r) { return num(r.orders); }, true, function (r) { return r.orders; }],
+          ['Tendance', function () { return ''; }, false, function (r) { return r.orders; }, function (r) { return spark(r.trend, rateColor(r.deliveryRate)); }],
+          ['Livraison', function (r) { return rate(r.deliveryRate); }, true, function (r) { return r.deliveryRate; }, function (r) { return ratePill(r.deliveryRate); }],
+          ['Dépense', function (r) { return money(r.spend); }, true, function (r) { return r.spend; }],
+          ['Coût par livrée', function (r) { return r.costPerDelivered === null ? '—' : money(r.costPerDelivered); }, true, function (r) { return r.costPerDelivered; }],
+          ['Net (après pub)', function (r) { return money(r.net); }, true, function (r) { return r.net; }],
+          ['Faux numéros', function (r) { return pc(q(r, 'fake')); }, true, function (r) { return q(r, 'fake'); }],
+          ['Doublons', function (r) { return pc(q(r, 'dup')); }, true, function (r) { return q(r, 'dup'); }],
+          ['Liste noire', function (r) { return pc(q(r, 'black')); }, true, function (r) { return q(r, 'black'); }],
+          ['Refus au livreur', function (r) { return pc(q(r, 'refus')); }, true, function (r) { return q(r, 'refus'); }],
+          ['Qualité', function (r) { return r.quality && r.quality.score || ''; }, false, null, score]
         ];
       };
-      var src = cols(); src[0][0] = 'Source';
-      var cp = cols(); cp[0][0] = 'Campagne';
-      return '<section class="card"><h2>Par source</h2>' + dataTable('sources', src, d.sources) + '</section>' +
-        '<section class="card"><h2>Par campagne</h2><p class="small">La dépense vient de l’onglet Dépenses (catégories de publicité, colonne Campagne).</p>' + dataTable('campagnes', cp, d.campaigns) + '</section>';
+      var card = function (r) {
+        return { color: rateColor(r.deliveryRate), html: '<span class="t"><b>' + h(r.name) + '</b>' + score(r) + '</span><span class="s">' + num(r.orders) + ' commandes · livraison ' + rate(r.deliveryRate) + ' · dépense ' + money(r.spend) +
+          (r.quality ? ' · faux ' + pc(r.quality.fake) + ', doublons ' + pc(r.quality.dup) + ', refus ' + pc(r.quality.refus) : '') + '</span>' };
+      };
+      var worst = d.campaigns.filter(function (r) { return r.quality && r.quality.score === 'Faible'; }).sort(function (a, b) { return b.orders - a.orders; })[0];
+      return '<section class="card"><h2>Par source</h2>' + dataTable('sources', cols('Source'), d.sources, { filter: 'src', card: card }) + '</section>' +
+        '<section class="card"><h2>Par campagne</h2><p class="small">La dépense vient de l’onglet Dépenses (catégories de publicité, colonne Campagne). Qualité : faux numéros, doublons, liste noire et refus au livreur (à partir de 10 commandes).</p>' +
+        dataTable('campagnes', cols('Campagne'), d.campaigns, { filter: 'cp', search: 'Chercher une campagne…', card: card }) +
+        (worst ? '<div class="st-note">💡 « ' + h(worst.name) + ' » : ' + Math.round((worst.quality.fake + worst.quality.dup + worst.quality.black) * 100) + ' % de ses commandes sont fausses, en double ou en liste noire' +
+          (worst.quality.refus !== null ? ', et ' + Math.round(worst.quality.refus * 100) + ' % sont refusées au livreur' : '') + '. Une commande pas chère peut coûter cher.</div>' : '') + '</section>';
     }
   };
 
@@ -366,6 +631,28 @@
     },
     'stats-tab': function (el) { ST.tab = el.getAttribute('data-tab'); renderStats(); },
     'stats-export': function (el) { exportTable(el.getAttribute('data-table')); },
+    'stats-sort': function (el) {
+      var id = el.getAttribute('data-table');
+      var col = Number(el.getAttribute('data-col'));
+      var cur = ST.sort[id];
+      var numeric = TABLES[id] && TABLES[id].cols[col] && TABLES[id].cols[col][2];
+      ST.sort[id] = cur && cur.col === col ? { col: col, dir: -cur.dir } : { col: col, dir: numeric ? -1 : 1 };
+      var box = $('#tbl-' + id);
+      if (box) box.innerHTML = tableInner(id);
+    },
+    'stats-filter': function (el) {
+      ST.filter = { kind: el.getAttribute('data-kind'), value: el.getAttribute('data-value') };
+      if (ST.tab === 'wilayas' && ST.filter.kind === 'w') ST.tab = 'overview';
+      window.scrollTo(0, 0);
+      loadStats();
+    },
+    'stats-unfilter': function () { ST.filter = null; loadStats(); },
+    'stats-insight': function (el) {
+      var x = (ST.data && ST.data.insights || [])[Number(el.getAttribute('data-i'))];
+      if (!x) return;
+      if (x.filter) { ST.filter = x.filter; loadStats(); return; }
+      if (x.tab) { ST.tab = x.tab; renderStats(); }
+    },
     'stats-rebuild': function (el) {
       el.disabled = true;
       toast('Recalcul des statistiques…');
@@ -377,7 +664,23 @@
       if (amount === '' || !from) { toast('Indiquez le montant et la date.', true); return; }
       el.disabled = true;
       call('api_setPrime', amount, from).then(function (r) { toast(r.message); loadStats(); }).catch(function (e) { el.disabled = false; toast(errText(e), true); });
+    },
+    'stats-goal': function (el) {
+      var n = ($('#goal-n') || {}).value;
+      el.disabled = true;
+      call('api_setGoal', n === '' ? 0 : n).then(function (r) { toast(r.message); loadStats(); }).catch(function (e) { el.disabled = false; toast(errText(e), true); });
     }
   });
+
+  // Recherche dans un tableau : seules les lignes changent (le champ garde la main).
+  var qTimer = null;
+  document.addEventListener('input', function (e) {
+    if (!e.target.getAttribute || e.target.getAttribute('data-role') !== 'stats-q') return;
+    var id = e.target.getAttribute('data-table');
+    var v = e.target.value;
+    clearTimeout(qTimer);
+    qTimer = setTimeout(function () { ST.q[id] = v; var box = $('#tbl-' + id); if (box) box.innerHTML = tableInner(id); }, 120);
+  });
+
   DZ.modules.stats = { page: pageStats, fmtDate: fmtDate };
 })(window.DZ);

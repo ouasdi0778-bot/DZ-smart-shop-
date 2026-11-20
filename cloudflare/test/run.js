@@ -678,7 +678,31 @@ test('Étape 3 · Bénéfices et Statistiques : mêmes chiffres que la version G
     assert.deepStrictEqual(round(ws.agents), round(gs.agents));
     assert.deepStrictEqual(round(ws.money.toReceive), round(gs.money.toReceive));
     assert.deepStrictEqual(ws.hours, gs.hours);
+    // v1.9 : appels, vitesse, grille, sources (qualité), phrases, objectif du jour.
+    assert.deepStrictEqual([ws.calls, round(ws.speed), ws.heat], [gs.calls, round(gs.speed), gs.heat], 'appels, vitesse, grille ' + period);
+    assert.deepStrictEqual(round(ws.sources), round(gs.sources), 'sources ' + period);
+    assert.deepStrictEqual(round(ws.campaigns), round(gs.campaigns), 'campagnes ' + period);
+    assert.deepStrictEqual(ws.insights, gs.insights, 'ce qui a changé ' + period);
+    assert.deepStrictEqual(ws.goal, gs.goal, 'objectif du jour ' + period);
   }
+  // Filtre croisé : la base choisit les commandes du filtre ; mêmes chiffres que la version Google.
+  const big = gas('api_stats', '30');
+  const filters = [{ kind: 'w', value: big.wilayas[0].name }, { kind: 'p', value: big.products[0].name }, { kind: 'a', value: big.agents[0].name },
+    { kind: 'cp', value: big.campaigns[0].name }, { kind: 'src', value: big.sources[0].name }];
+  for (const f of filters) {
+    const wf = await api('api_stats', '30', '', '', f);
+    const gf = gas('api_stats', '30', '', '', f);
+    assert.ok(wf.filter && wf.kpis.orders > 0, 'filtre ' + f.kind);
+    assert.deepStrictEqual(round(wf.kpis), round(gf.kpis), 'filtre ' + f.kind + ' : chiffres');
+    assert.deepStrictEqual(round(wf.wilayas), round(gf.wilayas), 'filtre ' + f.kind + ' : wilayas');
+    assert.deepStrictEqual(round(wf.products), round(gf.products), 'filtre ' + f.kind + ' : produits');
+    assert.deepStrictEqual(round(wf.series), round(gf.series), 'filtre ' + f.kind + ' : courbe');
+  }
+  // Objectif du jour (réglage Paramètres, recopié dans le classeur).
+  const goal = await api('api_setGoal', 20);
+  gas('api_setGoal', 20);
+  assert.ok(/20 commandes/.test(goal.message));
+  assert.strictEqual((await api('api_stats', '7')).goal.perDay, 20);
   // Une commande change : son jour est recalculé (au plus tard à l'ouverture de la page).
   const o = readOrders_().orders.filter((x) => x.status === STATUS.TO_CONFIRM)[0];
   await api('api_recordCall', String(o.id), 'confirm', { fields: {} }, {});
