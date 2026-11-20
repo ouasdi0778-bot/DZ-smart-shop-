@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.11
+## Ce que fait la version 1.12
 
 | Écran | Contenu |
 |---|---|
@@ -19,6 +19,8 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 | **Bénéfices** | Bénéfice net sur la **période de votre choix** comparé à la période d'avant, **graphiques** (bénéfice par jour, où part l'argent, seuil de rentabilité, simulateur du taux de livraison), produits classés par bénéfice **après pub** (chaque pub reliée à son produit), publicité (coût par livrée, ROAS), **dépenses et gains** sur un jour ou un intervalle, à corriger ou supprimer (administrateur) |
 | **Statistiques** | Commandes et argent par période, comparés à la période d'avant : **ce qui a changé** en phrases, parcours des commandes avec les pertes et leurs motifs, **carte des wilayas**, heures × jours, **meilleure heure pour appeler**, vitesse de confirmation, bureau ou domicile, produits, **équipe** (appels, réponses, objectif du jour, prime), publicité (**qualité des sources**), **filtre croisé** (une wilaya, un produit, une campagne, une source ou une confirmatrice), où est l'argent et versements d'Ecotrack ; tableaux triables, export pour Excel (administrateur) |
 | **Administration** | État de l'outil, connexions (Ecotrack, SMS, Shopify, Releasit), réglages en formulaires, équipe (**connexion par téléphone et mot de passe**, version Cloudflare), clients, sauvegarde **Tout exporter (Excel)**, entretien (administrateur) |
+
+Sur téléphone (version Cloudflare) : **une vraie application** à installer (icône sur l'écran d'accueil, plein écran) et des **notifications** (nouvelle commande, rappel à l'heure, colis à traiter, alerte), même application fermée. Voir « v1.12 » plus bas.
 
 Ce qui se passe tout seul :
 
@@ -646,6 +648,31 @@ Objectif : l'équipe n'ouvre plus jamais de lien Google (plus d'erreur « Imposs
 
 Retour en arrière possible : recoller **dist/Code.gs** (les clés Ecotrack et SMS sont restées dans les propriétés du script) puis « Installer / réparer le classeur ».
 
+### v1.12 : application installable, notifications, écrans du téléphone
+
+Rien à coller dans Apps Script pour cette version (`dist/Code.gs` et `dist/Relais.gs` ne changent pas pour vous).
+
+**Vraie application (installable)**
+
+- Android (Chrome) : bandeau **« Installer l'application »** en haut de l'écran, ou menu ⋮ › *Installer l'application*. L'icône DZ Smart Shop arrive sur l'écran d'accueil ; l'application s'ouvre en plein écran, sans barre d'adresse.
+- iPhone (Safari) : bouton Partager › **Sur l'écran d'accueil** (iOS 16.4 ou plus récent pour les notifications).
+- Sans internet : une page claire « Pas de connexion internet » avec **Réessayer** (rien n'est gardé sur le téléphone).
+- Une mise à jour de l'application arrive toute seule (pas de nouvelle installation).
+
+**Notifications** (chaque personne, sur chaque téléphone)
+
+- Bandeau **« Nouvelles commandes sur ce téléphone » › Activer** (sur iPhone : après l'installation), ou **Mon compte › Notifications › Régler**.
+- Au choix, appareil par appareil : **nouvelles commandes**, **rappels à l'heure** (la confirmatrice qui a fixé le rappel, sinon tout le monde), **colis à traiter** et **alertes** (relais muet, Ecotrack, Shopify : administrateurs), **silence de 22 h à 8 h**. Bouton **Envoyer un essai**.
+- Toucher la notification ouvre **la bonne commande**. Plusieurs commandes à la fois : une seule notification « 3 nouvelles commandes ».
+- Envoi chiffré de bout en bout (norme Web Push, clés VAPID créées par l'application) ; un téléphone désinstallé est retiré tout seul. Gratuit, sans service extérieur à payer.
+
+**Écrans du téléphone**
+
+- En-tête fin : le **nom de la page** et votre **initiale** (Mon compte).
+- **Commandes** : la **recherche** en haut, les statuts sur **une ligne qui défile** avec **⚙ Filtres** (wilaya, période, corbeille, sélectionner plusieurs, dans une feuille en bas de l'écran ; le nombre de filtres actifs est affiché), chaque commande avec son produit et « il y a … », bouton rond **+** pour une nouvelle commande.
+- **Fiche commande** : un **résumé lisible** (statut et alerte, client avec **Copier** le numéro et son historique, livraison, produit avec photo et stock, **total à encaisser**, historique des appels) et, toujours visibles en bas, **Appeler**, **WhatsApp**, **Modifier**. Modifier ouvre le formulaire **en blocs** (statut, client, livraison, produit et prix, notes) avec le total recalculé et **Annuler / Enregistrer** en bas. Liste noire et Supprimer sont sous **⋯**.
+- Sur ordinateur, ces pages ne changent pas.
+
 ### Comment ça marche
 
 - **Connexion** : l'application Cloudflare renvoie vers le lien de cette application Google avec `?cf=1`. Google sait qui vous êtes ; un **jeton signé** (valable 30 jours sur l'appareil) vous renvoie vers Cloudflare. Seuls les membres de l'onglet **Équipe** (et le propriétaire du classeur) entrent.
@@ -665,6 +692,7 @@ Retour en arrière possible : recoller **dist/Code.gs** (les clés Ecotrack et S
    npx wrangler d1 execute dz-smart-shop --remote --file migrations/0002-etape2.sql   # v1.5 (déjà fait)
    npx wrangler d1 execute dz-smart-shop --remote --file migrations/0003-etape3.sql   # v1.6 (déjà fait)
    npx wrangler d1 execute dz-smart-shop --remote --file migrations/0004-connexion.sql   # v1.11 (déjà fait)
+   npx wrangler d1 execute dz-smart-shop --remote --file migrations/0005-notifications.sql   # v1.12 (déjà fait)
    npx wrangler deploy                                                # à chaque nouvelle version
    ```
    La page de l'interface est intégrée au moteur : une seule mise en ligne, rien d'autre à envoyer.
@@ -675,7 +703,7 @@ Retour en arrière possible : recoller **dist/Code.gs** (les clés Ecotrack et S
 
 ```
 npm run cf:build    # cloudflare/dist/worker.js et cloudflare/public/index.html
-npm run cf:test     # 23 tests : la version Cloudflare (base SQLite locale) comparée à la version Google (Stock, Bénéfices, Statistiques compris), Ecotrack, SMS et Shopify contre de faux serveurs
+npm run cf:test     # 24 tests : la version Cloudflare (base SQLite locale) comparée à la version Google (Stock, Bénéfices, Statistiques compris), Ecotrack, SMS et Shopify contre de faux serveurs
 npm run cf:serve    # la version Cloudflare sur http://localhost:8787/connexion, avec les données d'exemple
 node cloudflare/test/serve.js 8787 --etape2   # la même, après le basculement (Expédier, Suivi, faux Ecotrack et SMS)
 node cloudflare/test/serve.js 8787 --etape3   # tout dans Cloudflare (Stock, Bénéfices, Statistiques, Administration)

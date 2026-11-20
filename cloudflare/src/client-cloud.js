@@ -239,7 +239,68 @@
     root.classList.toggle('cf-step3', step.n >= 3);
   }
   applyStep(null);
-  window.DZ_CLOUD = { applyStep: applyStep, authPost: authPost, setSession: setSession, logout: logout, via: function () { return session && session.v === 2 ? 'password' : 'google'; } };
+  /* ---------------- Application installable et notifications (v1.12) ---------------- */
+
+  var installEvent = null;
+  var swReady = null;
+  if ('serviceWorker' in navigator) {
+    swReady = navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(function () { return navigator.serviceWorker.ready; }).catch(function () { return null; });
+  }
+  // Android (Chrome) : l'installation est proposée par l'application (bandeau « Installer »).
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    installEvent = e;
+    document.dispatchEvent(new CustomEvent('dz-installable'));
+  });
+  window.addEventListener('appinstalled', function () { installEvent = null; document.dispatchEvent(new CustomEvent('dz-installed')); });
+  function standalone() {
+    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+  }
+  function isIos() { return /iphone|ipad|ipod/i.test(navigator.userAgent || '') && !window.MSStream; }
+  function install() {
+    if (!installEvent) return Promise.resolve(false);
+    var ev = installEvent;
+    installEvent = null;
+    ev.prompt();
+    return ev.userChoice.then(function (c) { return c && c.outcome === 'accepted'; }, function () { return false; });
+  }
+  function b64ToBytes(s) {
+    s = String(s).replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    return Uint8Array.from(atob(s), function (c) { return c.charCodeAt(0); });
+  }
+  /** Notifications de ce téléphone : état, activation (autorisation + abonnement), désactivation. */
+  var push = {
+    supported: function () { return !!swReady && 'PushManager' in window && 'Notification' in window; },
+    permission: function () { return 'Notification' in window ? Notification.permission : 'denied'; },
+    subscription: function () {
+      if (!swReady) return Promise.resolve(null);
+      return swReady.then(function (reg) { return reg && reg.pushManager ? reg.pushManager.getSubscription() : null; });
+    },
+    subscribe: function (publicKey) {
+      if (!swReady) return Promise.reject(new Error('Notifications impossibles sur ce navigateur.'));
+      return Notification.requestPermission().then(function (perm) {
+        if (perm !== 'granted') throw new Error(perm === 'denied' ? 'Notifications refusées : autorisez-les dans les réglages du navigateur (cadenas à côté de l’adresse), puis réessayez.' : 'Notifications pas autorisées.');
+        return swReady;
+      }).then(function (reg) {
+        if (!reg) throw new Error('Notifications impossibles sur ce navigateur.');
+        return reg.pushManager.getSubscription().then(function (old) {
+          return old || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
+        });
+      });
+    },
+    unsubscribe: function () {
+      return push.subscription().then(function (sub) { return sub ? sub.unsubscribe().then(function () { return sub; }) : null; });
+    }
+  };
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', function (e) {
+      if (e.data && e.data.dzOpen) document.dispatchEvent(new CustomEvent('dz-open', { detail: e.data.dzOpen }));
+    });
+  }
+
+  window.DZ_CLOUD = { applyStep: applyStep, authPost: authPost, setSession: setSession, logout: logout, via: function () { return session && session.v === 2 ? 'password' : 'google'; },
+    install: install, canInstall: function () { return !!installEvent; }, standalone: standalone, isIos: isIos, push: push };
   function googleLink(route) { return step.google ? step.google + '&page=' + route : ''; }
   // Une page de l'application Google demandée ici (lien, menu « Plus ») : ouverte dans l'application Google.
   // Étape 3 : toutes les pages sont ici.

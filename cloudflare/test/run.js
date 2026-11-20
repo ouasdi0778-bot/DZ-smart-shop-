@@ -1040,6 +1040,122 @@ test('v1.11 · Alertes par SMS (relais muet puis rétabli) ; sauvegarde « Tout 
   assert.ok((await api('api_bootstrap')).cloud.lastExport, 'date du dernier export (rappel chaque semaine)');
 });
 
+/* Faux service de notifications (comme ceux de Google, Apple, Mozilla) : note chaque envoi. */
+const pushBox = { calls: [], gone: {} };
+(function () {
+  const prev = UrlFetchApp.fetch;
+  UrlFetchApp.fetch = function (url, params) {
+    if (String(url).indexOf('https://push.example.test/') !== 0) return prev.call(UrlFetchApp, url, params);
+    pushBox.calls.push({ url: String(url), headers: (params && params.headers) || {}, body: params && params.payload });
+    const code = pushBox.gone[url] ? 410 : 201;
+    return { getResponseCode: () => code, getContentText: () => '', getAllHeaders: () => ({}), getContent: () => [] };
+  };
+})();
+
+test('v1.12 · Application installable ; notifications chiffrées (RFC 8291) et signées (VAPID) : nouvelle commande, choix, rappel à l’heure, essai, abonnement expiré', async () => {
+  await fresh(true, true);
+  // Application installable : manifeste, service worker, icônes.
+  const man = await worker.fetch(new Request(HOST + '/manifest.webmanifest'), env);
+  const m = await man.json();
+  assert.deepStrictEqual([m.name, m.display, m.start_url, m.icons.length], ['Boutique test', 'standalone', '/?app=1#/confirmation', 3]);
+  const sw = await (await worker.fetch(new Request(HOST + '/sw.js'), env)).text();
+  assert.ok(/addEventListener\('push'/.test(sw) && /notificationclick/.test(sw) && /Pas de connexion internet/.test(sw));
+  const ic = await worker.fetch(new Request(HOST + '/icons/icon-192.png'), env);
+  assert.deepStrictEqual([ic.status, ic.headers.get('content-type')], [200, 'image/png']);
+  assert.ok((await ic.arrayBuffer()).byteLength > 1000);
+  const page = await (await worker.fetch(new Request(HOST + '/'), env)).text();
+  assert.ok(/rel="manifest"/.test(page) && /apple-touch-icon/.test(page));
+
+  // Un téléphone s'abonne (ses clés, comme celles que donne le navigateur).
+  const wc = require('crypto').webcrypto;
+  const b64u = (b) => Buffer.from(b).toString('base64url');
+  const ua = await wc.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const uaPub = new Uint8Array(await wc.subtle.exportKey('raw', ua.publicKey));
+  const auth = wc.getRandomValues(new Uint8Array(16));
+  const info = await api('api_pushInfo', '');
+  assert.ok(info.publicKey && info.admin && !info.subscribed);
+  const sub = { endpoint: 'https://push.example.test/sub/admin', keys: { p256dh: b64u(uaPub), auth: b64u(auth) } };
+  const sr = await api('api_pushSubscribe', sub, { orders: true, callbacks: true, tracking: true, problems: true, quiet: false }, 'Android · Chrome');
+  assert.ok(/activées/.test(sr.message));
+  assert.strictEqual((await api('api_pushInfo', sub.endpoint)).subscribed, true);
+
+  /** Ce que le téléphone lit : déchiffrement comme le navigateur. */
+  async function open(body) {
+    body = Buffer.from(body);
+    const salt = body.subarray(0, 16);
+    const idlen = body[20];
+    const asPub = body.subarray(21, 21 + idlen);
+    const ct = body.subarray(21 + idlen);
+    const asKey = await wc.subtle.importKey('raw', asPub, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+    const shared = new Uint8Array(await wc.subtle.deriveBits({ name: 'ECDH', public: asKey }, ua.privateKey, 256));
+    const hk = async (sl, ikm, inf, len) => new Uint8Array(await wc.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: sl, info: inf },
+      await wc.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']), len * 8));
+    const enc = new TextEncoder();
+    const ikm = await hk(auth, shared, Buffer.concat([enc.encode('WebPush: info\u0000'), uaPub, asPub]), 32);
+    const key = await wc.subtle.importKey('raw', await hk(salt, ikm, enc.encode('Content-Encoding: aes128gcm\u0000'), 16), 'AES-GCM', false, ['decrypt']);
+    const plain = new Uint8Array(await wc.subtle.decrypt({ name: 'AES-GCM', iv: await hk(salt, ikm, enc.encode('Content-Encoding: nonce\u0000'), 12) }, key, ct));
+    assert.strictEqual(plain[plain.length - 1], 2, 'dernier bloc');
+    return JSON.parse(new TextDecoder().decode(plain.subarray(0, plain.length - 1)));
+  }
+  async function vapidOk(hd) {
+    const mm = String(hd.authorization).match(/^vapid t=([^,]+), k=(.+)$/);
+    const [a, b, sg] = mm[1].split('.');
+    const key = await wc.subtle.importKey('raw', Buffer.from(mm[2], 'base64url'), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+    const ok = await wc.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, Buffer.from(sg, 'base64url'), new TextEncoder().encode(a + '.' + b));
+    const claims = JSON.parse(Buffer.from(b, 'base64url').toString());
+    return ok && claims.aud === 'https://push.example.test' && claims.exp > Date.now() / 1000 && mm[2] === info.publicKey && /^https:/.test(claims.sub);
+  }
+  const mine = () => pushBox.calls.filter((c) => c.url === sub.endpoint);
+
+  // Nouvelle commande reçue par le relais : notification tout de suite.
+  await bridge('/bridge/releasit', { install: true, version: APP_VERSION });
+  const sh = releasitTab_();
+  const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  const send = async (id, phone) => {
+    releasitRow_(id, phone);
+    const row = sh.getRange(sh.getLastRow(), 1, 1, head.length).getValues()[0];
+    return bridge('/bridge/releasit', { header: head.map(cloudCellOut_), rows: [row.map(cloudCellOut_)], from: sh.getLastRow() });
+  };
+  const n0 = mine().length;
+  assert.deepStrictEqual((await send('9601', '0550998877')).added, ['9601']);
+  const c1 = mine()[n0];
+  assert.ok(c1, 'notification envoyée');
+  assert.deepStrictEqual([c1.headers['content-encoding'], c1.headers.urgency, c1.headers['content-type']], ['aes128gcm', 'high', 'application/octet-stream']);
+  assert.ok(await vapidOk(c1.headers), 'signature VAPID valable');
+  const msg = await open(c1.body);
+  assert.strictEqual(msg.title, 'Nouvelle commande 9601');
+  assert.ok(/Client Test/.test(msg.body) && /2 250 DA/.test(msg.body) && !/^\d+ - /.test(msg.body), msg.body);
+  assert.deepStrictEqual([msg.url, msg.tag], ['/?o=9601#/confirmation', 'new-9601']);
+
+  // Choix : plus de nouvelles commandes sur ce téléphone.
+  await api('api_pushPrefs', sub.endpoint, { orders: false, callbacks: true, quiet: false });
+  const n1 = mine().length;
+  await send('9602', '0550998866');
+  assert.strictEqual(mine().length, n1, 'nouvelles commandes coupées');
+
+  // Rappel arrivé à son heure : notification (une seule fois).
+  const o = (await env.DB.prepare("SELECT id FROM orders WHERE stage = 'todo' AND archived = 0 LIMIT 1").first()).id;
+  await env.DB.prepare('UPDATE orders SET callback = ? WHERE id = ?').bind(new Date(Date.now() - 30000).toISOString(), o).run();
+  await env.DB.prepare("DELETE FROM kv WHERE key = 'cf:pushCbAt'").run();
+  await cron(env);
+  await cron(env);
+  const cbs = [];
+  for (const c of mine().slice(n1)) cbs.push(await open(c.body));
+  assert.deepStrictEqual(cbs.filter((x) => /^Rappel/.test(x.title)).map((x) => x.url), ['/?o=' + encodeURIComponent(o) + '#/confirmation']);
+
+  // Essai ; puis abonnement expiré chez le service : effacé.
+  assert.ok(/essai/.test((await api('api_pushTest', sub.endpoint)).message));
+  assert.strictEqual((await open(mine()[mine().length - 1].body)).title, 'Essai : ça marche ✓');
+  pushBox.gone[sub.endpoint] = true;
+  await assert.rejects(api('api_pushTest', sub.endpoint), /pas partie/);
+  assert.strictEqual((await env.DB.prepare('SELECT COUNT(*) AS n FROM push_subs').first()).n, 0);
+  // Désactiver.
+  delete pushBox.gone[sub.endpoint];
+  await api('api_pushSubscribe', sub, null, 'Android · Chrome');
+  await api('api_pushOff', sub.endpoint);
+  assert.strictEqual((await api('api_pushInfo', sub.endpoint)).subscribed, false);
+});
+
 /** Onglet Équipe tel que gardé dans la base (étape 3). */
 async function teamTabCf() {
   const r = await env.DB.prepare("SELECT rows FROM tabs WHERE name = 'Équipe' ORDER BY part").all();

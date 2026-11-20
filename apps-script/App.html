@@ -353,6 +353,9 @@
       if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
     });
     closeModal();
+    var title = PAGE_TITLES[r] || '';
+    $all('[data-page-title]').forEach(function (el) { el.textContent = title; });
+    document.documentElement.classList.toggle('has-title', !!title);
     if (cloudMoved(r)) { /* page déplacée */ }
     else if (r === 'tableau') pageDashboard();
     else if (r === 'commandes') pageOrders();
@@ -364,6 +367,11 @@
     view.focus({ preventScroll: true });
     window.scrollTo(0, 0);
   }
+
+  /** Titre de la page dans l'en-tête du téléphone. */
+  var PAGE_TITLES = { tableau: 'Tableau de bord', commandes: 'Commandes', confirmation: 'Confirmation', expeditions: 'Expédier', suivi: 'Suivi',
+    benefices: 'Bénéfices', stock: 'Stock', stats: 'Statistiques', admin: 'Administration' };
+  function isPhone() { return !!(window.matchMedia && window.matchMedia('(max-width: 860px)').matches); }
 
   function navigate(route, status) {
     if (status) { S.filter.status = status; S.filter.limit = 100; }
@@ -536,25 +544,65 @@
   function pageOrders() {
     var f = S.filter;
     var periods = [['today', 'Aujourd’hui'], ['7', '7 derniers jours'], ['30', '30 derniers jours'], ['all', 'Tout']];
+    // Téléphone (v1.12) : la recherche en haut, les filtres sur une ligne qui défile, wilaya et période
+    // dans « Filtres » (feuille du bas), le bouton « + » pour une nouvelle commande : la liste tout de suite.
     view.innerHTML =
-      '<div class="page-head"><div><h1>Commandes</h1><p class="sub">Commandes pas encore confirmées. Une commande confirmée passe dans <strong>Expédier</strong>, puis <strong>Suivi</strong>. La recherche trouve toutes les commandes.</p></div>' +
+      '<div class="orders-page"><div class="page-head"><div><h1>Commandes</h1><p class="sub">Commandes pas encore confirmées. Une commande confirmée passe dans <strong>Expédier</strong>, puis <strong>Suivi</strong>. La recherche trouve toutes les commandes.</p></div>' +
       '<button type="button" class="btn primary" data-act="new-order">' + icon('plus') + 'Nouvelle commande</button></div>' +
-      '<div id="shop-status"></div>' +
-      '<div class="chips" id="chips" role="group" aria-label="Filtrer par statut"></div>' +
-      '<div class="filters">' +
-        field('Rechercher', '<input type="search" id="f-q" value="' + h(f.q) + '" placeholder="Nom, téléphone, n° de commande ou de suivi">', 'wide') +
+      '<div class="ord-search">' + icon('search') + '<input type="search" id="f-q" value="' + h(f.q) + '" placeholder="Nom, téléphone, n° de commande ou de suivi" aria-label="Rechercher"></div>' +
+      '<div class="chips-line"><button type="button" class="chip filters-chip" data-act="filters-sheet">' + icon('filter') + 'Filtres' + filterBadge() + '</button>' +
+      '<div class="chips" id="chips" role="group" aria-label="Filtrer par statut"></div></div>' +
+      '<div class="filters ord-filters">' +
         field('Wilaya', '<select id="f-wilaya">' + options(S.boot.wilayas, f.wilaya, 'Toutes les wilayas') + '</select>') +
         field('Période', '<select id="f-period">' + periods.map(function (p) {
           return '<option value="' + p[0] + '"' + (f.period === p[0] ? ' selected' : '') + '>' + p[1] + '</option>';
         }).join('') + '</select>') +
       '</div>' +
-      '<div id="orders-list"><p class="loading">Chargement…</p></div>';
+      '<div id="shop-status"></div>' +
+      '<div id="orders-list"><p class="loading">Chargement…</p></div></div>' +
+      '<button type="button" class="fab" data-act="new-order" aria-label="Nouvelle commande">' + icon('plus') + '</button>';
     if (S.list && S.listKey === listKey()) {
       renderChips(S.list.counts);
       renderOrderList(S.list);
       if (S.list.importStatus) renderShopStatus(S.list.importStatus);
     }
     loadOrders(true);
+  }
+
+  /** Nombre de filtres actifs (wilaya, période autre que 30 jours) : pastille du bouton « Filtres ». */
+  function filterBadge() {
+    var n = (S.filter.wilaya ? 1 : 0) + (S.filter.period && S.filter.period !== '30' ? 1 : 0);
+    return n ? '<span class="chip-badge">' + n + '</span>' : '';
+  }
+
+  /** Téléphone : wilaya, période, sélection de plusieurs commandes, dans une feuille en bas de l'écran. */
+  function filtersSheet() {
+    var f = S.filter;
+    var periods = [['today', 'Aujourd’hui'], ['7', '7 jours'], ['30', '30 jours'], ['all', 'Tout']];
+    S.sheetFilter = { wilaya: f.wilaya, period: f.period };
+    showModal(modalHead('Filtres') +
+      '<div class="form-grid" id="sheet-filters">' + field('Wilaya', '<select name="wilaya">' + options(S.boot.wilayas, f.wilaya, 'Toutes les wilayas') + '</select>', 'full') + '</div>' +
+      '<p class="small" style="margin:12px 0 6px;font-weight:600">Période</p><div class="chips">' + periods.map(function (p) {
+        return '<button type="button" class="chip" data-act="sheet-period" data-p="' + p[0] + '" aria-pressed="' + (f.period === p[0]) + '">' + p[1] + '</button>';
+      }).join('') + '</div>' +
+      (S.boot.user.admin ? '<p class="small" style="margin:14px 0 6px;font-weight:600">Autres</p><div class="chips">' +
+        '<button type="button" class="chip" data-act="sheet-trash">Corbeille</button>' +
+        '<button type="button" class="chip" data-act="sheet-select" aria-pressed="' + !!S.selMode + '">' + icon('check') + 'Sélectionner plusieurs</button></div>' : '') +
+      '<div class="modal-actions"><button type="button" class="btn" data-act="sheet-clear">Effacer</button><button type="button" class="btn primary" data-act="sheet-apply">Voir les commandes</button></div>');
+    var m = $('#modal-root .modal');
+    if (m) m.classList.add('sheet');
+  }
+  function applySheet(close) {
+    var sel = $('#sheet-filters [name="wilaya"]');
+    S.filter.wilaya = sel ? sel.value : S.filter.wilaya;
+    S.filter.period = S.sheetFilter.period;
+    S.filter.limit = 100;
+    if (close) closeModal();
+    var w = $('#f-wilaya'); if (w) w.value = S.filter.wilaya;
+    var pe = $('#f-period'); if (pe) pe.value = S.filter.period;
+    var fc = $('.filters-chip');
+    if (fc) fc.innerHTML = icon('filter') + 'Filtres' + filterBadge();
+    loadOrders();
   }
 
   /** Le filtre d'une liste (sans les options d'ouverture de page). */
@@ -689,7 +737,7 @@
     var head = ['N°', 'Client', 'Wilaya', 'Produit', 'Total', 'Statut', 'Alerte', 'Livraison'];
     var selOn = S.boot.user.admin && S.selMode;
     var ids = res.rows.map(function (o) { return o.id; });
-    var html = S.boot.user.admin ? '<div class="list-tools"><button type="button" class="btn" style="min-height:36px" data-act="sel-mode" aria-pressed="' + !!selOn + '">' + icon('check') + (selOn ? 'Terminer la sélection' : 'Sélectionner plusieurs') + '</button>' +
+    var html = S.boot.user.admin ? '<div class="list-tools' + (selOn ? ' sel-on' : '') + '"><button type="button" class="btn" style="min-height:36px" data-act="sel-mode" aria-pressed="' + !!selOn + '">' + icon('check') + (selOn ? 'Terminer la sélection' : 'Sélectionner plusieurs') + '</button>' +
       (selOn ? '<label class="small sel-all">' + selAllBox('orders', ids) + ' Tout cocher (' + ids.length + ')</label>' : '') + '</div>' : '';
     html += '<div class="table-wrap"><table class="data cards"><thead><tr>' + (selOn ? '<th scope="col" class="sel">' + selAllBox('orders', ids) + '</th>' : '') + head.map(function (t) {
       return '<th scope="col">' + t + '</th>';
@@ -702,7 +750,8 @@
           '<span class="l2">' + pill(o.status) + '<span>' + h(wilayaName(o.wilaya)) + '</span><span>· ' + h(o.id) + '</span>' +
           (o.locked ? '<span class="lock-icon">' + icon('lock') + '</span>' : '') +
           (o.alertLevel === 'bad' || o.alertLevel === 'warn' ? alertPill(o.alert, o.alertLevel) : '') +
-          (o.status === 'Annulée' && o.cancelReason ? '<span style="color:#A12626">Motif : ' + h(o.cancelReason) + '</span>' : '') + '</span></td>' +
+          (o.status === 'Annulée' && o.cancelReason ? '<span style="color:#A12626">Motif : ' + h(o.cancelReason) + '</span>' : '') + '</span>' +
+          '<span class="l3"><span>' + h(o.product || '') + (o.qty > 1 ? ' ×' + o.qty : '') + '</span>' + (o.date ? '<span class="ago">' + h(ago(o.date)) + '</span>' : '') + '</span></td>' +
         '<td data-label="N°" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button>' +
           (o.locked ? ' <span class="lock-icon" title="Verrouillée" aria-label="Verrouillée">' + icon('lock') + '</span>' : '') + '<div class="small">' + fmtDate(o.date) + '</div></td>' +
         '<td data-label="Client" class="multi"><span dir="auto">' + h(o.client) + '</span><div class="small">' + h(fmtPhone(o.phone)) + '</div></td>' +
@@ -831,24 +880,33 @@
       '<button type="button" class="icon-btn" data-act="close-modal" aria-label="Fermer">×</button></div>';
   }
 
-  function orderFields(o) {
+  /** Les cases d'une commande, une par une (ordinateur : une grille ; téléphone : des blocs). */
+  function orderFieldMap(o) {
     var b = S.boot;
+    return {
+      client: field('Client', input('client', o.client)),
+      phone: field('Téléphone', input('phone', o.phone, ' inputmode="tel"')),
+      wilaya: field('Wilaya', '<select name="wilaya">' + options(b.wilayas, o.wilaya, 'Choisir…') + '</select>'),
+      commune: field('Commune', input('commune', o.commune)),
+      address: field('Adresse', input('address', o.address), 'full'),
+      product: field('Produit', input('product', o.product, ' list="product-list"')),
+      qty: field('Quantité', input('qty', o.qty || 1, ' type="number" min="1" step="1"')),
+      price: field('Prix des produits (DA)', input('price', o.price || '', ' type="number" min="0" step="10"')),
+      mode: field('Livraison', '<select name="mode">' + options(b.modes, o.mode || b.modes[0]) + '</select>'),
+      carrier: field('Société', '<select name="carrier">' + options(b.carriers, o.carrier, 'Par défaut (' + b.defaultCarrier + ')') + '</select>'),
+      shipping: field('Frais de livraison (DA)', input('shipping', o.shipping === null || o.shipping === undefined ? '' : o.shipping, ' type="number" min="0" step="10" placeholder="Calcul automatique"')),
+      tracking: o.id ? field('N° de suivi', input('tracking', o.tracking)) : '',
+      notes: field('Notes', '<textarea name="notes">' + h(o.notes) + '</textarea>', 'full')
+    };
+  }
+  function productList() {
+    return '<datalist id="product-list">' + S.boot.products.map(function (p) { return '<option value="' + h(p.name) + '">'; }).join('') + '</datalist>';
+  }
+  function orderFields(o) {
+    var f = orderFieldMap(o);
     return '<div class="form-grid">' +
-      field('Client', input('client', o.client)) +
-      field('Téléphone', input('phone', o.phone, ' inputmode="tel"')) +
-      field('Wilaya', '<select name="wilaya">' + options(b.wilayas, o.wilaya, 'Choisir…') + '</select>') +
-      field('Commune', input('commune', o.commune)) +
-      field('Adresse', input('address', o.address), 'full') +
-      field('Produit', input('product', o.product, ' list="product-list"')) +
-      field('Quantité', input('qty', o.qty || 1, ' type="number" min="1" step="1"')) +
-      field('Prix des produits (DA)', input('price', o.price || '', ' type="number" min="0" step="10"')) +
-      field('Livraison', '<select name="mode">' + options(b.modes, o.mode || b.modes[0]) + '</select>') +
-      field('Société', '<select name="carrier">' + options(b.carriers, o.carrier, 'Par défaut (' + b.defaultCarrier + ')') + '</select>') +
-      field('Frais de livraison (DA)', input('shipping', o.shipping === null || o.shipping === undefined ? '' : o.shipping, ' type="number" min="0" step="10" placeholder="Calcul automatique"')) +
-      (o.id ? field('N° de suivi', input('tracking', o.tracking)) : '') +
-      field('Notes', '<textarea name="notes">' + h(o.notes) + '</textarea>', 'full') +
-      '</div>' +
-      '<datalist id="product-list">' + b.products.map(function (p) { return '<option value="' + h(p.name) + '">'; }).join('') + '</datalist>';
+      ['client', 'phone', 'wilaya', 'commune', 'address', 'product', 'qty', 'price', 'mode', 'carrier', 'shipping', 'tracking', 'notes'].map(function (k) { return f[k]; }).join('') +
+      '</div>' + productList();
   }
 
   /* Fiche d'une commande : affichée tout de suite (dernière fiche reçue, ou la ligne de la liste), puis mise à jour. */
@@ -874,6 +932,7 @@
   function openOrder(id) {
     S.unlockId = null;
     S.orderDirty = false;
+    S.orderEdit = null;
     var c = S.orderCache[id];
     var fresh = c && Date.now() - c.at < 10 * 60000;
     if (fresh) renderOrderModal(c.data);
@@ -893,6 +952,69 @@
       syncEnd();
       if (!fresh && orderModalShown(id)) showModal(modalHead('Commande ' + h(id)) + errorBox(e));
     });
+  }
+
+  /**
+   * Téléphone (v1.12) : la fiche en résumé lisible (client, livraison, produit, total, appels),
+   * avec Appeler, WhatsApp et Modifier toujours visibles en bas de l'écran.
+   */
+  function orderSummary(data, r) {
+    var o = data.order;
+    var hist = data.history;
+    var wa = waLink(o.phone);
+    var calls = String(o.callLog || '').split('|').map(function (x) { return x.trim(); }).filter(Boolean).map(function (raw) {
+      var m = raw.match(/^(\d{2}\/\d{2} \d{2}:\d{2}) (.*)$/);
+      return { when: m ? m[1] : '', text: m ? m[2] : raw };
+    }).reverse();
+    var histText = hist.orders
+      ? plural(hist.orders, 'autre commande', 'autres commandes') + ' : ' + hist.delivered + ' livrée' + (hist.delivered > 1 ? 's' : '') + ', ' +
+        hist.returned + ' retour' + (hist.returned > 1 ? 's' : '') + ', ' + hist.cancelled + ' annulée' + (hist.cancelled > 1 ? 's' : '')
+      : 'Première commande avec ce numéro';
+    var line = function (lab, val) { return val ? '<div class="brief-line"><span class="lab">' + lab + '</span><span>' + val + '</span></div>' : ''; };
+    var photo = productPhoto(data.stock);
+    var meta = ['Reçue ' + ago(o.date), o.source, o.attempts ? plural(o.attempts, 'appel', 'appels') : '', o.agent ? 'par ' + o.agent : ''].filter(Boolean).map(h).join(' · ');
+    var more = (data.phoneValid ? '<button type="button" class="btn ' + (data.blacklisted ? '' : 'danger') + '" data-act="toggle-blacklist" data-phone="' + h(o.phone) + '" data-on="' + (!data.blacklisted) + '">' +
+        (data.blacklisted ? 'Retirer de la liste noire' : 'Mettre en liste noire') + '</button>' : '') +
+      (r.canDelete ? '<button type="button" class="btn danger" data-act="order-delete-ask" data-id="' + h(o.id) + '">' + icon('trash') + 'Supprimer</button>' : '');
+    showModal(
+      '<div class="of-head"><button type="button" class="icon-btn" data-act="close-modal" aria-label="Retour">' + icon('back') + '</button>' +
+      '<h2 id="modal-title">Commande ' + h(o.id) + '</h2>' +
+      (more ? '<button type="button" class="icon-btn" data-act="of-more" aria-label="Autres actions">⋯</button>' : '<span></span>') + '</div>' +
+      '<span hidden data-order-modal="' + h(o.id) + '"></span>' +
+      (more ? '<div class="of-more" id="of-more" hidden>' + more + '</div>' : '') +
+      '<div class="of-pills">' + pill(o.status) + alertPill(o.alert, o.alertLevel) + (o.status === 'Annulée' && o.cancelReason ? '<span class="small">Motif : ' + h(o.cancelReason) + '</span>' : '') + '</div>' +
+      '<p class="small of-meta">' + meta + '</p>' +
+      '<section class="of-card"><div class="of-client"><div><b dir="auto">' + h(o.client || '—') + '</b>' +
+        '<a class="of-phone" href="tel:' + h(o.phone) + '" target="_top">' + h(fmtPhone(o.phone)) + '</a></div>' +
+        (o.phone ? '<button type="button" class="btn of-copy" data-act="copy-text" data-text="' + h(o.phone) + '">Copier</button>' : '') + '</div>' +
+        '<p class="small' + (hist.returned || hist.cancelled ? ' of-warn' : '') + '">' + h(histText) + '</p></section>' +
+      (o.tracking ?
+        '<div class="history" style="background:#F4F5F7;margin-bottom:0"><span class="strong">Colis Ecotrack</span><span class="mono">' + h(o.tracking) + '</span>' +
+        '<span>' + (o.carrierLabel ? h(o.carrierLabel) : 'statut pas encore lu') + (o.carrierMoved ? ' · mouvement ' + h(ago(o.carrierMoved)) : '') + '</span>' +
+        '<button type="button" class="btn" style="min-height:36px;margin-left:auto" data-act="track-history" data-id="' + h(o.id) + '">Voir la chronologie</button></div>' +
+        '<div id="parcel-history"></div>' : '') +
+      '<section class="of-card"><h3>Livraison</h3><div class="brief">' +
+        line('Wilaya', h(wilayaName(o.wilaya) || '—') + (o.commune ? ' · ' + h(o.commune) : '')) +
+        line('Adresse', o.address ? '<span dir="auto">' + h(o.address) + '</span>' : '') +
+        line('Mode', h(o.mode || '—') + ' · ' + h(o.carrier || S.boot.defaultCarrier || '')) +
+        line('Frais', o.shipping === null || o.shipping === undefined || o.shipping === '' ? 'calcul automatique' : money(o.shipping)) +
+      '</div></section>' +
+      '<section class="of-card"><h3>Produit</h3><div class="of-prod">' + (photo || '<span class="of-noimg">' + h(String(o.product || '?').charAt(0).toUpperCase()) + '</span>') +
+        '<div><b dir="auto">' + h(o.product || '—') + '</b><span class="small">Quantité ' + h(o.qty || 1) + (o.price ? ' · ' + money(o.price) : '') + '</span></div></div>' +
+        stockNote(data.stock) + '</section>' +
+      '<div class="brief-total of-total"><span>Total à encaisser</span><b>' + money(o.total) + '</b></div>' +
+      (o.notes ? '<section class="of-card"><h3>Notes</h3><p dir="auto" style="white-space:pre-wrap">' + h(o.notes) + '</p></section>' : '') +
+      '<section class="of-card"><h3>Historique</h3>' + (calls.length
+        ? '<ul class="timeline">' + calls.map(function (c) { return '<li><span class="t-date">' + h(c.when) + '</span><span class="t-body">' + h(c.text) + '</span></li>'; }).join('') + '</ul>'
+        : '<p class="small">Aucun appel pour le moment.</p>') + '</section>' +
+      lockBox(o, r, false) +
+      '<div class="of-bar">' +
+        (o.phone ? '<a class="btn" href="tel:' + h(o.phone) + '" target="_top">' + icon('phone') + 'Appeler</a>' : '') +
+        (wa ? '<a class="btn wa-btn" href="' + h(wa) + '" target="_blank" rel="noopener">' + icon('whatsapp') + 'WhatsApp</a>' : '') +
+        '<button type="button" class="btn primary" data-act="order-edit" data-id="' + h(o.id) + '">' + icon('edit') + (r.locked ? 'Statut, notes' : 'Modifier') + '</button>' +
+      '</div>'
+    );
+    $('#modal-root .modal').classList.add('of-modal');
   }
 
   /* Verrou : message, et boutons Annuler le colis / Remettre à confirmer / Modifier quand même. */
@@ -929,7 +1051,33 @@
     var histText = hist.orders
       ? 'Autres commandes de ce numéro : ' + hist.orders + ' (' + hist.delivered + ' livrées, ' + hist.returned + ' retours, ' + hist.cancelled + ' annulées)'
       : 'Première commande avec ce numéro.';
-    showModal(
+    var statusFields = field('Statut', '<select name="status" data-role="status"' + (statuses.length < 2 ? ' disabled' : '') + '>' + options(statuses, o.status) + '</select>') +
+      field('Motif d’annulation', '<select name="cancelReason">' + options(b.cancelReasons, o.cancelReason, 'Choisir…') + '</select>');
+    if (isPhone() && S.orderEdit !== o.id && !unlocked) { orderSummary(data, r); return; }
+    if (isPhone()) {
+      // Téléphone, « Modifier » : le formulaire en blocs, Annuler / Enregistrer toujours visibles en bas.
+      var f = orderFieldMap(o);
+      var block = function (title, keys) {
+        return '<section class="of-block"><h3>' + title + '</h3><div class="form-grid">' + keys.map(function (k) { return f[k] || k; }).join('') + '</div></section>';
+      };
+      showModal(
+        '<div class="of-head"><button type="button" class="icon-btn" data-act="order-edit-cancel" aria-label="Retour">' + icon('back') + '</button>' +
+        '<h2 id="modal-title">Modifier ' + h(o.id) + '</h2><span></span></div>' +
+        lockBox(o, r, unlocked) +
+        '<span hidden data-order-modal="' + h(o.id) + '"></span>' +
+        '<div id="order-form" data-phone="1" data-id="' + h(o.id) + '" data-locked="' + (locked ? '1' : '') + '" data-force="' + (unlocked ? '1' : '') + '">' +
+          block('Statut', [statusFields]) +
+          block('Client', ['client', 'phone']) +
+          block('Livraison', ['wilaya', 'commune', 'address', 'mode', 'carrier', 'shipping', 'tracking']) +
+          block('Produit et prix', ['product', 'qty', 'price']) +
+          '<div class="brief-total of-total"><span>Total à encaisser</span><b id="of-total">' + money(o.total) + '</b></div>' +
+          block('Notes', ['notes']) +
+        '</div>' + productList() +
+        '<div class="of-bar"><button type="button" class="btn" data-act="order-edit-cancel">Annuler</button>' +
+        '<button type="button" class="btn primary" data-act="save-order" data-id="' + h(o.id) + '">' + (locked ? 'Enregistrer les notes' : 'Enregistrer') + '</button></div>'
+      );
+      $('#modal-root .modal').classList.add('of-modal');
+    } else showModal(
       modalHead('Commande ' + h(o.id), meta) +
       '<p class="small">' + h(histText) + '</p>' +
       (o.tracking ?
@@ -942,8 +1090,7 @@
       '<span hidden data-order-modal="' + h(o.id) + '"></span>' +
       '<div id="order-form" data-id="' + h(o.id) + '" data-locked="' + (locked ? '1' : '') + '" data-force="' + (unlocked ? '1' : '') + '">' +
         '<div class="form-grid">' +
-          field('Statut', '<select name="status" data-role="status"' + (statuses.length < 2 ? ' disabled' : '') + '>' + options(statuses, o.status) + '</select>') +
-          field('Motif d’annulation', '<select name="cancelReason">' + options(b.cancelReasons, o.cancelReason, 'Choisir…') + '</select>') +
+          statusFields +
         '</div>' +
         '<div style="height:12px"></div>' +
         orderFields(o) +
@@ -2741,6 +2888,23 @@
     },
     'more-menu': showMoreMenu,
     'my-account': myAccount,
+    'app-install': function () { window.DZ_CLOUD.install().then(function (ok) { var el = $('#install-banner'); if (el && ok) el.remove(); }); },
+    'banner-close': function (el) { var k = el.getAttribute('data-key'); dismiss(k); var b = $('#' + k + '-banner'); if (b) b.remove(); },
+    'push-on': function (el) {
+      pushOn(el).then(function () { if ($('.push-list')) pushSettings(); }).catch(function () {});
+    },
+    'push-settings': pushSettings,
+    'push-test': function (el) {
+      el.disabled = true;
+      call('api_pushTest', S.pushSub.endpoint).then(function (r) { el.disabled = false; toast(r.message); }).catch(function (e) { el.disabled = false; toast(errText(e), true); });
+    },
+    'push-off': function (el) {
+      el.disabled = true;
+      var endpoint = S.pushSub ? S.pushSub.endpoint : '';
+      window.DZ_CLOUD.push.unsubscribe().then(function () { return call('api_pushOff', endpoint); })
+        .then(function (r) { toast(r.message); S.pushSub = null; S.pushInfo.subscribed = false; renderPushSettings(); })
+        .catch(function (e) { el.disabled = false; toast(errText(e), true); });
+    },
     'backup-go': function () { S.adminTab = 'classeur'; navigate('admin'); },
     'mine-save': saveMine,
     'mine-rescue': function (el) {
@@ -2783,6 +2947,18 @@
     'trash-purge': purgeTrash,
     'trash-restore-sel': restoreTrashSel,
     'new-order': openNewOrder,
+    'order-edit': function () { if (!S.order) return; S.orderEdit = S.order.order.id; renderOrderModal(S.order); var bd = $('#modal-root .modal-backdrop'); if (bd) bd.scrollTop = 0; },
+    'order-edit-cancel': function () { if (!S.order) return; S.orderEdit = null; S.unlockId = null; S.orderDirty = false; renderOrderModal(S.order); },
+    'of-more': function () { var m = $('#of-more'); if (m) m.hidden = !m.hidden; },
+    'filters-sheet': filtersSheet,
+    'sheet-period': function (el) {
+      S.sheetFilter.period = el.getAttribute('data-p');
+      $all('[data-act="sheet-period"]').forEach(function (b) { b.setAttribute('aria-pressed', b === el ? 'true' : 'false'); });
+    },
+    'sheet-apply': function () { applySheet(true); },
+    'sheet-clear': function () { var sel = $('#sheet-filters [name="wilaya"]'); if (sel) sel.value = ''; S.sheetFilter.period = '30'; applySheet(true); },
+    'sheet-trash': function () { closeModal(); S.filter.status = 'trash'; S.filter.limit = 100; loadOrders(); },
+    'sheet-select': function () { closeModal(); S.selMode = !S.selMode; if (S.list) renderOrderList(S.list); },
     'releasit-transfer': function () {
       toast('Lecture de l’onglet RELEASIT…');
       call('api_releasitTransfer').then(function (r) {
@@ -2940,6 +3116,14 @@
       updateSummary();
     } else if (e.target.closest('#order-form')) {
       S.orderDirty = true;
+      var tot = $('#of-total');
+      if (tot && /^(price|shipping)$/.test(e.target.name)) {
+        var form = $('#order-form');
+        var price = Number(($('[name="price"]', form) || {}).value) || 0;
+        var ship = ($('[name="shipping"]', form) || {}).value;
+        var known = S.order && S.order.order ? Number(S.order.order.shipping) || 0 : 0;
+        tot.textContent = money(price + (ship === '' ? known : Number(ship) || 0));
+      }
     }
   });
   document.addEventListener('change', function (e) {
@@ -3057,6 +3241,7 @@
     applyCounts(b.counts);
     $all('[data-shop]').forEach(function (el) { el.textContent = b.shop; });
     $all('[data-user-name]').forEach(function (el) { el.textContent = b.user.name; });
+    $all('[data-user-initial]').forEach(function (el) { el.textContent = String(b.user.name || '?').trim().charAt(0).toUpperCase(); });
     $all('[data-user-mail]').forEach(function (el) { el.textContent = /^tel:/.test(b.user.email) ? phoneText(b.user.email.slice(4)) : b.user.email; });
     $all('[data-admin]').forEach(function (el) { el.hidden = !b.user.admin; });
     $all('[data-stockrole]').forEach(function (el) { el.hidden = !b.user.stock; });
@@ -3124,6 +3309,8 @@
       '<div class="quick" style="margin-top:12px"><button type="button" class="btn primary" data-act="mine-save">' + (a.hasPassword ? 'Changer mon mot de passe' : 'Créer mon mot de passe') + '</button></div>' +
       (u.admin && a.hasPassword ? '<p class="small" style="margin-top:14px"><strong>Code de secours</strong> : il permet de choisir un nouveau mot de passe si vous oubliez le vôtre. ' +
         '<button type="button" class="link-btn" data-act="mine-rescue">Créer un nouveau code de secours</button></p>' : '') +
+      (window.DZ_CLOUD.push && window.DZ_CLOUD.push.supported() ? '<p class="small" style="margin-top:14px"><strong>Notifications</strong> sur ce téléphone : nouvelles commandes, rappels… ' +
+        '<button type="button" class="link-btn" data-act="push-settings">Régler</button></p>' : '') +
       '<div class="modal-actions">' + (google ? '' : '<button type="button" class="btn" data-act="mine-revoke">Déconnecter mes autres appareils</button>') +
       '<button type="button" class="btn danger" data-act="mine-logout">Se déconnecter</button></div>');
   }
@@ -3169,7 +3356,134 @@
   function started() {
     setTimeout(preloadPages, 1500);
     setInterval(tick, 30000);
+    openFromLink(location.href);
+    showInstallBanner();
+    showPushBanner();
   }
+
+  /* ---------------- Application installée, notifications (version Cloudflare, v1.12) ---------------- */
+
+  /** Lien d'une notification : « ?o=#2006#/confirmation » ouvre la page puis la commande. */
+  function openFromLink(url) {
+    var u;
+    try { u = new URL(url, location.href); } catch (e) { return; }
+    var o = u.searchParams.get('o');
+    if (u.hash && u.hash !== location.hash) location.hash = u.hash;
+    if (o) {
+      if (u.search && location.search) history.replaceState(null, '', location.pathname + location.hash);
+      setTimeout(function () { openOrder(o); }, 400);
+    }
+  }
+  document.addEventListener('dz-open', function (e) { openFromLink(e.detail); });
+
+  function bannerSlot(id, cls) {
+    var el = $('#' + id);
+    if (!el) {
+      el = document.createElement('div');
+      el.id = id;
+      el.className = cls || 'auth-banner';
+      var hb = $('#health-banner');
+      if (hb && hb.parentNode) hb.parentNode.insertBefore(el, hb.nextSibling);
+    }
+    return el;
+  }
+  function dismissed(key, days) {
+    try { var t = Number(localStorage.getItem('dz-dismiss:' + key)) || 0; return Date.now() - t < days * 86400000; } catch (e) { return false; }
+  }
+  function dismiss(key) { try { localStorage.setItem('dz-dismiss:' + key, String(Date.now())); } catch (e) { /* rien */ } }
+
+  /** Bandeau « Installer l'application » : Android (Chrome) ; sur iPhone, l'explication (Partager › Sur l'écran d'accueil). */
+  function showInstallBanner() {
+    var c = window.DZ_CLOUD;
+    var el = $('#install-banner');
+    var phone = window.matchMedia && window.matchMedia('(max-width: 860px)').matches;
+    var show = c && c.install && !c.standalone() && phone && !dismissed('install', 7) && (c.canInstall() || c.isIos());
+    if (!show) { if (el) el.remove(); return; }
+    el = bannerSlot('install-banner', 'auth-banner app-banner');
+    el.innerHTML = '<span class="ab-ic">📲</span><span><strong>Installer l’application</strong> : icône sur l’écran d’accueil, plein écran, notifications.' +
+      (c.canInstall() ? '' : ' Sur iPhone : bouton <strong>Partager</strong> ⬆ puis <strong>Sur l’écran d’accueil</strong>.') + '</span>' +
+      (c.canInstall() ? '<button type="button" class="btn primary" data-act="app-install">Installer</button>' : '') +
+      '<button type="button" class="icon-btn" data-act="banner-close" data-key="install" aria-label="Plus tard">×</button>';
+  }
+  document.addEventListener('dz-installable', showInstallBanner);
+  document.addEventListener('dz-installed', function () { var el = $('#install-banner'); if (el) el.remove(); toast('Application installée : ouvrez-la depuis l’écran d’accueil.'); });
+
+  /** Bandeau « Activer les notifications » (une fois par téléphone). */
+  function showPushBanner() {
+    var c = window.DZ_CLOUD;
+    var el = $('#push-banner');
+    if (!c || !c.push || !c.push.supported() || !S.boot.cloud || S.boot.cloud.step < 3 || c.push.permission() === 'denied' || dismissed('push', 14)) { if (el) el.remove(); return; }
+    c.push.subscription().then(function (sub) {
+      if (sub) {
+        // Déjà abonné : l'abonnement est rappelé au serveur (il peut changer), sans rien afficher.
+        call('api_pushSubscribe', sub.toJSON(), null, deviceName()).catch(function () {});
+        if (el) el.remove();
+        return;
+      }
+      el = bannerSlot('push-banner', 'auth-banner app-banner');
+      el.innerHTML = '<span class="ab-ic">🔔</span><span><strong>Nouvelles commandes sur ce téléphone</strong>, même application fermée.</span>' +
+        '<button type="button" class="btn primary" data-act="push-on">Activer</button>' +
+        '<button type="button" class="icon-btn" data-act="banner-close" data-key="push" aria-label="Plus tard">×</button>';
+    });
+  }
+  function deviceName() {
+    var ua = navigator.userAgent || '';
+    return (/android/i.test(ua) ? 'Android' : /iphone|ipad/i.test(ua) ? 'iPhone' : /windows/i.test(ua) ? 'Windows' : /mac os/i.test(ua) ? 'Mac' : 'Appareil') +
+      (/samsungbrowser/i.test(ua) ? ' · Samsung Internet' : /edg\//i.test(ua) ? ' · Edge' : /firefox/i.test(ua) ? ' · Firefox' : /chrome|crios/i.test(ua) ? ' · Chrome' : /safari/i.test(ua) ? ' · Safari' : '');
+  }
+  /** Mon compte › Notifications : état sur ce téléphone, choix, essai, désactiver. */
+  function pushSettings() {
+    var c = window.DZ_CLOUD;
+    if (!c || !c.push || !c.push.supported()) { toast('Notifications impossibles sur ce navigateur. Sur iPhone : installez d’abord l’application (Partager › Sur l’écran d’accueil).', true); return; }
+    showModal(modalHead('Notifications') + '<p class="loading">Chargement…</p>');
+    c.push.subscription().then(function (sub) {
+      return call('api_pushInfo', sub ? sub.endpoint : '').then(function (info) { S.pushSub = sub; S.pushInfo = info; renderPushSettings(); });
+    }).catch(function (e) { toast(errText(e), true); closeModal(); });
+  }
+  function renderPushSettings() {
+    var info = S.pushInfo || {};
+    var on = !!(S.pushSub && info.subscribed);
+    var p = info.prefs || {};
+    var denied = window.DZ_CLOUD.push.permission() === 'denied';
+    var sw = function (key, label, sub) {
+      return '<label class="push-row"><span><strong>' + h(label) + '</strong><span class="small">' + h(sub) + '</span></span>' +
+        '<input type="checkbox" class="switch" data-push-pref="' + key + '"' + (p[key] ? ' checked' : '') + (on ? '' : ' disabled') + '></label>';
+    };
+    showModal(modalHead('Notifications') +
+      (on ? '<p class="small" style="color:#146C2E;font-weight:600">' + icon('ok') + 'Activées sur ce téléphone' + (info.device ? ' (' + h(info.device) + ')' : '') + '</p>'
+        : denied ? '<p class="small" style="color:#A12626">Notifications bloquées par le navigateur : touchez le cadenas à côté de l’adresse › Notifications › Autoriser, puis rouvrez cette fenêtre.</p>'
+          : '<p class="small">Pas encore activées sur ce téléphone.</p>') +
+      '<div class="push-list">' +
+      sw('orders', 'Nouvelles commandes', 'Dès qu’une commande arrive (Releasit, Shopify)') +
+      sw('callbacks', 'Rappels à l’heure', 'Une commande « à rappeler » arrive à son heure') +
+      (info.admin ? sw('tracking', 'Colis à traiter', 'Refus, retour, colis bloqué') + sw('problems', 'Problèmes de l’outil', 'Relais RELEASIT muet, Ecotrack en panne…') : '') +
+      sw('quiet', 'Silence la nuit', 'Pas de notification de 22 h à 8 h') + '</div>' +
+      '<div class="modal-actions">' + (on ? '<button type="button" class="btn" data-act="push-test">Envoyer un essai</button><button type="button" class="btn" data-act="push-off">Désactiver</button>'
+        : '<button type="button" class="btn primary" data-act="push-on"' + (denied ? ' disabled' : '') + '>Activer sur ce téléphone</button>') + '</div>');
+  }
+  document.addEventListener('change', function (e) {
+    var key = e.target && e.target.getAttribute && e.target.getAttribute('data-push-pref');
+    if (!key || !S.pushSub || !S.pushInfo) return;
+    S.pushInfo.prefs[key] = e.target.checked;
+    call('api_pushPrefs', S.pushSub.endpoint, S.pushInfo.prefs).then(function (r) { S.pushInfo.prefs = r.prefs; toast(r.message); })
+      .catch(function (err) { toast(errText(err), true); });
+  });
+
+  /** Active les notifications de ce téléphone : autorisation, abonnement, enregistrement. */
+  function pushOn(el) {
+    var c = window.DZ_CLOUD;
+    if (el) el.disabled = true;
+    return call('api_pushInfo').then(function (info) {
+      return c.push.subscribe(info.publicKey).then(function (sub) { return call('api_pushSubscribe', sub.toJSON(), null, deviceName()); });
+    }).then(function (r) {
+      if (el) el.disabled = false;
+      var b = $('#push-banner');
+      if (b) b.remove();
+      toast(r.message);
+      return r;
+    }).catch(function (e) { if (el) el.disabled = false; toast(errText(e), true); throw e; });
+  }
+
 
   function bootFailed(e) {
     view.innerHTML = errorBox(e) +

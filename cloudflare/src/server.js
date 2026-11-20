@@ -992,6 +992,12 @@ async function cron(env) {
       const r = await exec(env, R, () => F.syncEcotrackStatuses_());
       R.extra.push(alertStatement(env, R));
       await flush(env, R);
+      // Nouveaux colis à traiter (refus, retour, colis bloqué) : notification aux administrateurs.
+      const before = Number(base.secret['cf:alerts']) || 0;
+      const after = Number((await env.DB.prepare("SELECT value FROM kv WHERE key = 'cf:alerts'").first() || {}).value) || 0;
+      if (after > before) {
+        await pushTo(env, base, 'tracking', { title: 'Suivi : ' + F.plural_(after, 'colis à traiter', 'colis à traiter'), body: (after - before) + ' de plus : refus, retour ou colis bloqué. Ouvrez Suivi.', tag: 'suivi', url: '/#/suivi' }).catch(() => null);
+      }
       return r;
     });
     if (out.ecotrack && out.ecotrack.error) out.ecotrackError = out.ecotrack.error;
@@ -1018,8 +1024,10 @@ async function cron(env) {
     out.night = await noteTask(env, base, 'nightly', () => nightly(env, base));
     if (out.night && !out.night.error) Object.assign(out, out.night);
   }
-  // 6. Mode relais : alertes par SMS aux administrateurs (avant : e-mail d'Apps Script).
-  if (base.secret['cf:relay']) out.alerts = await alertCheck(env, await loadBase(env)).catch((e) => ({ error: String(e && e.message ? e.message : e) }));
+  // 6. Alertes (problèmes de l'outil) : SMS aux administrateurs en mode relais, notifications pour qui les a choisies.
+  if (base.full) out.alerts = await alertCheck(env, await loadBase(env)).catch((e) => ({ error: String(e && e.message ? e.message : e) }));
+  // 7. Notifications : rappels arrivés à leur heure.
+  if (base.full) out.callbacks = await notifyCallbacks(env, base).catch((e) => ({ error: String(e && e.message ? e.message : e) }));
   let runs = { day: today, n: 0 };
   try { const c = JSON.parse(base.secret['cf:runs'] || 'null'); if (c && c.day === today) runs = c; } catch (e) { /* nouveau jour */ }
   runs.n++;
@@ -1034,7 +1042,11 @@ async function cron(env) {
  * des SMS eux-mêmes (ils ne partiraient pas) : elle reste visible dans l'application.
  */
 async function alertCheck(env, base) {
-  if (!base.props.SMS_API_KEY) return { sent: 0, off: true };
+  const sms = !!(base.secret['cf:relay'] && base.props.SMS_API_KEY);
+  if (!sms) {
+    const has = await env.DB.prepare('SELECT COUNT(*) AS n FROM push_subs').first();
+    if (!has || !has.n) return { sent: 0, off: true };
+  }
   const R = newReq(base, { email: '' });
   const problems = workerHealth(R).data.problems.filter((p) => p.key !== 'sms' && p.key !== 'cron');
   let state = {};
@@ -1052,7 +1064,8 @@ async function alertCheck(env, base) {
   let sent = 0;
   // Identifiant d'envoi fixé avant : l'action peut être rejouée (appels extérieurs), chaque SMS ne part qu'une fois.
   const stamp = Date.now();
-  if (phones.length) {
+  await pushTo(env, base, 'problems', { title: fresh.length ? 'Problème : ' + fresh[0].text.split(' : ')[0] : 'C’est rétabli', body: texts.join(' ').slice(0, 300), tag: 'outil', url: '/#/admin' }, { team: team }).catch(() => null);
+  if (sms && phones.length) {
     await exec(env, R, () => {
       sent = 0;
       const cfg = F.smsConfig_();
@@ -1063,7 +1076,7 @@ async function alertCheck(env, base) {
   fixed.forEach((k) => { delete state[k]; });
   fresh.forEach((p) => { state[p.key] = { at: now, label: p.text.split(' : ')[0].slice(0, 60) }; });
   await env.DB.batch([kvSet(env, 'cf:alertState', JSON.stringify(state)),
-    env.DB.prepare('INSERT INTO journal (at, who, order_id, action, detail) VALUES (?, ?, ?, ?, ?)').bind(now, 'Automatique', '', 'Alerte SMS', texts.join(' / ').slice(0, 500) + (phones.length ? '' : ' (aucun administrateur avec un téléphone)'))]);
+    env.DB.prepare('INSERT INTO journal (at, who, order_id, action, detail) VALUES (?, ?, ?, ?, ?)').bind(now, 'Automatique', '', sms ? 'Alerte SMS' : 'Alerte', texts.join(' / ').slice(0, 500) + (sms && !phones.length ? ' (aucun administrateur avec un téléphone)' : ''))]);
   return { sent: sent, problems: keys };
 }
 
@@ -1532,6 +1545,7 @@ async function shopifyImport(env, R) {
     if (f.summary.imported) F.processNewRowsNow_();
   });
   await flush(env, R);
+  if (f.summary.imported) await notifyNewOrders(env, R.base, R.inserts.map((o) => ({ id: String(o.id), client: o.client, wilaya: o.wilaya, product: o.product, total: o.total }))).catch(() => null);
   return f.summary;
 }
 
@@ -1595,7 +1609,8 @@ async function releasitIngest(env, base, body) {
   });
   if (fresh.length) R.extra.push(kvSet(env, 'cf:lastIngest', new Date().toISOString()));
   await flush(env, R);
-  return { next: from + use, col: col.id + 1, added: fresh.map((o) => String(o.id)), skipped: found.candidates.length - fresh.length, ignored: found.ignored, missing: missing };
+  return { next: from + use, col: col.id + 1, added: fresh.map((o) => String(o.id)), skipped: found.candidates.length - fresh.length, ignored: found.ignored, missing: missing,
+    orders: fresh.map((o) => ({ id: String(o.id), client: o.client, wilaya: o.wilaya, product: o.product, total: o.total })) };
 }
 
 /**
@@ -1938,11 +1953,13 @@ async function bridge(request, env, path) {
     info.lastIds = res.added.length ? res.added.slice(-5) : prev.lastIds || [];
     await kvSet(env, 'cf:relayInfo', JSON.stringify(info)).run();
     if (info.error) throw new HttpError(400, info.error);
-    // SMS « commande reçue » tout de suite (sans attendre la tâche de la minute suivante).
+    // SMS « commande reçue » tout de suite (sans attendre la tâche de la minute suivante), et notifications.
     if (res.added.length) {
       const base = await loadBase(env);
       if (base.props.SMS_API_KEY) await sendSmsNow(env, base).catch(() => null);
+      await notifyNewOrders(env, base, res.orders || []).catch(() => null);
     }
+    delete res.orders;
     return res;
   }
 
@@ -1985,6 +2002,7 @@ async function bridge(request, env, path) {
         F.flushSmsPending_();
       });
       await flush(env, R);
+      await notifyNewOrders(env, base, fresh).catch(() => null);
     }
     return { added: fresh.map((o) => String(o.id).trim()), skipped: list.length - fresh.length };
   }
@@ -2087,6 +2105,196 @@ async function bridge(request, env, path) {
     return { ok: true, written: st.length };
   }
   throw new HttpError(404, 'Inconnu.');
+}
+
+/* ================================================================ */
+/* Notifications sur le téléphone (Web Push, v1.12)                 */
+/* ================================================================ */
+
+/*
+ * Chaque téléphone qui active les notifications donne un « abonnement » (adresse chez Google, Apple ou
+ * Mozilla + deux clés). Pour envoyer, le moteur chiffre le message (aes128gcm, RFC 8291) et signe la
+ * demande avec sa propre clé (VAPID, RFC 8292) : seul ce téléphone peut lire le message.
+ * Choix par appareil : nouvelles commandes, rappels à l'heure, colis à traiter et problèmes de l'outil
+ * (administrateur), silence la nuit (22 h à 8 h).
+ */
+const PUSH_KINDS = ['orders', 'callbacks', 'tracking', 'problems'];
+
+function bytesOf(b64) {
+  let s = String(b64 || '').replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+}
+function concatBytes(...parts) {
+  const out = new Uint8Array(parts.reduce((a, p) => a + p.length, 0));
+  let o = 0;
+  parts.forEach((p) => { out.set(p, o); o += p.length; });
+  return out;
+}
+
+/** Clés VAPID de l'application (créées une fois, gardées dans la base). */
+async function vapidKeys(env, base) {
+  let v = null;
+  try { v = JSON.parse(base.secret['cf:vapid'] || 'null'); } catch (e) { v = null; }
+  if (!v) {
+    const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+    const made = { jwk: await crypto.subtle.exportKey('jwk', kp.privateKey), pub: b64url(await crypto.subtle.exportKey('raw', kp.publicKey)) };
+    await env.DB.prepare("INSERT OR IGNORE INTO kv (key, value) VALUES ('cf:vapid', ?)").bind(JSON.stringify(made)).run();
+    const r = await env.DB.prepare("SELECT value FROM kv WHERE key = 'cf:vapid'").first();
+    base.secret['cf:vapid'] = r.value;
+    v = JSON.parse(r.value);
+  }
+  return v;
+}
+
+/** En-tête « vapid t=…, k=… » pour un service de notifications (un par service et par envoi groupé). */
+async function vapidHeader(v, endpoint, origin, cache) {
+  const aud = new URL(endpoint).origin;
+  if (cache[aud]) return cache[aud];
+  const head = b64urlText(JSON.stringify({ typ: 'JWT', alg: 'ES256' }));
+  const body = b64urlText(JSON.stringify({ aud: aud, exp: Math.floor(Date.now() / 1000) + 12 * 3600, sub: origin || 'https://dz-smart-shop.workers.dev' }));
+  const key = await crypto.subtle.importKey('jwk', v.jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, new TextEncoder().encode(head + '.' + body));
+  cache[aud] = 'vapid t=' + head + '.' + body + '.' + b64url(sig) + ', k=' + v.pub;
+  return cache[aud];
+}
+
+/** Message chiffré pour un abonnement (RFC 8291, aes128gcm, un seul bloc). */
+async function encryptPush(sub, text) {
+  const uaPub = bytesOf(sub.p256dh);
+  const authSecret = bytesOf(sub.auth);
+  const as = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const asPub = new Uint8Array(await crypto.subtle.exportKey('raw', as.publicKey));
+  const uaKey = await crypto.subtle.importKey('raw', uaPub, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+  const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: uaKey }, as.privateKey, 256));
+  const hkdf = async (salt, ikm, info, len) => {
+    const k = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
+    return new Uint8Array(await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: salt, info: info }, k, len * 8));
+  };
+  const enc = new TextEncoder();
+  const ikm = await hkdf(authSecret, shared, concatBytes(enc.encode('WebPush: info\u0000'), uaPub, asPub), 32);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const cek = await hkdf(salt, ikm, enc.encode('Content-Encoding: aes128gcm\u0000'), 16);
+  const nonce = await hkdf(salt, ikm, enc.encode('Content-Encoding: nonce\u0000'), 12);
+  const key = await crypto.subtle.importKey('raw', cek, 'AES-GCM', false, ['encrypt']);
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, key, concatBytes(enc.encode(text), new Uint8Array([2]))));
+  const head = new Uint8Array(21 + asPub.length);
+  head.set(salt, 0);
+  new DataView(head.buffer).setUint32(16, 4096);
+  head[20] = asPub.length;
+  head.set(asPub, 21);
+  return concatBytes(head, ct);
+}
+
+function pushPrefs(row, role) {
+  let p = {};
+  try { p = JSON.parse(row && row.prefs || '{}') || {}; } catch (e) { p = {}; }
+  const admin = /^admin/.test(F.normalizeText_(role || ''));
+  const def = { orders: !/^magasin/.test(F.normalizeText_(role || '')), callbacks: !/^magasin/.test(F.normalizeText_(role || '')), tracking: admin, problems: admin, quiet: true };
+  const out = {};
+  Object.keys(def).forEach((k) => { out[k] = typeof p[k] === 'boolean' ? p[k] : def[k]; });
+  if (!admin) { out.tracking = false; out.problems = false; }
+  return out;
+}
+function algiersHourNow() { return new Date(Date.now() + 3600000).getUTCHours(); }
+
+/**
+ * Envoie une notification à tous les appareils dont les choix acceptent ce genre (kind), à des personnes
+ * encore dans l'équipe ; members : seulement ces personnes (clés), si la liste n'est pas vide.
+ * Abonnement expiré (404, 410) : effacé. Renvoie le nombre de notifications parties.
+ */
+async function pushTo(env, base, kind, payload, opts) {
+  opts = opts || {};
+  const subs = (await env.DB.prepare('SELECT * FROM push_subs').all()).results || [];
+  if (!subs.length) return { sent: 0 };
+  const team = opts.team || await teamRows(env, base);
+  const byKey = {};
+  team.forEach((t) => { byKey[t[0]] = t; });
+  const night = (() => { const hr = algiersHourNow(); return hr >= 22 || hr < 8; })();
+  const targets = subs.filter((s) => {
+    const m = byKey[s.member];
+    if (!m) return false;
+    if (opts.members && opts.members.length && opts.members.indexOf(s.member) < 0) return false;
+    const p = pushPrefs(s, m[2]);
+    if (opts.test) return true;
+    return !!p[kind] && !(p.quiet && night);
+  });
+  if (!targets.length) return { sent: 0 };
+  const v = await vapidKeys(env, base);
+  const cache = {};
+  const text = JSON.stringify(Object.assign({ at: Date.now() }, payload));
+  const now = new Date().toISOString();
+  const st = [];
+  let sent = 0;
+  for (const s of targets) {
+    let status = 0;
+    try {
+      const res = await fetch(s.endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream', 'content-encoding': 'aes128gcm', ttl: String(opts.ttl || 6 * 3600), urgency: 'high',
+          authorization: await vapidHeader(v, s.endpoint, base.secret['cf:origin'], cache) },
+        body: await encryptPush(s, text)
+      });
+      status = res.status;
+    } catch (e) { status = 0; }
+    if (status >= 200 && status < 300) { sent++; st.push(env.DB.prepare('UPDATE push_subs SET last_ok = ?, fails = 0 WHERE id = ?').bind(now, s.id)); }
+    else if (status === 404 || status === 410) st.push(env.DB.prepare('DELETE FROM push_subs WHERE id = ?').bind(s.id));
+    else st.push(env.DB.prepare('UPDATE push_subs SET fails = fails + 1 WHERE id = ?').bind(s.id));
+  }
+  if (st.length) await env.DB.batch(st);
+  return { sent: sent, targets: targets.length };
+}
+
+function wilayaShort(w) { return String(w || '').replace(/^\d+\s*-\s*/, ''); }
+function orderLink(id, route) { return '/?o=' + encodeURIComponent(String(id)) + '#/' + (route || 'confirmation'); }
+
+/** Nouvelles commandes (relais RELEASIT, Shopify) : une notification par commande (au plus 3), sinon une seule. */
+async function notifyNewOrders(env, base, orders) {
+  const list = (orders || []).filter((o) => o && o.id);
+  if (!list.length) return { sent: 0 };
+  const has = await env.DB.prepare('SELECT COUNT(*) AS n FROM push_subs').first();
+  if (!has || !has.n) return { sent: 0 };
+  const team = await teamRows(env, base);
+  if (list.length > 3) {
+    return pushTo(env, base, 'orders', { title: list.length + ' nouvelles commandes', body: list.slice(0, 6).map((o) => o.id).join(', ') + (list.length > 6 ? '…' : ''), tag: 'new-batch', url: '/#/confirmation' }, { team: team });
+  }
+  let sent = 0;
+  for (const o of list) {
+    const total = Number(F.toNumber_(o.total)) || 0;
+    const r = await pushTo(env, base, 'orders', {
+      title: 'Nouvelle commande ' + o.id,
+      body: [String(o.client || '').trim(), wilayaShort(o.wilaya), String(o.product || '').trim(), total ? F.fmtAmount_(total) + ' DA' : ''].filter(Boolean).join(' · '),
+      tag: 'new-' + o.id, url: orderLink(o.id)
+    }, { team: team });
+    sent += r.sent;
+  }
+  return { sent: sent };
+}
+
+/** Rappels à l'heure : commandes dont l'heure de rappel est passée depuis le dernier passage. */
+async function notifyCallbacks(env, base) {
+  const has = await env.DB.prepare('SELECT COUNT(*) AS n FROM push_subs').first();
+  const now = new Date().toISOString();
+  const last = base.secret['cf:pushCbAt'] || new Date(Date.now() - 2 * 60000).toISOString();
+  await kvSet(env, 'cf:pushCbAt', now).run();
+  if (!has || !has.n) return { sent: 0 };
+  const r = await env.DB.prepare("SELECT id, data FROM orders WHERE archived = 0 AND stage = 'todo' AND callback > ? AND callback <= ? LIMIT 20").bind(last, now).all();
+  const list = (r.results || []).map((x) => JSON.parse(x.data));
+  if (!list.length) return { sent: 0 };
+  const team = await teamRows(env, base);
+  let sent = 0;
+  for (const o of list) {
+    // La confirmatrice qui a programmé le rappel (si elle a les notifications), sinon toute l'équipe.
+    const who = team.filter((t) => t[1] && String(o.agent || '').trim() && t[1] === String(o.agent).trim()).map((t) => t[0]);
+    const res = await pushTo(env, base, 'callbacks', {
+      title: 'Rappel : à appeler maintenant',
+      body: [String(o.client || '').trim() + ' (' + o.id + ')', wilayaShort(o.wilaya), o.attempts ? 'appel n° ' + (Number(o.attempts) + 1) : ''].filter(Boolean).join(' · '),
+      tag: 'cb-' + o.id, url: orderLink(o.id)
+    }, { team: team, members: who });
+    if (!res.sent && who.length) sent += (await pushTo(env, base, 'callbacks', { title: 'Rappel : à appeler maintenant', body: String(o.client || '').trim() + ' (' + o.id + ')', tag: 'cb-' + o.id, url: orderLink(o.id) }, { team: team })).sent;
+    else sent += res.sent;
+  }
+  return { sent: sent };
 }
 
 /* ================================================================ */
@@ -2426,6 +2634,7 @@ Object.assign(PAGES, {
     const before = run(R, () => F.readTeam_()).filter((t) => t[0] === key)[0];
     const res = await gasPage('api_teamRemove')(env, R, args);
     if (before && before[3]) await env.DB.batch([revokeStatement(env, before[3], ''), env.DB.prepare('DELETE FROM auth WHERE phone = ?').bind(before[3])]);
+    if (before) await env.DB.prepare('DELETE FROM push_subs WHERE member = ?').bind(before[0]).run();
     res.team = await enrichTeam(env, R, res.team);
     return res;
   },
@@ -2544,6 +2753,54 @@ Object.assign(PAGES, {
     throw new HttpError(400, 'Morceau inconnu.');
   },
 
+  /** Notifications : clé publique de l'application, et choix de cet appareil (s'il est abonné). */
+  async api_pushInfo(env, R, args) {
+    const v = await vapidKeys(env, R.base);
+    const endpoint = String(args[0] || '');
+    const me = run(R, () => F.currentUser_());
+    let row = null;
+    if (endpoint) row = await env.DB.prepare('SELECT * FROM push_subs WHERE endpoint = ?').bind(endpoint).first();
+    return { publicKey: v.pub, subscribed: !!row, prefs: pushPrefs(row, me.role), admin: run(R, () => F.isAdmin_(me)), device: row ? row.device : '' };
+  },
+  /** Abonne cet appareil (ou met à jour son abonnement) ; prefs : ses choix (facultatif). */
+  async api_pushSubscribe(env, R, args) {
+    const sub = args[0] || {};
+    const endpoint = String(sub.endpoint || '');
+    const keys = sub.keys || {};
+    if (!/^https:\/\//.test(endpoint) || !keys.p256dh || !keys.auth) throw new HttpError(400, 'Abonnement aux notifications invalide.');
+    const id = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(endpoint))).slice(0, 32);
+    const old = await env.DB.prepare('SELECT prefs FROM push_subs WHERE id = ?').bind(id).first();
+    const me = run(R, () => F.currentUser_());
+    const prefs = args[1] && typeof args[1] === 'object' ? pushPrefs({ prefs: JSON.stringify(args[1]) }, me.role) : pushPrefs(old, me.role);
+    await env.DB.prepare('INSERT INTO push_subs (id, member, endpoint, p256dh, auth, prefs, device, created, last_ok, fails) VALUES (?, ?, ?, ?, ?, ?, ?, ?, \'\', 0) ' +
+      'ON CONFLICT(id) DO UPDATE SET member = excluded.member, p256dh = excluded.p256dh, auth = excluded.auth, prefs = excluded.prefs, device = excluded.device')
+      .bind(id, String(R.user.email || ''), endpoint, String(keys.p256dh), String(keys.auth), JSON.stringify(prefs), String(args[2] || '').slice(0, 60), new Date().toISOString()).run();
+    return { prefs: prefs, message: old ? 'Notifications à jour.' : 'Notifications activées sur ce téléphone.' };
+  },
+  /** Choix de cet appareil (nouvelles commandes, rappels…). */
+  async api_pushPrefs(env, R, args) {
+    const row = await env.DB.prepare('SELECT * FROM push_subs WHERE endpoint = ? AND member = ?').bind(String(args[0] || ''), String(R.user.email || '')).first();
+    if (!row) throw new HttpError(404, 'Notifications pas activées sur ce téléphone.');
+    const me = run(R, () => F.currentUser_());
+    const prefs = pushPrefs({ prefs: JSON.stringify(args[1] || {}) }, me.role);
+    await env.DB.prepare('UPDATE push_subs SET prefs = ? WHERE id = ?').bind(JSON.stringify(prefs), row.id).run();
+    return { prefs: prefs, message: 'Choix enregistrés.' };
+  },
+  /** Notification d'essai sur cet appareil. */
+  async api_pushTest(env, R, args) {
+    const row = await env.DB.prepare('SELECT id FROM push_subs WHERE endpoint = ? AND member = ?').bind(String(args[0] || ''), String(R.user.email || '')).first();
+    if (!row) throw new HttpError(404, 'Notifications pas activées sur ce téléphone.');
+    const r = await pushTo(env, R.base, 'orders', { title: 'Essai : ça marche ✓', body: 'Les notifications de DZ Smart Shop arrivent sur ce téléphone.', tag: 'essai', url: '/#/confirmation' },
+      { members: [String(R.user.email || '')], test: true });
+    if (!r.sent) throw new HttpError(502, 'La notification n’est pas partie : désactivez puis réactivez les notifications.');
+    return { message: 'Notification d’essai envoyée.' };
+  },
+  /** Désactive les notifications de cet appareil. */
+  async api_pushOff(env, R, args) {
+    await env.DB.prepare('DELETE FROM push_subs WHERE endpoint = ? AND member = ?').bind(String(args[0] || ''), String(R.user.email || '')).run();
+    return { message: 'Notifications désactivées sur ce téléphone.' };
+  },
+
   /** Administrateur : nouveau code de secours (l'ancien ne marche plus). */
   async api_authRescueNew(env, R) {
     needFull(R);
@@ -2581,6 +2838,9 @@ Object.assign(PAGES, {
 async function api(request, env, fn) {
   if (request.method !== 'POST') throw new HttpError(405, 'Méthode non permise.');
   const base = await loadBase(env);
+  // Adresse de l'application (pour les notifications, envoyées aussi par les tâches automatiques).
+  const origin = new URL(request.url).origin;
+  if (base.secret['cf:origin'] !== origin && /^https:/.test(origin)) await kvSet(env, 'cf:origin', origin).run();
   const token = String(request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
   const R = newReq(base, { email: '' });
   // Seuls les membres de l'onglet Équipe (et le propriétaire du classeur) entrent.
@@ -2615,6 +2875,28 @@ async function api(request, env, fn) {
   return handler(env, R, args);
 }
 
+/** Application installable (v1.12) : nom de la boutique, ouverture en plein écran sur Confirmation. */
+async function manifest(env) {
+  let shop = 'DZ Smart Shop';
+  try { const r = await env.DB.prepare("SELECT value FROM kv WHERE key = 'cf:shop'").first(); if (r && r.value) shop = String(r.value); } catch (e) { /* nom par défaut */ }
+  const m = {
+    name: shop, short_name: shop.length > 14 ? 'DZ Smart Shop' : shop, description: 'Commandes, confirmation, expéditions et suivi (paiement à la livraison)',
+    id: '/', start_url: '/?app=1#/confirmation', scope: '/', display: 'standalone', orientation: 'portrait',
+    background_color: '#10241B', theme_color: '#10241B', lang: 'fr', dir: 'ltr',
+    icons: [
+      { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+    ]
+  };
+  return new Response(JSON.stringify(m), { headers: { 'content-type': 'application/manifest+json; charset=utf-8', 'cache-control': 'public, max-age=3600' } });
+}
+function icon(name) {
+  const b64 = ICONS[name];
+  if (!b64) return new Response('Introuvable.', { status: 404 });
+  return new Response(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)), { headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=604800' } });
+}
+
 /** L'interface : une seule page, intégrée au moteur ; le navigateur la garde et vérifie si elle a changé. */
 function page(request) {
   const path = new URL(request.url).pathname;
@@ -2642,6 +2924,9 @@ export default {
         return json({ ok: true, data: { gateway: kv['cf:pwdOnly'] ? '' : kv['cf:gateway'] || '', password: !!kv['cf:full'], sms: !!kv.SMS_API_KEY,
           shop: kv['cf:shop'] || 'DZ Smart Shop', ready: !!kv['cf:imported'], version: K.APP_VERSION } });
       }
+      if (path === '/manifest.webmanifest') return manifest(env);
+      if (path === '/sw.js') return new Response(SW_JS, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache', 'service-worker-allowed': '/' } });
+      if (path.indexOf('/icons/') === 0) return icon(path.slice(7));
       if (path.indexOf('/auth/') === 0) return json({ ok: true, data: await authRoute(request, env, path) });
       if (path.indexOf('/api/') === 0) return json({ ok: true, data: await api(request, env, path.slice(5)) });
       if (path.indexOf('/bridge/') === 0) return json({ ok: true, data: await bridge(request, env, path) });

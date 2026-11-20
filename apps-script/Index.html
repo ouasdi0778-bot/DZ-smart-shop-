@@ -44,6 +44,9 @@
 <symbol id="i-noanswer" viewBox="0 0 24 24"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/> <line x1="22" x2="2" y1="2" y2="22"/></symbol>
 <symbol id="i-send" viewBox="0 0 24 24"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/> <path d="m21.854 2.147-10.94 10.939"/></symbol>
 <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/> <circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-back" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/> <path d="M19 12H5"/></symbol>
+<symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></symbol>
+<symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6h16"/> <path d="M7 12h10"/> <path d="M10 18h4"/></symbol>
 <symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/> <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
 <symbol id="logo" viewBox="0 0 64 64"><path d="M37 9l20 10-20 10-20-10z" fill="#2E9A73"/><path d="M17 19l20 10v26L17 45z" fill="#0B6B4C"/><path d="M57 19L37 29v26l20-10z" fill="#084F38"/><path d="M27 14l20 10v8" fill="none" stroke="#F2B25C" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 30h9M1 37h11M5 44h7" fill="none" stroke="#F2B25C" stroke-width="3.6" stroke-linecap="round"/></symbol>
 </defs></svg>
@@ -76,7 +79,9 @@
     <div class="main">
       <header class="mobile-top">
         <span class="brand-mini"><svg class="logo" aria-hidden="true"><use href="#logo"/></svg><span class="brand-name" data-shop>DZ Smart Shop</span></span>
+        <span class="mobile-title" data-page-title></span>
         <span class="mobile-user" data-user-name data-act="my-account"></span>
+        <button type="button" class="mobile-ava" data-user-initial data-act="my-account" aria-label="Mon compte"></button>
       </header>
       <div id="health-banner" class="health-banner" role="status" hidden></div>
       <main id="view" class="content" tabindex="-1">

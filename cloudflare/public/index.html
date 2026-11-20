@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>DZ Smart Shop · Commandes COD</title><style>/* Version Cloudflare. Étape 1 (essai) : pages pas encore disponibles masquées. Étape 2 : Bénéfices,
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>DZ Smart Shop · Commandes COD</title><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#10241B"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black"><meta name="apple-mobile-web-app-title" content="DZ Smart Shop"><link rel="apple-touch-icon" href="/icons/apple-touch-icon.png"><link rel="icon" type="image/png" href="/icons/icon-192.png"><style>/* Version Cloudflare. Étape 1 (essai) : pages pas encore disponibles masquées. Étape 2 : Bénéfices,
    Stock, Statistiques, Administration s'ouvrent dans l'application Google (flèche). Écran de connexion. */
 .cf-step2 [data-route="benefices"] span:not(.badge):not(.nav-ic)::after, .cf-step2 [data-route="stock"] span:not(.badge):not(.nav-ic)::after,
 .cf-step2 [data-route="stats"] span:not(.badge):not(.nav-ic)::after, .cf-step2 [data-route="admin"] span:not(.badge):not(.nav-ic)::after { content: " ↗"; opacity: .6; }
@@ -792,6 +792,86 @@ button.st-card { cursor: pointer; }
 .tm-acts { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .tm-acts .btn { min-height: 34px; padding: 0 10px; }
 .wa-btn { background: #1F8F4E; color: #fff; border-color: #1F8F4E; }
+.app-banner { background: #E4F2EA; color: #0B4D36; }
+.app-banner .ab-ic { font-size: 20px; flex: none; }
+.app-banner .icon-btn { min-height: 36px; width: 36px; flex: none; }
+.push-list { display: grid; margin-top: 8px; }
+.push-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); cursor: pointer; }
+.push-row > span { display: grid; gap: 2px; }
+.push-row .small { color: var(--muted); font-weight: 400; }
+input.switch { appearance: none; -webkit-appearance: none; flex: none; width: 48px; height: 28px; border-radius: 999px; background: #C9CED6; position: relative; cursor: pointer; transition: background .15s; margin: 0; }
+input.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: left .15s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+input.switch:checked { background: #0B6B4C; }
+input.switch:checked::after { left: 23px; }
+input.switch:disabled { opacity: .5; cursor: default; }
+.mobile-title, .mobile-ava, .filters-chip, .fab { display: none; }
+.ord-search { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; padding: 0 12px; min-height: 46px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--surface); }
+.ord-search:focus-within { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(11,107,76,.12); }
+.ord-search .ic { color: var(--muted); flex: none; }
+.ord-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: inherit; min-height: 44px; padding: 0; }
+.chip-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; margin-left: 6px; border-radius: 999px; background: var(--brand); color: #fff; font-size: 11px; font-weight: 700; }
+.m-sum .l3 { display: none; }
+.of-head { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; gap: 8px; }
+.of-head h2 { font: 700 18px var(--font-title); text-align: center; margin: 0; }
+.of-head .icon-btn .ic { width: 20px; height: 20px; }
+.of-pills { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.of-meta { margin-top: -8px; }
+.of-more { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: #F7F8FA; }
+.of-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 8px; }
+.of-card h3 { font: 700 13px var(--font); text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0; }
+.of-card .brief { margin: 0; }
+.of-card .timeline { margin: 0; }
+.of-client { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.of-client > div { display: grid; gap: 2px; min-width: 0; }
+.of-client b { font-size: 17px; }
+.of-phone { font: 600 16px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--brand); text-decoration: none; }
+.of-copy { min-height: 36px; padding: 0 12px; flex: none; }
+.of-warn { color: #9A4A06; font-weight: 600; }
+.of-prod { display: flex; align-items: center; gap: 12px; }
+.of-prod > div { display: grid; gap: 2px; min-width: 0; }
+.of-noimg { width: 44px; height: 44px; border-radius: 9px; flex: none; display: inline-flex; align-items: center; justify-content: center; background: #E3F2EC; color: var(--brand); font: 700 18px var(--font-title); }
+.of-block { display: grid; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); }
+.of-block:first-child { border-top: 0; padding-top: 0; }
+.of-block h3 { font: 700 13px var(--font); text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0; }
+.of-total { margin: 4px 0 8px; }
+.of-bar { position: sticky; bottom: 0; z-index: 5; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; margin: 0 -20px -20px;
+padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); background: var(--surface); box-shadow: 0 -6px 18px rgba(16,36,28,.10); }
+.of-bar .btn { min-height: 50px; justify-content: center; text-decoration: none; padding: 0 8px; }
+.modal.sheet .chips { flex-wrap: wrap; }
+@media (max-width: 860px) {
+.mobile-top { padding: 10px 14px; }
+.has-title .mobile-top .brand-name { display: none; }
+.mobile-title { display: block; flex: 1; min-width: 0; color: #FFFFFF; font: 700 17px var(--font-title); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand-mini .logo { width: 26px; height: 26px; }
+.cf-step3 .mobile-user { display: none; }
+.cf-step3 .mobile-ava { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 36px; height: 36px; border-radius: 50%; border: 0; padding: 0;
+background: var(--accent); color: var(--ink); font: 700 15px var(--font); cursor: pointer; }
+.orders-page .page-head { display: none; }
+.orders-page .ord-filters { display: none; }
+.orders-page .chips-line { display: flex; gap: 6px; overflow-x: auto; margin: 0 -14px 10px; padding: 0 14px 2px; scrollbar-width: none; }
+.orders-page .chips-line::-webkit-scrollbar { display: none; }
+.orders-page .chips-line .chips { flex-wrap: nowrap; gap: 6px; }
+.orders-page .chips-line .chip { flex: none; min-height: 36px; padding: 0 12px; font-size: 13.5px; white-space: nowrap; }
+.orders-page .chips-line .chip-sep { display: none; }
+.orders-page .chips-line > .small { white-space: nowrap; align-self: center; }
+.orders-page .filters-chip { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.orders-page .filters-chip .ic { width: 16px; height: 16px; }
+.orders-page #shop-status { font-size: 12.5px; }
+.orders-page #shop-status .src-line { margin-bottom: 8px; }
+.orders-page .list-tools:not(.sel-on) { display: none; }
+.m-sum .l3 { display: flex; justify-content: space-between; gap: 10px; margin-top: 4px; color: var(--ink-2); font-size: 13px; }
+.m-sum .l3 > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-sum .l3 .ago { flex: none; color: var(--muted); font-size: 12px; }
+.fab { display: inline-flex; align-items: center; justify-content: center; position: fixed; right: 16px; bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 36;
+width: 56px; height: 56px; border-radius: 50%; border: 0; background: var(--brand); color: #FFFFFF; box-shadow: 0 8px 22px rgba(11,107,76,.35); cursor: pointer; }
+.fab .ic { width: 26px; height: 26px; }
+body:has(.bulk-bar:not([hidden])) .fab { display: none; }
+.modal-backdrop:has(.modal.sheet) { align-items: flex-end; }
+.modal.sheet { min-height: 0; border-radius: 18px 18px 0 0; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+.modal.sheet .modal-actions { display: grid; grid-template-columns: 1fr 2fr; }
+.modal.sheet .modal-actions .btn { min-height: 48px; justify-content: center; }
+.modal.of-modal { gap: 14px; padding-bottom: 20px; }
+}
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }
 </style>
@@ -833,6 +913,9 @@ button.st-card { cursor: pointer; }
 <symbol id="i-noanswer" viewBox="0 0 24 24"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/> <line x1="22" x2="2" y1="2" y2="22"/></symbol>
 <symbol id="i-send" viewBox="0 0 24 24"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/> <path d="m21.854 2.147-10.94 10.939"/></symbol>
 <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/> <circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-back" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/> <path d="M19 12H5"/></symbol>
+<symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></symbol>
+<symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6h16"/> <path d="M7 12h10"/> <path d="M10 18h4"/></symbol>
 <symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/> <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
 <symbol id="logo" viewBox="0 0 64 64"><path d="M37 9l20 10-20 10-20-10z" fill="#2E9A73"/><path d="M17 19l20 10v26L17 45z" fill="#0B6B4C"/><path d="M57 19L37 29v26l20-10z" fill="#084F38"/><path d="M27 14l20 10v8" fill="none" stroke="#F2B25C" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 30h9M1 37h11M5 44h7" fill="none" stroke="#F2B25C" stroke-width="3.6" stroke-linecap="round"/></symbol>
 </defs></svg>
@@ -864,7 +947,9 @@ button.st-card { cursor: pointer; }
 <div class="main">
 <header class="mobile-top">
 <span class="brand-mini"><svg class="logo" aria-hidden="true"><use href="#logo"/></svg><span class="brand-name" data-shop>DZ Smart Shop</span></span>
+<span class="mobile-title" data-page-title></span>
 <span class="mobile-user" data-user-name data-act="my-account"></span>
+<button type="button" class="mobile-ava" data-user-initial data-act="my-account" aria-label="Mon compte"></button>
 </header>
 <div id="health-banner" class="health-banner" role="status" hidden></div>
 <main id="view" class="content" tabindex="-1">
@@ -893,7 +978,7 @@ button.st-card { cursor: pointer; }
   var STEP_KEY = 'dz-smart-shop:step';
   /** Pages restées dans l'application Google (étape 3) : ouvertes là-bas. */
   var EXTERNAL = ['benefices', 'stock', 'stats', 'admin'];
-  var VERSION = '1.11.0';
+  var VERSION = '1.12.0';
 
   /** Même empreinte que shortHash_ (Api.gs) : clé de la mémoire sur l'appareil, sans l'adresse. */
   function shortHash(text) {
@@ -1123,7 +1208,68 @@ button.st-card { cursor: pointer; }
     root.classList.toggle('cf-step3', step.n >= 3);
   }
   applyStep(null);
-  window.DZ_CLOUD = { applyStep: applyStep, authPost: authPost, setSession: setSession, logout: logout, via: function () { return session && session.v === 2 ? 'password' : 'google'; } };
+  /* ---------------- Application installable et notifications (v1.12) ---------------- */
+
+  var installEvent = null;
+  var swReady = null;
+  if ('serviceWorker' in navigator) {
+    swReady = navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(function () { return navigator.serviceWorker.ready; }).catch(function () { return null; });
+  }
+  // Android (Chrome) : l'installation est proposée par l'application (bandeau « Installer »).
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    installEvent = e;
+    document.dispatchEvent(new CustomEvent('dz-installable'));
+  });
+  window.addEventListener('appinstalled', function () { installEvent = null; document.dispatchEvent(new CustomEvent('dz-installed')); });
+  function standalone() {
+    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+  }
+  function isIos() { return /iphone|ipad|ipod/i.test(navigator.userAgent || '') && !window.MSStream; }
+  function install() {
+    if (!installEvent) return Promise.resolve(false);
+    var ev = installEvent;
+    installEvent = null;
+    ev.prompt();
+    return ev.userChoice.then(function (c) { return c && c.outcome === 'accepted'; }, function () { return false; });
+  }
+  function b64ToBytes(s) {
+    s = String(s).replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    return Uint8Array.from(atob(s), function (c) { return c.charCodeAt(0); });
+  }
+  /** Notifications de ce téléphone : état, activation (autorisation + abonnement), désactivation. */
+  var push = {
+    supported: function () { return !!swReady && 'PushManager' in window && 'Notification' in window; },
+    permission: function () { return 'Notification' in window ? Notification.permission : 'denied'; },
+    subscription: function () {
+      if (!swReady) return Promise.resolve(null);
+      return swReady.then(function (reg) { return reg && reg.pushManager ? reg.pushManager.getSubscription() : null; });
+    },
+    subscribe: function (publicKey) {
+      if (!swReady) return Promise.reject(new Error('Notifications impossibles sur ce navigateur.'));
+      return Notification.requestPermission().then(function (perm) {
+        if (perm !== 'granted') throw new Error(perm === 'denied' ? 'Notifications refusées : autorisez-les dans les réglages du navigateur (cadenas à côté de l’adresse), puis réessayez.' : 'Notifications pas autorisées.');
+        return swReady;
+      }).then(function (reg) {
+        if (!reg) throw new Error('Notifications impossibles sur ce navigateur.');
+        return reg.pushManager.getSubscription().then(function (old) {
+          return old || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
+        });
+      });
+    },
+    unsubscribe: function () {
+      return push.subscription().then(function (sub) { return sub ? sub.unsubscribe().then(function () { return sub; }) : null; });
+    }
+  };
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', function (e) {
+      if (e.data && e.data.dzOpen) document.dispatchEvent(new CustomEvent('dz-open', { detail: e.data.dzOpen }));
+    });
+  }
+
+  window.DZ_CLOUD = { applyStep: applyStep, authPost: authPost, setSession: setSession, logout: logout, via: function () { return session && session.v === 2 ? 'password' : 'google'; },
+    install: install, canInstall: function () { return !!installEvent; }, standalone: standalone, isIos: isIos, push: push };
   function googleLink(route) { return step.google ? step.google + '&page=' + route : ''; }
   // Une page de l'application Google demandée ici (lien, menu « Plus ») : ouverte dans l'application Google.
   // Étape 3 : toutes les pages sont ici.
@@ -1456,6 +1602,9 @@ a.classList.toggle('active', on);
 if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
 });
 closeModal();
+var title = PAGE_TITLES[r] || '';
+$all('[data-page-title]').forEach(function (el) { el.textContent = title; });
+document.documentElement.classList.toggle('has-title', !!title);
 if (cloudMoved(r)) { /* page déplacée */ }
 else if (r === 'tableau') pageDashboard();
 else if (r === 'commandes') pageOrders();
@@ -1467,6 +1616,9 @@ else pageConfirm();
 view.focus({ preventScroll: true });
 window.scrollTo(0, 0);
 }
+var PAGE_TITLES = { tableau: 'Tableau de bord', commandes: 'Commandes', confirmation: 'Confirmation', expeditions: 'Expédier', suivi: 'Suivi',
+benefices: 'Bénéfices', stock: 'Stock', stats: 'Statistiques', admin: 'Administration' };
+function isPhone() { return !!(window.matchMedia && window.matchMedia('(max-width: 860px)').matches); }
 function navigate(route, status) {
 if (status) { S.filter.status = status; S.filter.limit = 100; }
 if (location.hash === '#/' + route) go(); else location.hash = '#/' + route;
@@ -1616,24 +1768,58 @@ function pageOrders() {
 var f = S.filter;
 var periods = [['today', 'Aujourd’hui'], ['7', '7 derniers jours'], ['30', '30 derniers jours'], ['all', 'Tout']];
 view.innerHTML =
-'<div class="page-head"><div><h1>Commandes</h1><p class="sub">Commandes pas encore confirmées. Une commande confirmée passe dans <strong>Expédier</strong>, puis <strong>Suivi</strong>. La recherche trouve toutes les commandes.</p></div>' +
+'<div class="orders-page"><div class="page-head"><div><h1>Commandes</h1><p class="sub">Commandes pas encore confirmées. Une commande confirmée passe dans <strong>Expédier</strong>, puis <strong>Suivi</strong>. La recherche trouve toutes les commandes.</p></div>' +
 '<button type="button" class="btn primary" data-act="new-order">' + icon('plus') + 'Nouvelle commande</button></div>' +
-'<div id="shop-status"></div>' +
-'<div class="chips" id="chips" role="group" aria-label="Filtrer par statut"></div>' +
-'<div class="filters">' +
-field('Rechercher', '<input type="search" id="f-q" value="' + h(f.q) + '" placeholder="Nom, téléphone, n° de commande ou de suivi">', 'wide') +
+'<div class="ord-search">' + icon('search') + '<input type="search" id="f-q" value="' + h(f.q) + '" placeholder="Nom, téléphone, n° de commande ou de suivi" aria-label="Rechercher"></div>' +
+'<div class="chips-line"><button type="button" class="chip filters-chip" data-act="filters-sheet">' + icon('filter') + 'Filtres' + filterBadge() + '</button>' +
+'<div class="chips" id="chips" role="group" aria-label="Filtrer par statut"></div></div>' +
+'<div class="filters ord-filters">' +
 field('Wilaya', '<select id="f-wilaya">' + options(S.boot.wilayas, f.wilaya, 'Toutes les wilayas') + '</select>') +
 field('Période', '<select id="f-period">' + periods.map(function (p) {
 return '<option value="' + p[0] + '"' + (f.period === p[0] ? ' selected' : '') + '>' + p[1] + '</option>';
 }).join('') + '</select>') +
 '</div>' +
-'<div id="orders-list"><p class="loading">Chargement…</p></div>';
+'<div id="shop-status"></div>' +
+'<div id="orders-list"><p class="loading">Chargement…</p></div></div>' +
+'<button type="button" class="fab" data-act="new-order" aria-label="Nouvelle commande">' + icon('plus') + '</button>';
 if (S.list && S.listKey === listKey()) {
 renderChips(S.list.counts);
 renderOrderList(S.list);
 if (S.list.importStatus) renderShopStatus(S.list.importStatus);
 }
 loadOrders(true);
+}
+function filterBadge() {
+var n = (S.filter.wilaya ? 1 : 0) + (S.filter.period && S.filter.period !== '30' ? 1 : 0);
+return n ? '<span class="chip-badge">' + n + '</span>' : '';
+}
+function filtersSheet() {
+var f = S.filter;
+var periods = [['today', 'Aujourd’hui'], ['7', '7 jours'], ['30', '30 jours'], ['all', 'Tout']];
+S.sheetFilter = { wilaya: f.wilaya, period: f.period };
+showModal(modalHead('Filtres') +
+'<div class="form-grid" id="sheet-filters">' + field('Wilaya', '<select name="wilaya">' + options(S.boot.wilayas, f.wilaya, 'Toutes les wilayas') + '</select>', 'full') + '</div>' +
+'<p class="small" style="margin:12px 0 6px;font-weight:600">Période</p><div class="chips">' + periods.map(function (p) {
+return '<button type="button" class="chip" data-act="sheet-period" data-p="' + p[0] + '" aria-pressed="' + (f.period === p[0]) + '">' + p[1] + '</button>';
+}).join('') + '</div>' +
+(S.boot.user.admin ? '<p class="small" style="margin:14px 0 6px;font-weight:600">Autres</p><div class="chips">' +
+'<button type="button" class="chip" data-act="sheet-trash">Corbeille</button>' +
+'<button type="button" class="chip" data-act="sheet-select" aria-pressed="' + !!S.selMode + '">' + icon('check') + 'Sélectionner plusieurs</button></div>' : '') +
+'<div class="modal-actions"><button type="button" class="btn" data-act="sheet-clear">Effacer</button><button type="button" class="btn primary" data-act="sheet-apply">Voir les commandes</button></div>');
+var m = $('#modal-root .modal');
+if (m) m.classList.add('sheet');
+}
+function applySheet(close) {
+var sel = $('#sheet-filters [name="wilaya"]');
+S.filter.wilaya = sel ? sel.value : S.filter.wilaya;
+S.filter.period = S.sheetFilter.period;
+S.filter.limit = 100;
+if (close) closeModal();
+var w = $('#f-wilaya'); if (w) w.value = S.filter.wilaya;
+var pe = $('#f-period'); if (pe) pe.value = S.filter.period;
+var fc = $('.filters-chip');
+if (fc) fc.innerHTML = icon('filter') + 'Filtres' + filterBadge();
+loadOrders();
 }
 function listKey() { return JSON.stringify(listArgs(false)); }
 function statusCard(inner) {
@@ -1756,7 +1942,7 @@ return;
 var head = ['N°', 'Client', 'Wilaya', 'Produit', 'Total', 'Statut', 'Alerte', 'Livraison'];
 var selOn = S.boot.user.admin && S.selMode;
 var ids = res.rows.map(function (o) { return o.id; });
-var html = S.boot.user.admin ? '<div class="list-tools"><button type="button" class="btn" style="min-height:36px" data-act="sel-mode" aria-pressed="' + !!selOn + '">' + icon('check') + (selOn ? 'Terminer la sélection' : 'Sélectionner plusieurs') + '</button>' +
+var html = S.boot.user.admin ? '<div class="list-tools' + (selOn ? ' sel-on' : '') + '"><button type="button" class="btn" style="min-height:36px" data-act="sel-mode" aria-pressed="' + !!selOn + '">' + icon('check') + (selOn ? 'Terminer la sélection' : 'Sélectionner plusieurs') + '</button>' +
 (selOn ? '<label class="small sel-all">' + selAllBox('orders', ids) + ' Tout cocher (' + ids.length + ')</label>' : '') + '</div>' : '';
 html += '<div class="table-wrap"><table class="data cards"><thead><tr>' + (selOn ? '<th scope="col" class="sel">' + selAllBox('orders', ids) + '</th>' : '') + head.map(function (t) {
 return '<th scope="col">' + t + '</th>';
@@ -1769,7 +1955,8 @@ html += '<tr class="clickable compact' + (selOn ? ' selectable' : '') + '" style
 '<span class="l2">' + pill(o.status) + '<span>' + h(wilayaName(o.wilaya)) + '</span><span>· ' + h(o.id) + '</span>' +
 (o.locked ? '<span class="lock-icon">' + icon('lock') + '</span>' : '') +
 (o.alertLevel === 'bad' || o.alertLevel === 'warn' ? alertPill(o.alert, o.alertLevel) : '') +
-(o.status === 'Annulée' && o.cancelReason ? '<span style="color:#A12626">Motif : ' + h(o.cancelReason) + '</span>' : '') + '</span></td>' +
+(o.status === 'Annulée' && o.cancelReason ? '<span style="color:#A12626">Motif : ' + h(o.cancelReason) + '</span>' : '') + '</span>' +
+'<span class="l3"><span>' + h(o.product || '') + (o.qty > 1 ? ' ×' + o.qty : '') + '</span>' + (o.date ? '<span class="ago">' + h(ago(o.date)) + '</span>' : '') + '</span></td>' +
 '<td data-label="N°" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button>' +
 (o.locked ? ' <span class="lock-icon" title="Verrouillée" aria-label="Verrouillée">' + icon('lock') + '</span>' : '') + '<div class="small">' + fmtDate(o.date) + '</div></td>' +
 '<td data-label="Client" class="multi"><span dir="auto">' + h(o.client) + '</span><div class="small">' + h(fmtPhone(o.phone)) + '</div></td>' +
@@ -1885,24 +2072,32 @@ function modalHead(title, extra) {
 return '<div class="modal-head"><div><h2 id="modal-title" style="font:700 20px var(--font-title)">' + title + '</h2>' + (extra || '') + '</div>' +
 '<button type="button" class="icon-btn" data-act="close-modal" aria-label="Fermer">×</button></div>';
 }
-function orderFields(o) {
+function orderFieldMap(o) {
 var b = S.boot;
+return {
+client: field('Client', input('client', o.client)),
+phone: field('Téléphone', input('phone', o.phone, ' inputmode="tel"')),
+wilaya: field('Wilaya', '<select name="wilaya">' + options(b.wilayas, o.wilaya, 'Choisir…') + '</select>'),
+commune: field('Commune', input('commune', o.commune)),
+address: field('Adresse', input('address', o.address), 'full'),
+product: field('Produit', input('product', o.product, ' list="product-list"')),
+qty: field('Quantité', input('qty', o.qty || 1, ' type="number" min="1" step="1"')),
+price: field('Prix des produits (DA)', input('price', o.price || '', ' type="number" min="0" step="10"')),
+mode: field('Livraison', '<select name="mode">' + options(b.modes, o.mode || b.modes[0]) + '</select>'),
+carrier: field('Société', '<select name="carrier">' + options(b.carriers, o.carrier, 'Par défaut (' + b.defaultCarrier + ')') + '</select>'),
+shipping: field('Frais de livraison (DA)', input('shipping', o.shipping === null || o.shipping === undefined ? '' : o.shipping, ' type="number" min="0" step="10" placeholder="Calcul automatique"')),
+tracking: o.id ? field('N° de suivi', input('tracking', o.tracking)) : '',
+notes: field('Notes', '<textarea name="notes">' + h(o.notes) + '</textarea>', 'full')
+};
+}
+function productList() {
+return '<datalist id="product-list">' + S.boot.products.map(function (p) { return '<option value="' + h(p.name) + '">'; }).join('') + '</datalist>';
+}
+function orderFields(o) {
+var f = orderFieldMap(o);
 return '<div class="form-grid">' +
-field('Client', input('client', o.client)) +
-field('Téléphone', input('phone', o.phone, ' inputmode="tel"')) +
-field('Wilaya', '<select name="wilaya">' + options(b.wilayas, o.wilaya, 'Choisir…') + '</select>') +
-field('Commune', input('commune', o.commune)) +
-field('Adresse', input('address', o.address), 'full') +
-field('Produit', input('product', o.product, ' list="product-list"')) +
-field('Quantité', input('qty', o.qty || 1, ' type="number" min="1" step="1"')) +
-field('Prix des produits (DA)', input('price', o.price || '', ' type="number" min="0" step="10"')) +
-field('Livraison', '<select name="mode">' + options(b.modes, o.mode || b.modes[0]) + '</select>') +
-field('Société', '<select name="carrier">' + options(b.carriers, o.carrier, 'Par défaut (' + b.defaultCarrier + ')') + '</select>') +
-field('Frais de livraison (DA)', input('shipping', o.shipping === null || o.shipping === undefined ? '' : o.shipping, ' type="number" min="0" step="10" placeholder="Calcul automatique"')) +
-(o.id ? field('N° de suivi', input('tracking', o.tracking)) : '') +
-field('Notes', '<textarea name="notes">' + h(o.notes) + '</textarea>', 'full') +
-'</div>' +
-'<datalist id="product-list">' + b.products.map(function (p) { return '<option value="' + h(p.name) + '">'; }).join('') + '</datalist>';
+['client', 'phone', 'wilaya', 'commune', 'address', 'product', 'qty', 'price', 'mode', 'carrier', 'shipping', 'tracking', 'notes'].map(function (k) { return f[k]; }).join('') +
+'</div>' + productList();
 }
 S.orderCache = {}; // n° → { data, at } : fiches déjà reçues (10 minutes)
 function listRow(id) {
@@ -1924,6 +2119,7 @@ function orderModalShown(id) { return !!$('#modal-root [data-order-modal="' + St
 function openOrder(id) {
 S.unlockId = null;
 S.orderDirty = false;
+S.orderEdit = null;
 var c = S.orderCache[id];
 var fresh = c && Date.now() - c.at < 10 * 60000;
 if (fresh) renderOrderModal(c.data);
@@ -1942,6 +2138,64 @@ renderOrderModal(data);
 syncEnd();
 if (!fresh && orderModalShown(id)) showModal(modalHead('Commande ' + h(id)) + errorBox(e));
 });
+}
+function orderSummary(data, r) {
+var o = data.order;
+var hist = data.history;
+var wa = waLink(o.phone);
+var calls = String(o.callLog || '').split('|').map(function (x) { return x.trim(); }).filter(Boolean).map(function (raw) {
+var m = raw.match(/^(\d{2}\/\d{2} \d{2}:\d{2}) (.*)$/);
+return { when: m ? m[1] : '', text: m ? m[2] : raw };
+}).reverse();
+var histText = hist.orders
+? plural(hist.orders, 'autre commande', 'autres commandes') + ' : ' + hist.delivered + ' livrée' + (hist.delivered > 1 ? 's' : '') + ', ' +
+hist.returned + ' retour' + (hist.returned > 1 ? 's' : '') + ', ' + hist.cancelled + ' annulée' + (hist.cancelled > 1 ? 's' : '')
+: 'Première commande avec ce numéro';
+var line = function (lab, val) { return val ? '<div class="brief-line"><span class="lab">' + lab + '</span><span>' + val + '</span></div>' : ''; };
+var photo = productPhoto(data.stock);
+var meta = ['Reçue ' + ago(o.date), o.source, o.attempts ? plural(o.attempts, 'appel', 'appels') : '', o.agent ? 'par ' + o.agent : ''].filter(Boolean).map(h).join(' · ');
+var more = (data.phoneValid ? '<button type="button" class="btn ' + (data.blacklisted ? '' : 'danger') + '" data-act="toggle-blacklist" data-phone="' + h(o.phone) + '" data-on="' + (!data.blacklisted) + '">' +
+(data.blacklisted ? 'Retirer de la liste noire' : 'Mettre en liste noire') + '</button>' : '') +
+(r.canDelete ? '<button type="button" class="btn danger" data-act="order-delete-ask" data-id="' + h(o.id) + '">' + icon('trash') + 'Supprimer</button>' : '');
+showModal(
+'<div class="of-head"><button type="button" class="icon-btn" data-act="close-modal" aria-label="Retour">' + icon('back') + '</button>' +
+'<h2 id="modal-title">Commande ' + h(o.id) + '</h2>' +
+(more ? '<button type="button" class="icon-btn" data-act="of-more" aria-label="Autres actions">⋯</button>' : '<span></span>') + '</div>' +
+'<span hidden data-order-modal="' + h(o.id) + '"></span>' +
+(more ? '<div class="of-more" id="of-more" hidden>' + more + '</div>' : '') +
+'<div class="of-pills">' + pill(o.status) + alertPill(o.alert, o.alertLevel) + (o.status === 'Annulée' && o.cancelReason ? '<span class="small">Motif : ' + h(o.cancelReason) + '</span>' : '') + '</div>' +
+'<p class="small of-meta">' + meta + '</p>' +
+'<section class="of-card"><div class="of-client"><div><b dir="auto">' + h(o.client || '—') + '</b>' +
+'<a class="of-phone" href="tel:' + h(o.phone) + '" target="_top">' + h(fmtPhone(o.phone)) + '</a></div>' +
+(o.phone ? '<button type="button" class="btn of-copy" data-act="copy-text" data-text="' + h(o.phone) + '">Copier</button>' : '') + '</div>' +
+'<p class="small' + (hist.returned || hist.cancelled ? ' of-warn' : '') + '">' + h(histText) + '</p></section>' +
+(o.tracking ?
+'<div class="history" style="background:#F4F5F7;margin-bottom:0"><span class="strong">Colis Ecotrack</span><span class="mono">' + h(o.tracking) + '</span>' +
+'<span>' + (o.carrierLabel ? h(o.carrierLabel) : 'statut pas encore lu') + (o.carrierMoved ? ' · mouvement ' + h(ago(o.carrierMoved)) : '') + '</span>' +
+'<button type="button" class="btn" style="min-height:36px;margin-left:auto" data-act="track-history" data-id="' + h(o.id) + '">Voir la chronologie</button></div>' +
+'<div id="parcel-history"></div>' : '') +
+'<section class="of-card"><h3>Livraison</h3><div class="brief">' +
+line('Wilaya', h(wilayaName(o.wilaya) || '—') + (o.commune ? ' · ' + h(o.commune) : '')) +
+line('Adresse', o.address ? '<span dir="auto">' + h(o.address) + '</span>' : '') +
+line('Mode', h(o.mode || '—') + ' · ' + h(o.carrier || S.boot.defaultCarrier || '')) +
+line('Frais', o.shipping === null || o.shipping === undefined || o.shipping === '' ? 'calcul automatique' : money(o.shipping)) +
+'</div></section>' +
+'<section class="of-card"><h3>Produit</h3><div class="of-prod">' + (photo || '<span class="of-noimg">' + h(String(o.product || '?').charAt(0).toUpperCase()) + '</span>') +
+'<div><b dir="auto">' + h(o.product || '—') + '</b><span class="small">Quantité ' + h(o.qty || 1) + (o.price ? ' · ' + money(o.price) : '') + '</span></div></div>' +
+stockNote(data.stock) + '</section>' +
+'<div class="brief-total of-total"><span>Total à encaisser</span><b>' + money(o.total) + '</b></div>' +
+(o.notes ? '<section class="of-card"><h3>Notes</h3><p dir="auto" style="white-space:pre-wrap">' + h(o.notes) + '</p></section>' : '') +
+'<section class="of-card"><h3>Historique</h3>' + (calls.length
+? '<ul class="timeline">' + calls.map(function (c) { return '<li><span class="t-date">' + h(c.when) + '</span><span class="t-body">' + h(c.text) + '</span></li>'; }).join('') + '</ul>'
+: '<p class="small">Aucun appel pour le moment.</p>') + '</section>' +
+lockBox(o, r, false) +
+'<div class="of-bar">' +
+(o.phone ? '<a class="btn" href="tel:' + h(o.phone) + '" target="_top">' + icon('phone') + 'Appeler</a>' : '') +
+(wa ? '<a class="btn wa-btn" href="' + h(wa) + '" target="_blank" rel="noopener">' + icon('whatsapp') + 'WhatsApp</a>' : '') +
+'<button type="button" class="btn primary" data-act="order-edit" data-id="' + h(o.id) + '">' + icon('edit') + (r.locked ? 'Statut, notes' : 'Modifier') + '</button>' +
+'</div>'
+);
+$('#modal-root .modal').classList.add('of-modal');
 }
 function lockBox(o, r, unlocked) {
 if (unlocked) {
@@ -1975,7 +2229,32 @@ var meta = '<p class="small" style="margin-top:4px">Reçue le ' + fmtDate(o.date
 var histText = hist.orders
 ? 'Autres commandes de ce numéro : ' + hist.orders + ' (' + hist.delivered + ' livrées, ' + hist.returned + ' retours, ' + hist.cancelled + ' annulées)'
 : 'Première commande avec ce numéro.';
+var statusFields = field('Statut', '<select name="status" data-role="status"' + (statuses.length < 2 ? ' disabled' : '') + '>' + options(statuses, o.status) + '</select>') +
+field('Motif d’annulation', '<select name="cancelReason">' + options(b.cancelReasons, o.cancelReason, 'Choisir…') + '</select>');
+if (isPhone() && S.orderEdit !== o.id && !unlocked) { orderSummary(data, r); return; }
+if (isPhone()) {
+var f = orderFieldMap(o);
+var block = function (title, keys) {
+return '<section class="of-block"><h3>' + title + '</h3><div class="form-grid">' + keys.map(function (k) { return f[k] || k; }).join('') + '</div></section>';
+};
 showModal(
+'<div class="of-head"><button type="button" class="icon-btn" data-act="order-edit-cancel" aria-label="Retour">' + icon('back') + '</button>' +
+'<h2 id="modal-title">Modifier ' + h(o.id) + '</h2><span></span></div>' +
+lockBox(o, r, unlocked) +
+'<span hidden data-order-modal="' + h(o.id) + '"></span>' +
+'<div id="order-form" data-phone="1" data-id="' + h(o.id) + '" data-locked="' + (locked ? '1' : '') + '" data-force="' + (unlocked ? '1' : '') + '">' +
+block('Statut', [statusFields]) +
+block('Client', ['client', 'phone']) +
+block('Livraison', ['wilaya', 'commune', 'address', 'mode', 'carrier', 'shipping', 'tracking']) +
+block('Produit et prix', ['product', 'qty', 'price']) +
+'<div class="brief-total of-total"><span>Total à encaisser</span><b id="of-total">' + money(o.total) + '</b></div>' +
+block('Notes', ['notes']) +
+'</div>' + productList() +
+'<div class="of-bar"><button type="button" class="btn" data-act="order-edit-cancel">Annuler</button>' +
+'<button type="button" class="btn primary" data-act="save-order" data-id="' + h(o.id) + '">' + (locked ? 'Enregistrer les notes' : 'Enregistrer') + '</button></div>'
+);
+$('#modal-root .modal').classList.add('of-modal');
+} else showModal(
 modalHead('Commande ' + h(o.id), meta) +
 '<p class="small">' + h(histText) + '</p>' +
 (o.tracking ?
@@ -1988,8 +2267,7 @@ lockBox(o, r, unlocked) +
 '<span hidden data-order-modal="' + h(o.id) + '"></span>' +
 '<div id="order-form" data-id="' + h(o.id) + '" data-locked="' + (locked ? '1' : '') + '" data-force="' + (unlocked ? '1' : '') + '">' +
 '<div class="form-grid">' +
-field('Statut', '<select name="status" data-role="status"' + (statuses.length < 2 ? ' disabled' : '') + '>' + options(statuses, o.status) + '</select>') +
-field('Motif d’annulation', '<select name="cancelReason">' + options(b.cancelReasons, o.cancelReason, 'Choisir…') + '</select>') +
+statusFields +
 '</div>' +
 '<div style="height:12px"></div>' +
 orderFields(o) +
@@ -3574,6 +3852,23 @@ navigate(el.getAttribute('data-route'), el.getAttribute('data-status'));
 },
 'more-menu': showMoreMenu,
 'my-account': myAccount,
+'app-install': function () { window.DZ_CLOUD.install().then(function (ok) { var el = $('#install-banner'); if (el && ok) el.remove(); }); },
+'banner-close': function (el) { var k = el.getAttribute('data-key'); dismiss(k); var b = $('#' + k + '-banner'); if (b) b.remove(); },
+'push-on': function (el) {
+pushOn(el).then(function () { if ($('.push-list')) pushSettings(); }).catch(function () {});
+},
+'push-settings': pushSettings,
+'push-test': function (el) {
+el.disabled = true;
+call('api_pushTest', S.pushSub.endpoint).then(function (r) { el.disabled = false; toast(r.message); }).catch(function (e) { el.disabled = false; toast(errText(e), true); });
+},
+'push-off': function (el) {
+el.disabled = true;
+var endpoint = S.pushSub ? S.pushSub.endpoint : '';
+window.DZ_CLOUD.push.unsubscribe().then(function () { return call('api_pushOff', endpoint); })
+.then(function (r) { toast(r.message); S.pushSub = null; S.pushInfo.subscribed = false; renderPushSettings(); })
+.catch(function (e) { el.disabled = false; toast(errText(e), true); });
+},
 'backup-go': function () { S.adminTab = 'classeur'; navigate('admin'); },
 'mine-save': saveMine,
 'mine-rescue': function (el) {
@@ -3616,6 +3911,18 @@ refreshCount();
 'trash-purge': purgeTrash,
 'trash-restore-sel': restoreTrashSel,
 'new-order': openNewOrder,
+'order-edit': function () { if (!S.order) return; S.orderEdit = S.order.order.id; renderOrderModal(S.order); var bd = $('#modal-root .modal-backdrop'); if (bd) bd.scrollTop = 0; },
+'order-edit-cancel': function () { if (!S.order) return; S.orderEdit = null; S.unlockId = null; S.orderDirty = false; renderOrderModal(S.order); },
+'of-more': function () { var m = $('#of-more'); if (m) m.hidden = !m.hidden; },
+'filters-sheet': filtersSheet,
+'sheet-period': function (el) {
+S.sheetFilter.period = el.getAttribute('data-p');
+$all('[data-act="sheet-period"]').forEach(function (b) { b.setAttribute('aria-pressed', b === el ? 'true' : 'false'); });
+},
+'sheet-apply': function () { applySheet(true); },
+'sheet-clear': function () { var sel = $('#sheet-filters [name="wilaya"]'); if (sel) sel.value = ''; S.sheetFilter.period = '30'; applySheet(true); },
+'sheet-trash': function () { closeModal(); S.filter.status = 'trash'; S.filter.limit = 100; loadOrders(); },
+'sheet-select': function () { closeModal(); S.selMode = !S.selMode; if (S.list) renderOrderList(S.list); },
 'releasit-transfer': function () {
 toast('Lecture de l’onglet RELEASIT…');
 call('api_releasitTransfer').then(function (r) {
@@ -3769,6 +4076,14 @@ if (e.target.name === 'price' || e.target.name === 'shipping') e.target.setAttri
 updateSummary();
 } else if (e.target.closest('#order-form')) {
 S.orderDirty = true;
+var tot = $('#of-total');
+if (tot && /^(price|shipping)$/.test(e.target.name)) {
+var form = $('#order-form');
+var price = Number(($('[name="price"]', form) || {}).value) || 0;
+var ship = ($('[name="shipping"]', form) || {}).value;
+var known = S.order && S.order.order ? Number(S.order.order.shipping) || 0 : 0;
+tot.textContent = money(price + (ship === '' ? known : Number(ship) || 0));
+}
 }
 });
 document.addEventListener('change', function (e) {
@@ -3872,6 +4187,7 @@ function applyBoot(b) {
 applyCounts(b.counts);
 $all('[data-shop]').forEach(function (el) { el.textContent = b.shop; });
 $all('[data-user-name]').forEach(function (el) { el.textContent = b.user.name; });
+$all('[data-user-initial]').forEach(function (el) { el.textContent = String(b.user.name || '?').trim().charAt(0).toUpperCase(); });
 $all('[data-user-mail]').forEach(function (el) { el.textContent = /^tel:/.test(b.user.email) ? phoneText(b.user.email.slice(4)) : b.user.email; });
 $all('[data-admin]').forEach(function (el) { el.hidden = !b.user.admin; });
 $all('[data-stockrole]').forEach(function (el) { el.hidden = !b.user.stock; });
@@ -3931,6 +4247,8 @@ pw('again', 'Encore une fois', 'new-password') + '</div>' +
 '<div class="quick" style="margin-top:12px"><button type="button" class="btn primary" data-act="mine-save">' + (a.hasPassword ? 'Changer mon mot de passe' : 'Créer mon mot de passe') + '</button></div>' +
 (u.admin && a.hasPassword ? '<p class="small" style="margin-top:14px"><strong>Code de secours</strong> : il permet de choisir un nouveau mot de passe si vous oubliez le vôtre. ' +
 '<button type="button" class="link-btn" data-act="mine-rescue">Créer un nouveau code de secours</button></p>' : '') +
+(window.DZ_CLOUD.push && window.DZ_CLOUD.push.supported() ? '<p class="small" style="margin-top:14px"><strong>Notifications</strong> sur ce téléphone : nouvelles commandes, rappels… ' +
+'<button type="button" class="link-btn" data-act="push-settings">Régler</button></p>' : '') +
 '<div class="modal-actions">' + (google ? '' : '<button type="button" class="btn" data-act="mine-revoke">Déconnecter mes autres appareils</button>') +
 '<button type="button" class="btn danger" data-act="mine-logout">Se déconnecter</button></div>');
 }
@@ -3971,6 +4289,119 @@ return true;
 function started() {
 setTimeout(preloadPages, 1500);
 setInterval(tick, 30000);
+openFromLink(location.href);
+showInstallBanner();
+showPushBanner();
+}
+function openFromLink(url) {
+var u;
+try { u = new URL(url, location.href); } catch (e) { return; }
+var o = u.searchParams.get('o');
+if (u.hash && u.hash !== location.hash) location.hash = u.hash;
+if (o) {
+if (u.search && location.search) history.replaceState(null, '', location.pathname + location.hash);
+setTimeout(function () { openOrder(o); }, 400);
+}
+}
+document.addEventListener('dz-open', function (e) { openFromLink(e.detail); });
+function bannerSlot(id, cls) {
+var el = $('#' + id);
+if (!el) {
+el = document.createElement('div');
+el.id = id;
+el.className = cls || 'auth-banner';
+var hb = $('#health-banner');
+if (hb && hb.parentNode) hb.parentNode.insertBefore(el, hb.nextSibling);
+}
+return el;
+}
+function dismissed(key, days) {
+try { var t = Number(localStorage.getItem('dz-dismiss:' + key)) || 0; return Date.now() - t < days * 86400000; } catch (e) { return false; }
+}
+function dismiss(key) { try { localStorage.setItem('dz-dismiss:' + key, String(Date.now())); } catch (e) { /* rien */ } }
+function showInstallBanner() {
+var c = window.DZ_CLOUD;
+var el = $('#install-banner');
+var phone = window.matchMedia && window.matchMedia('(max-width: 860px)').matches;
+var show = c && c.install && !c.standalone() && phone && !dismissed('install', 7) && (c.canInstall() || c.isIos());
+if (!show) { if (el) el.remove(); return; }
+el = bannerSlot('install-banner', 'auth-banner app-banner');
+el.innerHTML = '<span class="ab-ic">📲</span><span><strong>Installer l’application</strong> : icône sur l’écran d’accueil, plein écran, notifications.' +
+(c.canInstall() ? '' : ' Sur iPhone : bouton <strong>Partager</strong> ⬆ puis <strong>Sur l’écran d’accueil</strong>.') + '</span>' +
+(c.canInstall() ? '<button type="button" class="btn primary" data-act="app-install">Installer</button>' : '') +
+'<button type="button" class="icon-btn" data-act="banner-close" data-key="install" aria-label="Plus tard">×</button>';
+}
+document.addEventListener('dz-installable', showInstallBanner);
+document.addEventListener('dz-installed', function () { var el = $('#install-banner'); if (el) el.remove(); toast('Application installée : ouvrez-la depuis l’écran d’accueil.'); });
+function showPushBanner() {
+var c = window.DZ_CLOUD;
+var el = $('#push-banner');
+if (!c || !c.push || !c.push.supported() || !S.boot.cloud || S.boot.cloud.step < 3 || c.push.permission() === 'denied' || dismissed('push', 14)) { if (el) el.remove(); return; }
+c.push.subscription().then(function (sub) {
+if (sub) {
+call('api_pushSubscribe', sub.toJSON(), null, deviceName()).catch(function () {});
+if (el) el.remove();
+return;
+}
+el = bannerSlot('push-banner', 'auth-banner app-banner');
+el.innerHTML = '<span class="ab-ic">🔔</span><span><strong>Nouvelles commandes sur ce téléphone</strong>, même application fermée.</span>' +
+'<button type="button" class="btn primary" data-act="push-on">Activer</button>' +
+'<button type="button" class="icon-btn" data-act="banner-close" data-key="push" aria-label="Plus tard">×</button>';
+});
+}
+function deviceName() {
+var ua = navigator.userAgent || '';
+return (/android/i.test(ua) ? 'Android' : /iphone|ipad/i.test(ua) ? 'iPhone' : /windows/i.test(ua) ? 'Windows' : /mac os/i.test(ua) ? 'Mac' : 'Appareil') +
+(/samsungbrowser/i.test(ua) ? ' · Samsung Internet' : /edg\//i.test(ua) ? ' · Edge' : /firefox/i.test(ua) ? ' · Firefox' : /chrome|crios/i.test(ua) ? ' · Chrome' : /safari/i.test(ua) ? ' · Safari' : '');
+}
+function pushSettings() {
+var c = window.DZ_CLOUD;
+if (!c || !c.push || !c.push.supported()) { toast('Notifications impossibles sur ce navigateur. Sur iPhone : installez d’abord l’application (Partager › Sur l’écran d’accueil).', true); return; }
+showModal(modalHead('Notifications') + '<p class="loading">Chargement…</p>');
+c.push.subscription().then(function (sub) {
+return call('api_pushInfo', sub ? sub.endpoint : '').then(function (info) { S.pushSub = sub; S.pushInfo = info; renderPushSettings(); });
+}).catch(function (e) { toast(errText(e), true); closeModal(); });
+}
+function renderPushSettings() {
+var info = S.pushInfo || {};
+var on = !!(S.pushSub && info.subscribed);
+var p = info.prefs || {};
+var denied = window.DZ_CLOUD.push.permission() === 'denied';
+var sw = function (key, label, sub) {
+return '<label class="push-row"><span><strong>' + h(label) + '</strong><span class="small">' + h(sub) + '</span></span>' +
+'<input type="checkbox" class="switch" data-push-pref="' + key + '"' + (p[key] ? ' checked' : '') + (on ? '' : ' disabled') + '></label>';
+};
+showModal(modalHead('Notifications') +
+(on ? '<p class="small" style="color:#146C2E;font-weight:600">' + icon('ok') + 'Activées sur ce téléphone' + (info.device ? ' (' + h(info.device) + ')' : '') + '</p>'
+: denied ? '<p class="small" style="color:#A12626">Notifications bloquées par le navigateur : touchez le cadenas à côté de l’adresse › Notifications › Autoriser, puis rouvrez cette fenêtre.</p>'
+: '<p class="small">Pas encore activées sur ce téléphone.</p>') +
+'<div class="push-list">' +
+sw('orders', 'Nouvelles commandes', 'Dès qu’une commande arrive (Releasit, Shopify)') +
+sw('callbacks', 'Rappels à l’heure', 'Une commande « à rappeler » arrive à son heure') +
+(info.admin ? sw('tracking', 'Colis à traiter', 'Refus, retour, colis bloqué') + sw('problems', 'Problèmes de l’outil', 'Relais RELEASIT muet, Ecotrack en panne…') : '') +
+sw('quiet', 'Silence la nuit', 'Pas de notification de 22 h à 8 h') + '</div>' +
+'<div class="modal-actions">' + (on ? '<button type="button" class="btn" data-act="push-test">Envoyer un essai</button><button type="button" class="btn" data-act="push-off">Désactiver</button>'
+: '<button type="button" class="btn primary" data-act="push-on"' + (denied ? ' disabled' : '') + '>Activer sur ce téléphone</button>') + '</div>');
+}
+document.addEventListener('change', function (e) {
+var key = e.target && e.target.getAttribute && e.target.getAttribute('data-push-pref');
+if (!key || !S.pushSub || !S.pushInfo) return;
+S.pushInfo.prefs[key] = e.target.checked;
+call('api_pushPrefs', S.pushSub.endpoint, S.pushInfo.prefs).then(function (r) { S.pushInfo.prefs = r.prefs; toast(r.message); })
+.catch(function (err) { toast(errText(err), true); });
+});
+function pushOn(el) {
+var c = window.DZ_CLOUD;
+if (el) el.disabled = true;
+return call('api_pushInfo').then(function (info) {
+return c.push.subscribe(info.publicKey).then(function (sub) { return call('api_pushSubscribe', sub.toJSON(), null, deviceName()); });
+}).then(function (r) {
+if (el) el.disabled = false;
+var b = $('#push-banner');
+if (b) b.remove();
+toast(r.message);
+return r;
+}).catch(function (e) { if (el) el.disabled = false; toast(errText(e), true); throw e; });
 }
 function bootFailed(e) {
 view.innerHTML = errorBox(e) +

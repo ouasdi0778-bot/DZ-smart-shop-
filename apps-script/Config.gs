@@ -7,7 +7,7 @@
  */
 
 var APP_NAME = 'DZ Smart Shop';
-var APP_VERSION = '1.11.0';
+var APP_VERSION = '1.12.0';
 
 /** Noms des onglets du classeur. */
 var SHEET = {
