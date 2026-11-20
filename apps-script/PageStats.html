@@ -17,6 +17,7 @@
   var plural = DZ.plural;
   var fmtDate = DZ.fmtDate;
   var icon = DZ.icon;
+  var help = DZ.help;
 
   var ST = S.stats || (S.stats = { period: '30', from: '', to: '', tab: 'overview', data: null });
   var TABS = [['overview', 'Vue d’ensemble'], ['orders', 'Commandes'], ['money', 'Argent'], ['wilayas', 'Wilayas'], ['products', 'Produits'], ['team', 'Équipe'], ['ads', 'Publicité']];
@@ -110,7 +111,7 @@
       ['Prêts à être versés', b.ready, 'paiement prêt chez Ecotrack'],
       ['Payés (' + m.paidDays + ' j)', b.paid, 'argent reçu depuis le début de la période']
     ];
-    var html = '<section class="card"><h2>Où est l’argent</h2><p class="small">Montants à encaisser des colis Ecotrack, avant déduction des frais d’Ecotrack.</p><div class="grid-kpi">' +
+    var html = '<section class="card"><h2>Où est l’argent' + help('Montants à encaisser des colis Ecotrack, avant déduction des frais d’Ecotrack.') + '</h2><div class="grid-kpi">' +
       steps.map(function (s) { return kpi(s[0], money(s[1].amount), plural(s[1].count, 'colis', 'colis') + ' · ' + s[2]); }).join('') + '</div></section>';
     html += '<section class="card"><h2>Versements d’Ecotrack</h2>';
     if (!m.payments || !m.payments.length) {
@@ -361,9 +362,9 @@
       return '<button type="button" class="st-tile' + (w && w.name === sel ? ' on' : '') + (w ? '' : ' none') + '" style="--x:' + p[0] + ';--y:' + p[1] + ';background:' + color + '" title="' + h(title) + '"' +
         (w ? ' data-act="stats-filter" data-kind="w" data-value="' + h(w.name) + '"' : ' disabled') + ' aria-label="' + h(title) + '">' + ('0' + code).slice(-2) + '</button>';
     }).join('');
-    return '<section class="card"><h2 style="margin-bottom:10px">Carte : taux de livraison par wilaya</h2><div class="st-map-wrap"><div class="st-map">' + tiles + '</div></div>' +
+    return '<section class="card"><h2 style="margin-bottom:10px">Carte : taux de livraison par wilaya' + help('Touchez une wilaya pour filtrer toute la page.') + '</h2><div class="st-map-wrap"><div class="st-map">' + tiles + '</div></div>' +
       '<div class="st-legend"><span><i style="background:#2E9E6A"></i>75 % et plus livrées</span><span><i style="background:#E8A33C"></i>60 à 74 %</span><span><i style="background:#D9534F"></i>moins de 60 %</span><span><i style="background:#C9CED6"></i>pas encore de colis terminé</span><span><i style="background:#E5E7EB"></i>pas de commande</span></div>' +
-      '<p class="small" style="margin-top:6px">Touchez une wilaya pour filtrer toute la page.</p></section>';
+      '</section>';
   }
 
   /** Conseil bureau / domicile : la wilaya où l'écart est le plus grand. */
@@ -405,7 +406,7 @@
     });
     html += '</div>';
     return '<section class="card"><h2 style="margin-bottom:10px">Quand arrivent les commandes (heure × jour)</h2><div class="st-heat-wrap">' + html + '</div>' +
-      '<p class="small" style="margin-top:8px">Plus la case est foncée, plus il y a de commandes.' + (peak && peak.v ? ' Le plus : <b>' + h(peak.day) + ' ' + peak.hr + ' h – ' + (peak.hr + 1) + ' h</b>.' : '') + '</p></section>';
+      (peak && peak.v ? '<p class="small" style="margin-top:8px">Le plus : <b>' + h(peak.day) + ' ' + peak.hr + ' h – ' + (peak.hr + 1) + ' h</b>' + help('Plus la case est foncée, plus il y a de commandes.') + '</p>' : '') + '</section>';
   }
 
   var SLOTS = [[0, 8, 'nuit (0 h – 8 h)'], [8, 10, '8 h – 10 h'], [10, 12, '10 h – 12 h'], [12, 14, '12 h – 14 h'], [14, 16, '14 h – 16 h'], [16, 18, '16 h – 18 h'], [18, 20, '18 h – 20 h'], [20, 22, '20 h – 22 h'], [22, 24, '22 h – 24 h']];
@@ -419,7 +420,7 @@
     }).filter(function (r) { return r.calls; });
     if (!rows.length) return '<section class="card"><h2>Meilleure heure pour appeler</h2><p class="empty">Pas encore d’appel noté sur la période (historique des appels).</p></section>';
     var best = rows.filter(function (r) { return r.calls >= 10; }).sort(function (a, b) { return b.rate - a.rate; })[0];
-    return '<section class="card"><h2>Meilleure heure pour appeler</h2><p class="small" style="margin:4px 0 10px">Clients qui répondent, selon l’heure de l’appel</p><div class="st-bars">' + rows.map(function (r) {
+    return '<section class="card"><h2>Meilleure heure pour appeler' + help('Clients qui répondent, selon l’heure de l’appel.') + '</h2><div class="st-bars">' + rows.map(function (r) {
       return '<div class="st-brow"><span>' + h(r.label) + '</span><span class="b"><i style="width:' + Math.max((r.rate || 0) * 100, 2).toFixed(1) + '%;background:' + rateColor(r.rate, 0.65, 0.5) + '"></i></span>' +
         '<span class="v">' + rate(r.rate) + '<small>' + plural(r.calls, 'appel', 'appels') + '</small></span></div>';
     }).join('') + '</div>' + (best ? '<div class="st-note">💡 Appelez de préférence entre <b>' + h(best.label) + '</b> : ' + rate(best.rate) + ' répondent.</div>' : '') + '</section>';
@@ -428,7 +429,7 @@
   function speedCard(d) {
     var sp = d.speed || { buckets: [] };
     var any = sp.buckets.some(function (b) { return b.finished; });
-    return '<section class="card"><h2>La vitesse compte</h2><p class="small" style="margin:4px 0 10px">Colis livrés, selon le délai entre la commande et la confirmation</p>' +
+    return '<section class="card"><h2>La vitesse compte' + help('Colis livrés, selon le délai entre la commande et la confirmation.') + '</h2>' +
       (any ? '<div class="st-bars">' + sp.buckets.map(function (b) {
         return '<div class="st-brow"><span>' + h(b.label) + '</span><span class="b"><i style="width:' + Math.max((b.rate || 0) * 100, 2).toFixed(1) + '%;background:' + rateColor(b.rate) + '"></i></span>' +
           '<span class="v">' + rate(b.rate) + '<small>' + plural(b.finished, 'colis', 'colis') + '</small></span></div>';
@@ -472,7 +473,7 @@
         kpi('À recevoir', money(m.toReceive), 'colis livrés, argent pas encore versé') +
         kpi('Chez le livreur', money(m.enRoute), 'colis en route') +
         kpi('Argent prévu', m.expected === null ? '—' : money(m.expected), 'en route × votre taux de livraison (' + rate(m.deliveryRate) + ')') +
-        '</div>' + (d.filter ? '<p class="small" style="margin-top:8px">Avec le filtre : seulement les commandes de la période.</p>' : '') + '</section>';
+        '</div></section>';
       html += whereMoney(m);
       html += '<section class="card"><h2>La période</h2><div class="grid-kpi">' +
         kpi('Encaissé', money(k.revenue), '', delta(k.revenue, p.revenue)) +
@@ -485,8 +486,8 @@
         kpi('Perdu à cause des retours', money(k.lostToReturns), plural(k.returned, 'retour', 'retours'), delta(k.lostToReturns, p.lostToReturns, null, false)) +
         kpi('Délai moyen de livraison', dur(k.avgDeliveryHours), 'de la commande à la livraison') +
         '</div>' +
-        '<p class="small" style="margin-top:10px">Encaissé ' + money(k.revenue) + ' = ventes ' + money(k.sales) + ' + livraison payée par les clients. Coûts : livraison nette ' + money(k.deliveryNet) +
-        ', achat ' + money(k.productCost) + ', retours ' + money(k.returnFees) + ', emballage ' + money(k.packaging) + '.</p></section>';
+        '<p class="small" style="margin-top:10px">Détail du calcul' + help('Encaissé ' + money(k.revenue) + ' = ventes ' + money(k.sales) + ' + livraison payée par les clients. Coûts : livraison nette ' + money(k.deliveryNet) +
+        ', achat ' + money(k.productCost) + ', retours ' + money(k.returnFees) + ', emballage ' + money(k.packaging) + '.') + '</p></section>';
       html += '<section class="card"><h2>Par jour</h2>' + barChart(d.series, [
         { key: 'revenue', label: 'Encaissé', color: INK }, { key: 'profit', label: 'Bénéfice', color: GREEN }
       ], { money: true, title: 'Argent par jour' }) + '</section>';
@@ -518,7 +519,7 @@
         }) + modeTip(d) + '</section>';
     },
     products: function (d) {
-      return '<section class="card"><h2>Par produit et modèle</h2><p class="small">Une commande de plusieurs articles est partagée selon les quantités. Touchez un produit pour filtrer toute la page.</p>' +
+      return '<section class="card"><h2>Par produit et modèle' + help('Une commande de plusieurs articles est partagée selon les quantités. Touchez un produit pour filtrer toute la page.') + '</h2>' +
         dataTable('produits', [
           ['Produit', function (r) { return r.name; }],
           ['Commandes', function (r) { return num(r.orders); }, true, function (r) { return r.orders; }],
@@ -539,7 +540,7 @@
       var today = new Date();
       var iso = today.getFullYear() + '-' + ('0' + (today.getMonth() + 1)).slice(-2) + '-' + ('0' + today.getDate()).slice(-2);
       var people = d.agents.filter(function (a) { return a.name !== '(sans confirmatrice)'; });
-      var html = '<section class="card"><h2>Par confirmatrice</h2>' +
+      var html = '<section class="card"><h2>Par confirmatrice' + help('Appels et réponses : historique des appels (noté depuis la version 1.2). La prime compte les commandes de la période qui sont livrées : le total se complète au fil des livraisons.') + '</h2>' +
         dataTable('equipe', [
           ['Confirmatrice', function (r) { return r.name; }],
           ['Commandes', function (r) { return num(r.orders); }, true, function (r) { return r.orders; }],
@@ -557,7 +558,7 @@
             return { color: rateColor(r.deliveryRate), html: '<span class="t"><b>' + h(r.name) + '</b>' + ratePill(r.deliveryRate) + '</span><span class="s">' + num(r.confirmed) + ' confirmées · ' + num(r.calls) + ' appels · réponse ' + rate(r.answerRate) +
               (r.topCancel ? ' · annulations : « ' + h(r.topCancel.name) + ' »' : '') + ' · prime ' + money(r.prime) + '</span>' };
           }
-        }) + '<p class="small" style="margin-top:8px">Appels et réponses : historique des appels (noté depuis la version 1.2). La prime compte les commandes de la période qui sont livrées : le total se complète au fil des livraisons.</p></section>';
+        }) + '</section>';
       // Objectif du jour.
       var goal = d.goal || { perDay: 0, today: {} };
       var names = people.map(function (a) { return a.name; });
@@ -578,7 +579,7 @@
         DZ.field('À partir du', '<input type="date" id="prime-from" value="' + iso + '">') +
         '<button type="button" class="btn primary" data-act="stats-prime">Enregistrer</button></div>' +
         (d.primes.length ? '<p class="small" style="margin-top:10px">Historique : ' + d.primes.map(function (p) { return money(p.amount) + ' depuis le ' + dayText(p.from); }).join(' · ') +
-          '. Les jours d’avant gardent l’ancien montant.</p>' : '<p class="small" style="margin-top:10px">Pas encore de prime.</p>') + '</section>';
+          help('Les jours d’avant gardent l’ancien montant.') + '</p>' : '<p class="small" style="margin-top:10px">Pas encore de prime.</p>') + '</section>';
       return html;
     },
     ads: function (d) {
@@ -610,7 +611,7 @@
       };
       var worst = d.campaigns.filter(function (r) { return r.quality && r.quality.score === 'Faible'; }).sort(function (a, b) { return b.orders - a.orders; })[0];
       return '<section class="card"><h2>Par source</h2>' + dataTable('sources', cols('Source'), d.sources, { filter: 'src', card: card }) + '</section>' +
-        '<section class="card"><h2>Par campagne</h2><p class="small">La dépense vient de l’onglet Dépenses (catégories de publicité, colonne Campagne). Qualité : faux numéros, doublons, liste noire et refus au livreur (à partir de 10 commandes).</p>' +
+        '<section class="card"><h2>Par campagne' + help('La dépense vient des dépenses de publicité (colonne Campagne). Qualité : faux numéros, doublons, liste noire et refus au livreur (à partir de 10 commandes).') + '</h2>' +
         dataTable('campagnes', cols('Campagne'), d.campaigns, { filter: 'cp', search: 'Chercher une campagne…', card: card }) +
         (worst ? '<div class="st-note">💡 « ' + h(worst.name) + ' » : ' + Math.round((worst.quality.fake + worst.quality.dup + worst.quality.black) * 100) + ' % de ses commandes sont fausses, en double ou en liste noire' +
           (worst.quality.refus !== null ? ', et ' + Math.round(worst.quality.refus * 100) + ' % sont refusées au livreur' : '') + '. Une commande pas chère peut coûter cher.</div>' : '') + '</section>';

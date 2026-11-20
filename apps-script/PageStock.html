@@ -29,6 +29,7 @@
   var closeModal = DZ.closeModal;
   var modalHead = DZ.modalHead;
   var icon = DZ.icon;
+  var help = DZ.help;
 
   var UNDO_MS = 5000;
   var MOVES_STEP = 30;
@@ -137,7 +138,7 @@
     if (!box || !d) return;
     var t = d.totals;
     var u = st();
-    var html = '<div class="page-head"><div><h1>Stock</h1><p class="sub">Le stock baisse quand le colis part et remonte quand le retour est reçu.</p></div>' +
+    var html = '<div class="page-head"><div><h1>Stock' + help('Le stock baisse quand le colis part et remonte quand le retour est reçu.') + '</h1></div>' +
       '<div class="quick sk-top"><button type="button" class="btn primary" data-act="product-new">' + icon('plus') + 'Produit</button>' +
       '<button type="button" class="btn" data-act="stock-entry">Entrée</button>' +
       '<button type="button" class="btn" data-act="stock-inventory">Inventaire</button>' +
@@ -311,8 +312,7 @@
         return '<button type="button" class="it" data-act="open-order" data-id="' + h(o.id) + '"><span><b>' + h(o.id) + '</b> · <span dir="auto">' + h(o.client || 'sans nom') + '</span>' +
           (o.wilaya ? ' · ' + h(String(o.wilaya).replace(/^\d+\s*-\s*/, '')) : '') + (o.qty > 1 ? ' · ×' + o.qty : '') + '</span>' +
           '<span class="small">' + (o.at ? 'confirmée ' + h(ago(o.at)) : '') + '</span></button>';
-      }).join('') : '<p class="small">Aucune commande trouvée.</p>') +
-      '<p class="small" style="margin-top:6px">Elles sortiront du stock au départ des colis (page Expédier).</p>', 360, 'sk-resv');
+      }).join('') : '<p class="small">Aucune commande trouvée.</p>'), 360, 'sk-resv');
   }
 
   /* ================================================================ */
@@ -351,12 +351,12 @@
         field('Autres noms (séparés par « ; »)', input('aliases', m.aliases, ' placeholder="Écritures de ce modèle dans les commandes"')) +
         (m.pack ? '<div class="field full"><span>Contenu du pack</span>' + packEditor(m.pack.items.map(function (i) { return { key: i.key, label: i.label, qty: i.qty }; })) + '</div>' : '') +
       '</div>' + (S.boot.user.admin ? '<div class="sk-ad" id="sk-ad" style="margin-top:12px"><span class="small">Publicité ce mois : chargement…</span></div>' : '') +
-      '<p class="small" style="margin-top:8px">Le stock se change avec « Entrée » ou « Inventaire ». Si vous renommez, l’ancien nom est gardé dans « autres noms ».</p>' +
+      '<p class="small" style="margin-top:8px">Changer le stock' + help('Le stock se change avec « Entrée » ou « Inventaire ». Si vous renommez, l’ancien nom est gardé dans « autres noms ».') + '</p>' +
       '<div class="sk-danger">' +
         (m.pack ? '' : '<div class="sk-drow"><span>⇄ <b>Fusionner</b> avec un autre modèle (doublon)</span><button type="button" class="btn" data-act="model-merge" data-key="' + h(key) + '">Fusionner…</button></div>') +
         '<div class="sk-drow"><span>' + (m.active ? '◌ <b>Masquer</b> : n’est plus vendu (historique gardé)' : '◉ <b>Réafficher</b> : il est masqué') + '</span>' +
           '<button type="button" class="btn" data-act="' + (m.active ? 'model-hide' : 'model-show') + '" data-key="' + h(key) + '">' + (m.active ? 'Masquer' : 'Réafficher') + '</button></div>' +
-        '<div class="sk-drow"><span>🗑 <b>Supprimer</b>' + (blocker ? '<br><span class="small">Impossible : ' + h(blocker) + '. Fusionnez ou masquez-le.</span>' : '<br><span class="small">Seulement s’il a été ajouté par erreur (aucune commande ne l’a utilisé).</span>') + '</span>' +
+        '<div class="sk-drow"><span>🗑 <b>Supprimer</b>' + (blocker ? '<br><span class="small">Impossible : ' + h(blocker) + '. Fusionnez ou masquez-le.</span>' : help('Seulement s’il a été ajouté par erreur (aucune commande ne l’a utilisé).')) + '</span>' +
           '<button type="button" class="btn danger" data-act="model-delete" data-key="' + h(key) + '"' + (blocker ? ' disabled' : '') + '>Supprimer</button></div>' +
       '</div>' +
       '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Fermer</button>' +
@@ -585,7 +585,7 @@
       (list.length ? movesList(list.slice(0, u.moveLimit), true) : '<p class="empty">Aucun mouvement' + (u.moveFilter === 'all' ? ' pour l’instant' : ' de ce type parmi les derniers') + '.</p>') +
       (list.length > u.moveLimit ? '<p style="margin-top:10px"><button type="button" class="btn" data-act="sk-more-moves">Voir plus</button></p>' : '') +
       (lossQty ? '<p class="small" style="margin-top:10px">Pertes du mois (abîmés et écarts d’inventaire) : <b class="neg">' + h(plural(lossQty, 'pièce', 'pièces')) + (lossValue ? ' · ' + money(lossValue) : '') + '</b></p>' : '') +
-      '<p class="small" style="margin-top:10px">Historique complet : onglet « Mouvements stock » du classeur.</p>';
+      '';
   }
 
   function showHistory(key) {
@@ -667,7 +667,7 @@
         field('Option 2 (ex. tailles ou modèles), facultatif', input('opt2', '', ' data-role="grid" placeholder="iPhone 13, iPhone 14"'), 'full') +
         field('Seuil d’alerte', input('threshold', '', ' type="number" min="0" step="1" placeholder="Réglage général"')) +
         '</div><div id="grid-box" class="sk-gridbox"></div>' +
-        '<p class="small" style="margin-top:8px">Chaque variante s’appelle « option 1 / option 2 », comme sur Shopify (ex. « Noir / iPhone 13 »). Les cases vides prennent les valeurs de la première ligne.</p>';
+        '<p class="small" style="margin-top:8px">Noms des variantes' + help('Chaque variante s’appelle « option 1 / option 2 », comme sur Shopify (ex. « Noir / iPhone 13 »). Les cases vides prennent les valeurs de la première ligne.') + '</p>';
     } else if (kind === 'pack') {
       body = '<div class="form-grid" id="product-form" data-kind="pack">' +
         field('Nom du pack', input('product', '', ' placeholder="Ex. Pack Montre + Écouteurs"'), 'full') +
@@ -675,7 +675,7 @@
         field('Prix de vente (DA)', input('price', '', ' type="number" min="0" step="10"')) +
         field('Coût (vide : calculé)', input('cost', '', ' type="number" min="0" step="10" placeholder="Somme des articles"')) +
         field('Photo (lien, facultatif)', input('photo', '', ' type="url" inputmode="url" placeholder="https://…"'), 'full') +
-        '</div><p class="small" style="margin-top:8px">Le pack n’a pas de stock à lui : son disponible est celui de l’article qui en a le moins. Quand un pack part, le stock de chaque article baisse ; au retour, il remonte. Écrivez son nom comme dans vos commandes.</p>';
+        '</div><p class="small" style="margin-top:8px">Stock d’un pack' + help('Le pack n’a pas de stock à lui : son disponible est celui de l’article qui en a le moins. Quand un pack part, le stock de chaque article baisse ; au retour, il remonte. Écrivez son nom comme dans vos commandes.') + '</p>';
     } else {
       body = '<div class="form-grid" id="product-form" data-kind="simple">' +
         field('Nom du produit', input('product', '', ' placeholder="Ex. cover iPhone"')) +
@@ -685,7 +685,7 @@
         field('Stock de départ', input('stock', '', ' type="number" min="0" step="1"')) +
         field('Seuil d’alerte', input('threshold', '', ' type="number" min="0" step="1" placeholder="Réglage général"')) +
         field('Photo (lien, facultatif)', input('photo', '', ' type="url" inputmode="url" placeholder="https://…"'), 'full') +
-        '</div><p class="small" style="margin-top:8px">Écrivez le nom comme dans vos commandes (ex. « cover iPhone - iphone 13 ») pour que le stock suive tout seul. Sinon, ajoutez des « autres noms » avec Modifier.</p>';
+        '</div><p class="small" style="margin-top:8px">Quel nom ?' + help('Écrivez le nom comme dans vos commandes (ex. « cover iPhone - iphone 13 ») pour que le stock suive tout seul. Sinon, ajoutez des « autres noms » avec Modifier.') + '</p>';
     }
     showModal(modalHead(kind === 'pack' ? 'Nouveau pack' : 'Nouveau produit') + tabs + body +
       '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Annuler</button>' +
@@ -778,9 +778,9 @@
           : field('Motif', '<select name="reason">' + options(d.reasons, d.reasons[0]) + '</select>')) +
         field('Note (facultatif)', input('note', ''), 'full') +
       '</div><div class="lines" id="stock-lines"></div>' +
-      '<p class="small" style="margin-top:8px">' + (entry ? (d.averageCost ? 'Avec un coût unitaire, le coût d’achat devient la moyenne de l’ancien stock et de cette entrée.' : 'Le coût d’achat ne change pas (réglage COUT_MOYEN = NON).')
+      '<p class="small" style="margin-top:8px">' + (entry ? 'Coût d’achat' : 'Quantités comptées') + help((entry ? (d.averageCost ? 'Avec un coût unitaire, le coût d’achat devient la moyenne de l’ancien stock et de cette entrée.' : 'Le coût d’achat ne change pas (réglage COUT_MOYEN = NON).')
         : 'Tapez la quantité comptée ; laissez vide les modèles non comptés. L’écart est noté avec le motif.') +
-        ' Une erreur de frappe s’annule ensuite dans « Derniers mouvements ».</p>' +
+        ' Une erreur de frappe s’annule ensuite dans « Derniers mouvements ».') + '</p>' +
       '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Annuler</button>' +
       '<button type="button" class="btn primary" data-act="stock-save">' + (entry ? 'Enregistrer l’entrée' : 'Enregistrer l’inventaire') + '</button></div>');
     S.stock.formProducts = products;
@@ -822,8 +822,7 @@
 
   function showUnknown() {
     var d = S.stock.data;
-    showModal(modalHead('Modèles vendus, absents du catalogue') +
-      '<p class="small" style="margin-bottom:10px">Vus dans les commandes des 60 derniers jours. Ajoutez-les pour suivre leur stock et leur bénéfice, ou ajoutez leur nom comme « autre nom » d’un modèle existant (Modifier).</p>' +
+    showModal(modalHead('Modèles vendus, absents du catalogue' + help('Vus dans les commandes des 60 derniers jours. Ajoutez-les pour suivre leur stock et leur bénéfice, ou ajoutez leur nom comme « autre nom » d’un modèle existant (Modifier).')) +
       table(['Produit', 'Modèle', 'Commandes', ''], d.unknown.map(function (x) {
         return [h(x.product), h(x.model || '—'), x.orders, '<button type="button" class="btn" style="min-height:36px" data-act="catalog-add" data-label="' + h(x.label) + '">Ajouter</button>'];
       }), [2]) +
@@ -858,9 +857,9 @@
     var lastMonth = y.getFullYear() + '-' + ('0' + (y.getMonth() + 1)).slice(-2) + '-' + ('0' + y.getDate()).slice(-2);
     showModal(modalHead('Exporter le stock') +
       '<div class="sk-exp">' +
-        '<button type="button" class="sk-expbtn" data-act="export-csv"><b>📄 Excel : le stock d’aujourd’hui</b><span class="small">Produit, modèle, stock, réservé, disponible, coût, prix, valeur.</span></button>' +
-        '<button type="button" class="sk-expbtn" data-act="export-print"><b>🖨 Feuille d’inventaire à imprimer (PDF)</b><span class="small">Avec une colonne vide pour noter ce que vous comptez.</span></button>' +
-        '<div class="sk-expbtn"><b>📅 Valeur du stock à une date</b><span class="small">Stock d’aujourd’hui moins les mouvements faits depuis ; au coût d’achat actuel.</span>' +
+        '<button type="button" class="sk-expbtn" data-act="export-csv"><b>📄 Excel : le stock d’aujourd’hui</b></button>' +
+        '<button type="button" class="sk-expbtn" data-act="export-print"><b>🖨 Feuille d’inventaire à imprimer (PDF)</b></button>' +
+        '<div class="sk-expbtn"><b>📅 Valeur du stock à une date' + help('Stock d’aujourd’hui moins les mouvements faits depuis ; au coût d’achat actuel.') + '</b>' +
           '<span class="sk-expdate"><input type="date" id="exp-day" value="' + lastMonth + '" max="' + today() + '" aria-label="Date"><button type="button" class="btn" data-act="export-at">Calculer</button></span>' +
           '<div id="exp-at"></div></div>' +
       '</div><div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Fermer</button></div>');
@@ -951,10 +950,10 @@
   /** Téléphone : le bouton « + » propose les actions du haut de la page. */
   function showFab() {
     showModal(modalHead('Stock') + '<div class="sk-exp">' +
-      '<button type="button" class="sk-expbtn" data-act="product-new"><b>+ Produit</b><span class="small">Un modèle, plusieurs variantes ou un pack.</span></button>' +
-      '<button type="button" class="sk-expbtn" data-act="stock-entry"><b>Entrée de marchandise</b><span class="small">Pièces reçues du fournisseur.</span></button>' +
-      '<button type="button" class="sk-expbtn" data-act="stock-inventory"><b>Inventaire</b><span class="small">Corriger le stock après un comptage.</span></button>' +
-      '<button type="button" class="sk-expbtn" data-act="stock-export"><b>Exporter</b><span class="small">Excel, feuille d’inventaire, valeur à une date.</span></button>' +
+      '<button type="button" class="sk-expbtn" data-act="product-new"><b>+ Produit</b></button>' +
+      '<button type="button" class="sk-expbtn" data-act="stock-entry"><b>Entrée de marchandise</b></button>' +
+      '<button type="button" class="sk-expbtn" data-act="stock-inventory"><b>Inventaire</b></button>' +
+      '<button type="button" class="sk-expbtn" data-act="stock-export"><b>Exporter</b></button>' +
       '</div><div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Fermer</button></div>');
   }
 

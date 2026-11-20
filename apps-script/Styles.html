@@ -952,6 +952,32 @@ input.switch:disabled { opacity: .5; cursor: default; }
   .cm-pick { min-height: 48px; font-size: 16px; }
 }
 
+/* v1.14 : explications derrière un « ? », états en point de couleur. */
+.qh { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; min-width: 22px; min-height: 22px; padding: 0; margin: 0 0 0 8px;
+  border-radius: 50%; border: 1.5px solid #9AA3AF; background: var(--surface); color: #5B6170; font: 700 12.5px/1 var(--font); cursor: pointer; vertical-align: middle;
+  flex: none; text-transform: none; letter-spacing: 0; position: relative; }
+.qh::after { content: ""; position: absolute; inset: -9px; }
+.qh:hover { border-color: var(--ink-2); color: var(--ink); }
+.qh.on { background: #15181E; border-color: #15181E; color: #FFFFFF; }
+.qh-tip { display: block; position: relative; margin: 8px 0 4px; max-width: 560px; background: #15181E; color: #FFFFFF; border-radius: 10px; padding: 10px 12px;
+  font: 400 13.5px/1.45 var(--font); text-transform: none; letter-spacing: 0; text-align: left; white-space: normal; }
+.qh-tip[hidden] { display: none; }
+.qh-tip::before { content: ""; position: absolute; top: -6px; left: 12px; border: 6px solid transparent; border-top: 0; border-bottom-color: #15181E; }
+.qh-tip strong, .qh-tip b, .qh-tip a { color: #FFFFFF; }
+.qh-tip .mono { color: #E3F2EC; font-size: 12px; word-break: break-all; }
+.qh-key { display: block; margin-top: 4px; opacity: .7; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.st { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); font-weight: 500; }
+.st i { width: 8px; height: 8px; border-radius: 50%; background: #1F9D55; display: inline-block; flex: none; }
+.st.warn i { background: #E8730C; }
+.act-short { font-size: 13.5px; font-weight: 700; color: #9A4A06; }
+.setting-title { display: flex; flex-wrap: wrap; align-items: center; font-weight: 600; color: var(--ink); }
+.setting-title .qh-tip { flex-basis: 100%; }
+.queue-title .qh-tip, h1 .qh-tip, h2 .qh-tip, h3 .qh-tip { font-weight: 400; }
+summary h2 .qh { margin-left: 8px; }
+@media (max-width: 860px) {
+  .qh { width: 24px; height: 24px; min-width: 24px; }
+}
+
 /* Application Google après le basculement : les pages des commandes sont dans la version Cloudflare. */
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }

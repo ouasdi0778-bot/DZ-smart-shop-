@@ -26,6 +26,66 @@ var SETTING_GROUPS_ = [
   { title: 'Entretien', keys: ['ARCHIVE_JOURS', 'JOURNAL_JOURS', 'CORBEILLE_JOURS', 'LIMITE_MINUTES_JOUR'] }
 ];
 
+/** Titres courts des réglages (v1.14) ; la description complète est derrière le « ? ». */
+var SETTING_LABELS_ = {
+  NOM_BOUTIQUE: 'Nom de la boutique',
+  SOCIETE_PAR_DEFAUT: 'Société de livraison par défaut',
+  MESSAGE_WHATSAPP: 'Message WhatsApp',
+  APPELS_PAR_JOUR: 'Appels sans réponse par jour',
+  JOURS_D_APPELS: 'Jours d’appels',
+  ANNULATION_AUTO: 'Annuler après les jours d’appels',
+  HEURE_DEBUT_APPELS: 'Heure du premier rappel',
+  ORDRE_FILE: 'Ordre de la file d’appels',
+  DELAI_RAPPEL_MINUTES: 'Délai entre deux appels (minutes)',
+  ATTENTE_MAX_HEURES: '« En retard » après (heures)',
+  DOUBLON_HEURES: 'Doublon si moins de (heures)',
+  MOTIFS_ANNULATION: 'Motifs d’annulation',
+  SUIVI_ECOTRACK_MINUTES: 'Lecture des statuts Ecotrack (minutes)',
+  SUIVI_ALERTE_HEURES: 'Colis pas validé : alerte après (heures)',
+  SUIVI_HEURES_TRI: 'Sans mouvement au tri (heures)',
+  SUIVI_HEURES_ROUTE: 'Sans mouvement en route (heures)',
+  SUIVI_HEURES_SUD: 'Sans mouvement, Sud (heures)',
+  SUIVI_HEURES_LIVRAISON: 'Sans mouvement en livraison (heures)',
+  WILAYAS_SUD: 'Wilayas du Sud',
+  RETOUR_BLOQUE_JOURS: 'Retour bloqué après (jours)',
+  ARGENT_RETARD_JOURS: 'Argent en retard après (jours)',
+  MOTS_INJOIGNABLE: 'Mots « client injoignable »',
+  MOTS_REFUS: 'Mots « refus »',
+  MOTS_REPORTE: 'Mots « reporté »',
+  MOTS_ADRESSE: 'Mots « problème d’adresse »',
+  FORMAT_BORDEREAU: 'Format des bordereaux',
+  RAMASSAGE: 'Ramassage coché par défaut',
+  SHOPIFY_TAG: 'Étiquette des commandes Shopify',
+  SHOPIFY_JOURS_INITIAL: 'Première importation (jours)',
+  SHOPIFY_API_VERSION: 'Version de l’API Shopify',
+  FRAIS_RETOUR: 'Frais d’un retour (DA)',
+  COUT_EMBALLAGE: 'Emballage par commande (DA)',
+  TAUX_DOLLAR: 'Prix du dollar (DA)',
+  PRIMES: 'Prime par commande livrée',
+  OBJECTIF_JOUR: 'Objectif de confirmées par jour',
+  CATEGORIES_DEPENSES: 'Catégories de dépenses',
+  CATEGORIES_GAINS: 'Catégories de gains',
+  COUT_MOYEN: 'Coût d’achat moyen',
+  STOCK_SEUIL: 'Stock bas à partir de',
+  SMS_HEURES: 'Heures d’envoi des SMS',
+  SMS_A_CONFIRMER: 'SMS « commande reçue »',
+  SMS_PAS_DE_REPONSE: 'SMS « Pas de réponse »',
+  SMS_RAPPELER: 'SMS « Rappeler »',
+  SMS_INJOIGNABLE: 'SMS « Injoignable »',
+  SMS_CONFIRMEE: 'SMS « Confirmée »',
+  SMS_EXPEDIEE: 'SMS « Expédiée »',
+  SMS_EN_LIVRAISON: 'SMS « En livraison »',
+  SMS_LIVREE: 'SMS « Livrée »',
+  SMS_LIVREUR_INJOIGNABLE: 'SMS « le livreur ne vous joint pas »',
+  SMS_SANS_REPONSE_LIVRAISON: 'SMS « sans réponse pendant la livraison »',
+  SMS_RETOUR: 'SMS « Retour »',
+  SMS_ANNULEE: 'SMS « Annulée »',
+  LIMITE_MINUTES_JOUR: 'Limite Google par jour (minutes)',
+  ARCHIVE_JOURS: 'Archiver après (jours)',
+  CORBEILLE_JOURS: 'Vider la corbeille après (jours)',
+  JOURNAL_JOURS: 'Garder le Journal (jours)'
+};
+
 /** Réglages à choix (fonction : CARRIERS est défini dans un autre fichier). */
 function settingChoices_(key) {
   var map = { ORDRE_FILE: ['récentes', 'anciennes'], FORMAT_BORDEREAU: ['A4', '10x15'], SOCIETE_PAR_DEFAUT: CARRIERS, SUIVI_ECOTRACK_MINUTES: ['30', '60', '120'] };
@@ -221,7 +281,7 @@ function api_settingsGet() {
     used[key] = true;
     var v = raw[key] ? raw[key].value : d[1];
     return {
-      key: key, value: v instanceof Date ? iso_(v) : String(v == null ? '' : v), description: d[2],
+      key: key, label: SETTING_LABELS_[key] || '', value: v instanceof Date ? iso_(v) : String(v == null ? '' : v), description: d[2],
       type: settingType_(key, d[1]), choices: settingChoices_(key)
     };
   };

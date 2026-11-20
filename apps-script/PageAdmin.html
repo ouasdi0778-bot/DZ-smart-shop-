@@ -19,6 +19,7 @@
   var field = DZ.field;
   var ago = DZ.ago;
   var icon = DZ.icon;
+  var help = DZ.help;
 
   var AD = S.admin || (S.admin = { tab: 'etat', data: null, settings: null, team: null, clients: null, open: {} });
   var TABS = [['etat', 'État de l’outil'], ['connexions', 'Connexions'], ['reglages', 'Réglages'], ['equipe', 'Équipe'], ['clients', 'Clients'], ['classeur', 'Classeur']];
@@ -95,8 +96,8 @@
           '<td data-label="Durée" class="num">' + (t.at ? (t.ms < 1000 ? '< 1 s' : Math.round(t.ms / 1000) + ' s') : '—') + '</td></tr>';
       }).join('') + '</tbody></table></div></section>';
     if (d.cloud) {
-      html += '<section class="card"><h2>Cloudflare</h2><p>' + plural(d.today.runs, 'passage', 'passages') + ' des tâches automatiques aujourd’hui (chaque minute). Rien à installer : elles tournent toutes seules.</p>' +
-        '<p class="small" style="margin-top:8px">Un problème s’affiche ici et sur la pastille du menu Administration.</p></section>';
+      html += '<section class="card"><h2>Cloudflare' + help('Tâches automatiques chaque minute : rien à installer, elles tournent toutes seules. Un problème s’affiche ici et sur la pastille du menu Administration.') + '</h2>' +
+        '<p>' + plural(d.today.runs, 'passage', 'passages') + ' aujourd’hui</p></section>';
       html += perfSection();
       if (d.errors.length) {
         html += '<section class="card"><h2>Dernières erreurs (Journal)</h2>' + d.errors.map(function (e) {
@@ -105,10 +106,9 @@
       }
       return html;
     }
-    html += '<section class="card"><h2>Consommation du jour</h2><p><strong>' + h(d.today.minutes) + ' min</strong> sur environ ' + h(d.today.limit) + ' permises par Google · ' +
+    html += '<section class="card"><h2>Consommation du jour' + help('Un e-mail part au propriétaire (' + h(d.owner || '—') + ') à 80 %, ou si une tâche tombe en panne : une seule fois par problème, puis « c’est réparé ». La limite se règle dans Réglages › Entretien (LIMITE_MINUTES_JOUR).') + '</h2><p><strong>' + h(d.today.minutes) + ' min</strong> sur environ ' + h(d.today.limit) + ' permises par Google · ' +
       plural(d.today.runs, 'passage', 'passages') + '</p><div class="progress" style="height:10px"><span style="width:' + pctUsed.toFixed(1) + '%;background:' +
-      (pctUsed >= 80 ? '#A12626' : pctUsed >= 50 ? '#8A5200' : '#146C2E') + '"></span></div>' +
-      '<p class="small" style="margin-top:8px">Un e-mail part au propriétaire (' + h(d.owner || '—') + ') à 80 %, ou si une tâche tombe en panne : une seule fois par problème, puis « c’est réparé ». La limite se règle dans Réglages › Entretien (LIMITE_MINUTES_JOUR).</p></section>';
+      (pctUsed >= 80 ? '#A12626' : pctUsed >= 50 ? '#8A5200' : '#146C2E') + '"></span></div></section>';
     html += '<section class="card"><h2>Les tâches tournent au nom du propriétaire</h2><p>' + h(d.owner || 'Propriétaire inconnu') + (d.isOwner ? ' (vous)' : '') + '</p>' +
       (d.triggers.checked ? '<p class="small">' + (d.triggers.minute && d.triggers.nightly ? 'Les deux tâches sont installées (chaque minute, et chaque nuit).' : '' + icon('alert') + 'Une tâche manque : réinstallez-les.') +
         (d.triggers.old ? ' Il reste ' + d.triggers.old + ' ancienne(s) tâche(s) : la réinstallation les remplace.' : '') + '</p>' : '') +
@@ -137,8 +137,8 @@
       return { name: PAGE_NAMES[r], server: s ? s.avg : null, serverMax: s ? s.max : null, n: s ? s.n : 0, device: dv && dv.n ? Math.round(dv.total / dv.n) : null };
     }).filter(function (x) { return x.server !== null || x.device !== null; });
     var extra = server.filter(function (x) { return ['Démarrage', 'Préchargement', 'Fiche commande'].indexOf(x.label) >= 0; });
-    var html = '<section class="card"><h2>Temps des pages</h2><p class="small">« Google » : temps de calcul sur le serveur (moyenne des 6 dernières heures, toutes les personnes). ' +
-      '« Cet appareil » : du clic jusqu’aux données à jour, réseau compris. Une page déjà vue s’affiche tout de suite, puis se met à jour.</p>';
+    var html = '<section class="card"><h2>Temps des pages' + help('« Google » : temps de calcul sur le serveur (moyenne des 6 dernières heures, toutes les personnes). ' +
+      '« Cet appareil » : du clic jusqu’aux données à jour, réseau compris. Une page déjà vue s’affiche tout de suite, puis se met à jour.') + '</h2>';
     if (!rows.length && !extra.length) return html + '<p class="empty">Pas encore de mesure : ouvrez quelques pages.</p></section>';
     html += '<div class="table-wrap" style="border:0"><table class="data cards"><thead><tr><th>Page</th><th class="num">Google (moyenne)</th><th class="num">Google (le plus long)</th><th class="num">Cet appareil</th></tr></thead><tbody>' +
       rows.concat(extra.map(function (x) { return { name: x.label, server: x.avg, serverMax: x.max, device: null }; })).map(function (r) {
@@ -171,15 +171,14 @@
         '<button type="button" class="btn" data-act="admin-call" data-fn="api_ecotrackSyncFees">Récupérer les tarifs</button>' +
         '<button type="button" class="btn" data-act="admin-call" data-fn="api_ecotrackSyncStatuses">Mettre à jour les statuts</button>' : '') + '</div></section>';
 
-    html += '<section class="card"><div class="detail-head"><div><h2>SMS (httpSMS)</h2><p class="muted">' +
+    html += '<section class="card"><div class="detail-head"><div><h2>SMS (httpSMS)' + help('Les textes des SMS se modifient dans Réglages › SMS.') + '</h2><p class="muted">' +
       (c.sms.configured ? '' + icon('ok') + 'Les SMS partent du ' + h(c.sms.from) + ' · ' + h(c.sms.hours) + ' · ' + plural(c.sms.waiting, 'SMS en attente', 'SMS en attente') : 'Pas encore configuré') + '</p></div></div>' +
       '<p class="small">' + lastLine(c.sms.lastRun, c.sms.lastError) + (c.sms.statuses && c.sms.statuses.length ? ' SMS actifs : ' + h(c.sms.statuses.join(', ')) + '.' : '') + '</p>' +
       '<form class="form-grid" id="f-sms" onsubmit="return false">' + text('from', 'Numéro de la carte SIM (téléphone avec httpSMS)', c.sms.from, '0550 12 34 56') +
       secret('key', 'Clé API (page Settings de httpsms.com)', c.sms.key) + '</form>' +
       '<div class="quick" style="margin-top:10px"><button type="button" class="btn primary" data-act="admin-save-sms">Enregistrer</button>' +
       (c.sms.configured ? '<button type="button" class="btn" data-act="admin-call" data-fn="api_smsTest">SMS de test</button>' +
-        '<button type="button" class="btn" data-act="admin-call" data-fn="api_smsSendNow">Envoyer maintenant</button>' : '') + '</div>' +
-      '<p class="small" style="margin-top:8px">Les textes des SMS se modifient dans Réglages › SMS.</p></section>';
+        '<button type="button" class="btn" data-act="admin-call" data-fn="api_smsSendNow">Envoyer maintenant</button>' : '') + '</div></section>';
 
     html += '<section class="card"><div class="detail-head"><div><h2>Shopify</h2><p class="muted">' +
       (c.shopify.configured ? '' + icon('ok') + 'Boutique ' + h(c.shopify.shop) : 'Pas configuré (facultatif : Releasit suffit)') + '</p></div></div>' +
@@ -195,14 +194,13 @@
     if (ry && ry.on) {
       // v1.11 : le petit script Google (Relais.gs) envoie l'onglet RELEASIT ici chaque minute.
       var late = !ry.at || Date.now() - new Date(ry.at).getTime() > 10 * 60000;
-      html += '<section class="card"><div class="detail-head"><div><h2>Releasit COD (relais de l’onglet RELEASIT)</h2><p class="muted">' +
+      html += '<section class="card"><div class="detail-head"><div><h2>Releasit COD' + help('Le petit script du classeur Google (relais) lit l’onglet RELEASIT chaque minute et l’envoie ici. Le SMS « commande reçue » part tout de suite. ' +
+        'Après 10 minutes sans nouvelles, vous êtes prévenu par SMS. Dans le classeur : menu <strong>DZ Smart Shop › État du relais</strong> ou <strong>Envoyer maintenant</strong>.') + '</h2><p class="muted">' +
         (late ? icon('alert') + '<strong style="color:#A12626">Le relais ne répond plus' + (ry.at ? ' depuis ' + h(ago(ry.at)) : '') + '</strong>'
           : ry.error ? icon('alert') + 'Le relais répond, mais avec une erreur' : icon('ok') + 'Relais actif : dernier passage ' + h(ago(ry.at))) + '</p></div></div>' +
         (ry.error ? '<p class="small" style="color:#A12626">Erreur : ' + h(ry.error) + '</p>' : '') +
         '<p class="small">Dernière commande reçue : ' + (ry.lastAdd ? h(ago(ry.lastAdd)) + (ry.lastIds.length ? ' (' + h(ry.lastIds.join(', ')) + ')' : '') : 'aucune depuis l’installation') + '. ' +
-        'Dernière ligne lue : ' + (ry.lastRow || '—') + '.' + (ry.missing && ry.missing.length ? ' Informations absentes de RELEASIT : ' + h(ry.missing.join(', ')) + '.' : '') + '</p>' +
-        '<p class="small" style="margin-top:8px">Le petit script du classeur Google lit l’onglet RELEASIT chaque minute et l’envoie ici. Le SMS « commande reçue » part tout de suite. ' +
-        'Après 10 minutes sans nouvelles, vous êtes prévenu par SMS. Dans le classeur : menu <strong>DZ Smart Shop › État du relais</strong> ou <strong>Envoyer maintenant</strong>.</p></section>';
+        'Dernière ligne lue : ' + (ry.lastRow || '—') + '.' + (ry.missing && ry.missing.length ? ' Informations absentes de RELEASIT : ' + h(ry.missing.join(', ')) + '.' : '') + '</p></section>';
     } else {
       html += '<section class="card"><div class="detail-head"><div><h2>Releasit COD (onglet RELEASIT)</h2><p class="muted">' +
         (c.releasit.found ? '' + icon('ok') + 'Onglet trouvé : les commandes arrivent chaque minute' : '' + icon('alert') + 'Onglet « RELEASIT » introuvable dans le classeur') + '</p></div></div>' +
@@ -213,16 +211,14 @@
 
     var cf = c.cloud || {};
     if (cf.inCloud && ry && ry.on) {
-      html += '<section class="card"><div class="detail-head"><div><h2>Classeur Google</h2><p class="muted">' + icon('ok') + 'Mode relais depuis ' + h(fmtDate(ry.installed)) + '</p></div></div>' +
-        '<p class="small">Toute l’application est ici. Le classeur Google ne sert plus qu’à recevoir les commandes de Releasit (onglet RELEASIT) : ses autres onglets ne sont plus mis à jour (ils restent comme archive). ' +
-        'Les réglages, l’équipe, les produits et les dépenses se changent ici, dans Administration. Pour une copie de tout : <strong>Administration › Sauvegarde › Tout exporter</strong>.</p></section>';
+      html += '<section class="card"><div class="detail-head"><div><h2>Classeur Google' + help('Toute l’application est ici. Le classeur Google ne sert plus qu’à recevoir les commandes de Releasit (onglet RELEASIT) : ses autres onglets ne sont plus mis à jour (ils restent comme archive). ' +
+        'Les réglages, l’équipe, les produits et les dépenses se changent ici, dans Administration. Pour une copie de tout : <strong>Administration › Classeur › Tout exporter</strong>.') + '</h2><p class="muted">' + icon('ok') + 'Mode relais depuis ' + h(fmtDate(ry.installed)) + '</p></div></div></section>';
       return html;
     }
     if (cf.inCloud) {
-      html += '<section class="card"><div class="detail-head"><div><h2>Classeur Google</h2><p class="muted">' + icon(cf.sync ? 'ok' : 'alert') +
+      html += '<section class="card"><div class="detail-head"><div><h2>Classeur Google' + help('Toute l’application est ici (étape 3). Le classeur Google reçoit les commandes Releasit et les envoie ici chaque minute, et garde une copie à jour de tout (commandes, stock, dépenses, réglages). Une modification faite à la main dans les onglets Paramètres, Tarifs, Produits, Équipe, Clients ou Dépenses est reprise ici dans la minute.') + '</h2><p class="muted">' + icon(cf.sync ? 'ok' : 'alert') +
         (cf.sync ? 'Recopie dans le classeur ' + h(ago(cf.sync)) : 'Le classeur n’a pas encore contacté la version Cloudflare') +
         (cf.lastIngest ? ' · dernière commande Releasit reçue ' + h(ago(cf.lastIngest)) : '') + '</p></div></div>' +
-        '<p class="small">Toute l’application est ici (étape 3). Le classeur Google reçoit les commandes Releasit et les envoie ici chaque minute, et garde une copie à jour de tout (commandes, stock, dépenses, réglages). Une modification faite à la main dans les onglets Paramètres, Tarifs, Produits, Équipe, Clients ou Dépenses est reprise ici dans la minute.</p>' +
         (cf.google ? '<div class="quick" style="margin-top:10px"><a class="btn" href="' + h(cf.google + '&page=admin') + '" target="_blank" rel="noopener">Application Google (secours)</a></div>' : '') + '</section>';
       return html;
     }
@@ -231,10 +227,10 @@
         'Depuis ' + h(fmtDate(cf.live)) + ' · recopie dans le classeur ' + (cf.sync ? h(ago(cf.sync)) : 'pas encore faite') +
         (cf.waiting ? ' · ' + plural(cf.waiting, 'commande à envoyer', 'commandes à envoyer') : '') + '</p></div></div>' +
         (cf.error ? '<p class="small" style="color:var(--danger)">Dernière erreur : ' + h(cf.error) + '</p>' : '') +
-        (cf.full
-          ? '<p class="small">Toute l’application est dans la version Cloudflare. Ce classeur reçoit les commandes Releasit et les lui envoie, et garde une copie à jour de tout, chaque minute (commandes, archive, stock, dépenses, réglages). Une modification faite à la main dans Paramètres, Tarifs, Produits, Équipe, Clients ou Dépenses est renvoyée à Cloudflare. Ici, tout est en lecture seule.</p>'
-          : '<p class="small">Commandes, Confirmation, Expédier et Suivi (Ecotrack, SMS) se font dans la version Cloudflare. Ce classeur reçoit les commandes (Releasit, Shopify) et les lui envoie, garde une copie à jour (chaque minute) et le stock. Bénéfices, Stock, Statistiques et Administration restent ici.</p>' +
-            '<p class="small" style="margin-top:8px"><strong>Étape 3 :</strong> Stock, Bénéfices, Statistiques, Administration et Shopify passent aussi dans la version Cloudflare (plus rapides). Ce classeur garde une copie à jour de tout.</p>') +
+        '<p class="small">' + help(cf.full
+          ? 'Toute l’application est dans la version Cloudflare. Ce classeur reçoit les commandes Releasit et les lui envoie, et garde une copie à jour de tout, chaque minute (commandes, archive, stock, dépenses, réglages). Une modification faite à la main dans Paramètres, Tarifs, Produits, Équipe, Clients ou Dépenses est renvoyée à Cloudflare. Ici, tout est en lecture seule.'
+          : 'Commandes, Confirmation, Expédier et Suivi (Ecotrack, SMS) se font dans la version Cloudflare. Ce classeur reçoit les commandes (Releasit, Shopify) et les lui envoie, garde une copie à jour (chaque minute) et le stock. Bénéfices, Stock, Statistiques et Administration restent ici. ' +
+            '<strong>Étape 3 :</strong> Stock, Bénéfices, Statistiques, Administration et Shopify passent aussi dans la version Cloudflare (plus rapides). Ce classeur garde une copie à jour de tout.') + '</p>' +
         '<div class="quick" style="margin-top:10px"><a class="btn primary" href="' + h(cf.url) + '" target="_blank" rel="noopener">Ouvrir la version Cloudflare</a>' +
         (cf.full ? '' : '<button type="button" class="btn primary" data-act="admin-call" data-fn="api_cloudGoFull">Passer à l’étape 3</button>') +
         '<button type="button" class="btn" data-act="admin-cloud-stop">Revenir à l’application Google</button></div></section>';
@@ -299,11 +295,13 @@
       call('api_settingsGet').then(function (r) { AD.settings = r; if (AD.tab === 'reglages') renderTab(); }).catch(function (e) { var b = $('#admin-body'); if (b) b.innerHTML = errorBox(e); });
       return '<p class="loading">Chargement…</p>';
     }
-    return '<p class="small">Les réglages sont rangés par thème. Chaque groupe s’enregistre à part. Pour les SMS : champs {prenom} {client} {numero} {produit} {total} {suivi} {commune} {wilaya} {boutique} ; texte vide = pas de SMS.</p>' +
-      AD.settings.groups.map(function (g, gi) {
-        return '<details class="card settings-group"' + (AD.open[gi] ? ' open' : '') + ' data-group="' + gi + '"><summary><h2>' + h(g.title) + '</h2><span class="small">' + plural(g.items.length, 'réglage', 'réglages') + '</span></summary>' +
+    return AD.settings.groups.map(function (g, gi) {
+        return '<details class="card settings-group"' + (AD.open[gi] ? ' open' : '') + ' data-group="' + gi + '"><summary><h2>' + h(g.title) +
+          (g.title === 'SMS' ? help('Champs utilisables : {prenom} {client} {numero} {produit} {total} {suivi} {commune} {wilaya} {boutique}. Texte vide = pas de SMS.') : '') +
+          '</h2><span class="small">' + plural(g.items.length, 'réglage', 'réglages') + '</span></summary>' +
           '<form class="settings-form" id="sg-' + gi + '" onsubmit="return false">' + g.items.map(function (it) {
-            return '<label class="field full setting"><span class="setting-key mono">' + h(it.key) + '</span><span class="setting-desc">' + h(it.description) + '</span>' + settingControl(it) + '</label>';
+            return '<label class="field full setting"><span class="setting-title">' + h(it.label || it.key) +
+              help(h(it.description) + '<small class="qh-key">Nom dans le classeur : ' + h(it.key) + '</small>') + '</span>' + settingControl(it) + '</label>';
           }).join('') + '</form><div class="quick" style="justify-content:flex-end;margin-top:10px"><button type="button" class="btn primary" data-act="admin-save-settings" data-group="' + gi + '">Enregistrer « ' + h(g.title) + ' »</button></div></details>';
       }).join('');
   }
@@ -363,14 +361,13 @@
     if (cloud) {
       var mine = (t.members || []).filter(function (m) { return m.key === t.me; })[0];
       var ready = mine && mine.auth && mine.auth.password && !mine.auth.temp;
-      html += '<section class="card"><h2>Connexion</h2>' +
-        '<p class="small">Chacun se connecte avec <strong>son téléphone</strong> (identifiant) et <strong>son mot de passe</strong>. Pas besoin de Gmail ni du classeur Google. ' +
-        'Mot de passe oublié : code par SMS sur son téléphone, ou un nouveau mot de passe provisoire donné ici.</p>' +
+      html += '<section class="card"><h2>Connexion' + help('Chacun se connecte avec <strong>son téléphone</strong> (identifiant) et <strong>son mot de passe</strong>. Pas besoin de Gmail ni du classeur Google. ' +
+        'Mot de passe oublié : code par SMS sur son téléphone, ou un nouveau mot de passe provisoire donné ici.') + '</h2>' +
         '<div class="quick" style="margin-top:10px"><button type="button" class="btn' + (ready ? '' : ' primary') + '" data-act="my-account">' + (ready ? 'Mon compte (mot de passe, code de secours)' : 'Créer mon mot de passe') + '</button></div>' +
         '<label class="check-line" style="margin-top:14px"><input type="checkbox" data-auth-only' + (t.auth.pwdOnly ? ' checked' : '') + (ready || t.auth.pwdOnly ? '' : ' disabled') + '> ' +
-        '<span><strong>Connexion par mot de passe seulement</strong> (plus par Google). ' + (ready ? 'Cochez quand tout le monde a son mot de passe (colonne Connexion).' : 'Créez d’abord votre propre mot de passe.') + '</span></label></section>';
+        '<span><strong>Connexion par mot de passe seulement</strong>' + help('Plus de connexion par Google. ' + (ready ? 'Cochez quand tout le monde a son mot de passe (colonne Connexion).' : 'Créez d’abord votre propre mot de passe.')) + '</span></label></section>';
     }
-    html += '<section class="card"><h2>Équipe · ' + t.members.length + '</h2><p class="small">Administrateur : tout (bénéfices, statistiques, administration). Confirmatrice : commandes, confirmation, expéditions, suivi. Magasinier : en plus, la page Stock.</p>' +
+    html += '<section class="card"><h2>Équipe · ' + t.members.length + help('Administrateur : tout (bénéfices, statistiques, administration). Confirmatrice : commandes, confirmation, expéditions, suivi. Magasinier : en plus, la page Stock.') + '</h2>' +
       '<div class="table-wrap" style="border:0"><table class="data cards"><thead><tr><th>Personne</th><th>Rôle</th><th>' + (cloud ? 'Connexion' : 'Accès au classeur') + '</th><th></th></tr></thead><tbody>' +
       t.members.map(function (m) {
         var sub = [m.phone ? DZ.phoneText ? DZ.phoneText(m.phone) : m.phone : '', m.email].filter(Boolean).join(' · ');
@@ -441,7 +438,7 @@
       return '<p class="loading">Chargement…</p>';
     }
     var c = AD.clients;
-    return '<section class="card"><h2>Liste noire · ' + c.blacklist.length + '</h2><p class="small">Leurs commandes arrivent avec l’alerte « Liste noire » et ne reçoivent pas de SMS.</p>' +
+    return '<section class="card"><h2>Liste noire · ' + c.blacklist.length + help('Leurs commandes arrivent avec l’alerte « Liste noire » et ne reçoivent pas de SMS.') + '</h2>' +
       (c.blacklist.length ? c.blacklist.map(function (x) {
         return '<div class="result-row"><span class="grow"><strong class="mono">' + h(x.phone) + '</strong>' + (x.name ? ' · ' + h(x.name) : '') + (x.note ? '<br><span class="small">' + h(x.note) + '</span>' : '') + '</span>' +
           '<button type="button" class="btn" style="min-height:36px" data-act="admin-black-off" data-phone="' + h(x.phone) + '">Retirer</button></div>';
@@ -449,7 +446,7 @@
       '<form class="form-grid" id="f-black" onsubmit="return false" style="margin-top:10px">' + field('Téléphone', '<input name="phone" inputmode="tel" placeholder="0550 12 34 56">') +
       field('Motif', '<input name="note" placeholder="Ex. refus répétés">') + '</form>' +
       '<div class="quick" style="margin-top:8px"><button type="button" class="btn" data-act="admin-black-on">Ajouter à la liste noire</button></div></section>' +
-      '<section class="card"><h2>Clients signalés · ' + c.flagged.length + '</h2><p class="small">Signalés après un refus (page Suivi › Résultat de l’appel). Leurs commandes affichent « Signalé · a refusé un colis » ; elles ne sont pas bloquées.</p>' +
+      '<section class="card"><h2>Clients signalés · ' + c.flagged.length + help('Signalés après un refus (page Suivi › Résultat de l’appel). Leurs commandes affichent « Signalé · a refusé un colis » ; elles ne sont pas bloquées.') + '</h2>' +
       (c.flagged.length ? c.flagged.map(function (x) {
         return '<div class="result-row"><span class="grow"><strong class="mono">' + h(x.phone) + '</strong>' + (x.name ? ' · ' + h(x.name) : '') + '<br><span class="small">' + h(x.flag) + '</span></span>' +
           '<button type="button" class="btn" style="min-height:36px" data-act="admin-flag-off" data-phone="' + h(x.phone) + '">Retirer le signalement</button></div>';
@@ -459,31 +456,29 @@
   /* ---------------- Classeur ---------------- */
 
   function renderSheet() {
-    var item = function (title, text, act, label, danger) {
-      return '<div class="result-row"><span class="grow"><strong>' + h(title) + '</strong><br><span class="small">' + h(text) + '</span></span>' +
+    var item = function (title, text, act, label, danger, info) {
+      return '<div class="result-row"><span class="grow"><strong>' + h(title) + '</strong>' + (text ? help(h(text)) : '') + (info ? '<br><span class="small">' + h(info) + '</span>' : '') + '</span>' +
         '<button type="button" class="btn' + (danger ? ' danger' : '') + '" data-act="' + act + '">' + h(label) + '</button></div>';
     };
     var cloud = S.boot && S.boot.cloud;
     var last = cloud ? S.boot.cloud.lastExport : '';
-    var backup = cloud ? '<section class="card"><h2>Sauvegarde</h2>' +
-      item('Tout exporter (Excel)', 'Un fichier Excel avec tout : commandes (archive comprise), corbeille, produits, dépenses, clients, réglages, équipe, mouvements de stock, Journal. ' +
-        (last ? 'Dernier export : ' + fmtDate(last) + '.' : 'Pas encore fait.') + ' Gardez-le sur votre ordinateur ou votre Drive : faites-le chaque semaine.', 'admin-export-all', 'Tout exporter') +
-      '<p class="small" style="margin-top:8px">La base Cloudflare peut aussi être remise à n’importe quelle minute des 7 derniers jours (sauvegarde automatique de Cloudflare).</p></section>' : '';
+    var backup = cloud ? '<section class="card"><h2>Sauvegarde' + help('La base Cloudflare peut aussi être remise à n’importe quelle minute des 7 derniers jours (sauvegarde automatique de Cloudflare).') + '</h2>' +
+      item('Tout exporter (Excel)', 'Un fichier Excel avec tout : commandes (archive comprise), corbeille, produits, dépenses, clients, réglages, équipe, mouvements de stock, Journal. Gardez-le sur votre ordinateur ou votre Drive : faites-le chaque semaine.',
+        'admin-export-all', 'Tout exporter', false, last ? 'Dernier export : ' + fmtDate(last) : 'Pas encore fait') + '</section>' : '';
     if (cloud && S.boot.cloud.auth && S.boot.cloud.auth.relay) {
       return backup + '<section class="card"><h2>Entretien</h2>' +
         item('Archiver et alléger maintenant', 'Ce que fait l’entretien de chaque nuit : annulations automatiques, archivage, Journal raccourci, statistiques recalculées.', 'admin-archive', 'Lancer') +
         item('Recalculer les statistiques', 'Refait tout de suite les résumés par jour (sinon : chaque nuit).', 'admin-stats', 'Recalculer') +
-        '<div class="result-row"><span class="grow"><strong>Corbeille</strong><br><span class="small">Commandes supprimées, avec « Restaurer ».</span></span>' +
-        '<button type="button" class="btn" data-act="goto" data-route="commandes" data-status="trash">Ouvrir</button></div></section>' +
-        '<p class="small">Le classeur Google ne sert plus qu’à recevoir les commandes de Releasit (onglet RELEASIT) : ses autres onglets ne sont plus mis à jour.</p>';
+        '<div class="result-row"><span class="grow"><strong>Corbeille</strong></span>' +
+        '<button type="button" class="btn" data-act="goto" data-route="commandes" data-status="trash">Ouvrir</button></div></section>';
     }
     return backup + '<section class="card"><h2>Entretien du classeur</h2>' +
       item('Réparer le classeur', 'Ajoute les onglets, colonnes, listes et réglages qui manquent. Sans danger : rien n’est effacé.', 'admin-repair', 'Réparer') +
       item('Archiver et alléger maintenant', 'Ce que fait l’entretien de chaque nuit : annulations automatiques, archivage, Journal raccourci, statistiques recalculées.', 'admin-archive', 'Lancer') +
       item('Recalculer les statistiques', 'Refait tout de suite les résumés par jour (sinon : chaque nuit).', 'admin-stats', 'Recalculer') +
-      '<div class="result-row"><span class="grow"><strong>Corbeille</strong><br><span class="small">Commandes supprimées, avec « Restaurer ».</span></span>' +
+      '<div class="result-row"><span class="grow"><strong>Corbeille</strong></span>' +
       '<button type="button" class="btn" data-act="goto" data-route="commandes" data-status="trash">Ouvrir</button></div>' +
-      '</section><p class="small">Le menu « DZ Smart Shop » du classeur reste en secours : Ouvrir l’application, Installer / réparer, Archiver, Restaurer une commande.</p>';
+      '</section>';
   }
 
   /* ---------------- Sauvegarde : tout dans un fichier Excel (.xlsx), fait sur l'appareil ---------------- */

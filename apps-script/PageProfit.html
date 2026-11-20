@@ -21,6 +21,7 @@
   var input = DZ.input;
   var readForm = DZ.readForm;
   var icon = DZ.icon;
+  var help = DZ.help;
   var dayText = DZ.dayText;
 
   var P = S.profit;
@@ -106,8 +107,8 @@
     if (!box || !d) return;
     var tabs = [['resume', 'Résumé'], ['produits', 'Produits'], ['campagnes', 'Publicité'], ['depenses', 'Dépenses et gains']];
     var r = d.range || {};
-    var html = '<div class="page-head"><div><h1>Bénéfices</h1><p class="sub">' + h(rangeText(r)) +
-      (d.prev ? ' · comparé au ' + dayText(r.prevFrom) + '–' + dayText(r.prevTo) : '') + ' · commandes comptées à leur date de commande' +
+    var html = '<div class="page-head"><div><h1>Bénéfices' + help('Les commandes sont comptées à leur date de commande.' + (d.prev ? ' Comparé à la période d’avant, de même durée.' : '')) + '</h1><p class="sub">' + h(rangeText(r)) +
+      (d.prev ? ' · comparé au ' + dayText(r.prevFrom) + '–' + dayText(r.prevTo) : '') +
       (d.pending ? ' · ' + plural(d.pending, 'jour encore en calcul', 'jours encore en calcul') + ' (quelques minutes)' : '') + '</p></div></div>' +
       '<div id="profit-period">' + DZ.periodPicker(P.p, 'profit-period') + '</div>' +
       '<div class="tabs chips" role="group" aria-label="Rubrique" style="margin-top:12px">' + tabs.map(function (x) {
@@ -150,7 +151,7 @@
   function netChart(d) {
     var rows = d.series || [];
     var unit = d.range.unit === 'week' ? 'semaine' : d.range.unit === 'month' ? 'mois' : 'jour';
-    var html = '<section class="card"><h2>Bénéfice net par ' + unit + '</h2>';
+    var html = '<section class="card"><h2>Bénéfice net par ' + unit + help('Commandes à leur date de commande ; une dépense sur plusieurs jours est répartie sur chaque jour. Touchez une barre pour le détail.') + '</h2>';
     if (!rows.length || rows.every(function (b) { return !b.net && !b.revenue; })) return html + '<p class="empty">Rien sur la période.</p></section>';
     var W = 640, H = 170, pad = 24;
     var max = 1, min = 0;
@@ -180,7 +181,7 @@
     return html + '<div class="chart-wrap">' + svg + '<div class="legend"><span><i style="background:' + GREEN + '"></i>Gagné</span><span><i style="background:' + RED + '"></i>Perdu</span>' +
       (rows.length > 1 && best ? '<span>Meilleur : ' + h(bucketLabel(best, d.range.unit)) + ' (' + money(best.net) + ')</span>' : '') +
       (rows.length > 1 && worst && worst.net < 0 ? '<span>Pire : ' + h(bucketLabel(worst, d.range.unit)) + ' (' + money(worst.net) + ')</span>' : '') +
-      '</div></div><p class="small" style="margin-top:6px">Commandes à leur date de commande ; une dépense sur plusieurs jours est répartie sur chaque jour. Touchez une barre pour le détail.</p></section>';
+      '</div></div></section>';
   }
 
   /** b) Où part l'argent encaissé. */
@@ -216,7 +217,7 @@
   /** f) Seuil de rentabilité. */
   function breakEven(d) {
     var b = d.breakEven;
-    var html = '<section class="card"><h2>Seuil de rentabilité</h2>';
+    var html = '<section class="card"><h2>Seuil de rentabilité' + help('Le nombre de commandes livrées qu’il faut pour couvrir vos dépenses (moins les gains). Les commandes encore en route ne sont pas encore comptées.') + '</h2>';
     if (!b || !b.needPerDay) return html + '<p class="small">Aucune dépense sur la période : chaque commande livrée est déjà du bénéfice.</p></section>';
     if (b.perDayNeeded === null) {
       return html + '<p>Vos dépenses : <strong>' + money(b.needPerDay) + ' par jour</strong>. ' +
@@ -233,18 +234,19 @@
     return html + '<p>Vos dépenses (moins les gains) : <strong>' + money(b.needPerDay) + ' par jour</strong>. Une commande livrée vous rapporte en moyenne <strong>' + money(b.margin) + '</strong> avant dépenses (retours compris).</p>' +
       '<p style="margin-top:8px">Il faut <strong>' + num(b.perDayNeeded) + ' livrée(s) ' + unit + '</strong> pour couvrir vos dépenses. Vous en faites <strong class="' + (ok ? 'pos' : 'neg') + '">' + num(b.perDayNow) + '</strong>.</p>' +
       '<div class="gauge" role="img" aria-label="' + num(b.perDayNow) + ' sur ' + num(b.perDayNeeded) + ' livrées ' + unit + '"><span style="width:' + pctNow.toFixed(1) + '%;background:' + (ok ? GREEN : '#C2410C') + '"></span></div>' +
-      '<p class="small" style="margin-top:6px">' + (ok ? 'Au-dessus du seuil : vous gagnez de l’argent sur la période.'
-        : 'En dessous du seuil' + (missing > 0 ? ' : il manque ' + num(missing) + ' livrée(s) ' + unit : '') + '. Les commandes encore en route ne sont pas encore comptées.') + '</p></section>';
+      '<p class="small strong" style="margin-top:6px">' + (ok ? 'Au-dessus du seuil : vous gagnez de l’argent'
+        : missing > 0 ? 'Il manque ' + num(missing) + ' livrée ' + unit : 'En dessous du seuil') + '</p></section>';
   }
 
   /** g) Simulateur : et si le taux de livraison changeait ? */
   function simulator(d) {
     var s = d.sim;
-    var html = '<section class="card"><h2>Simulateur du taux de livraison</h2>';
+    var html = '<section class="card"><h2>Simulateur du taux de livraison' + help('Un meilleur taux de livraison vient d’une confirmation plus sérieuse (adresse, disponibilité) et d’un suivi rapide des colis suspendus.') + '</h2>';
     if (!s || !s.finished || s.avgDelivered === null) return html + '<p class="small">Il faut des commandes livrées ou retournées sur la période pour simuler.</p></section>';
     var cur = Math.round((s.rate || 0) * 100);
     var target = Math.min(Math.max(P.simRate || Math.min(cur + 10, 95), 20), 100);
-    return html + '<p class="small">Sur ' + plural(s.finished, 'commande terminée', 'commandes terminées') + ' : une livrée rapporte en moyenne ' + money(s.avgDelivered) + ', un retour coûte ' + money(s.avgReturnLoss) + '. Votre taux actuel : <strong>' + cur + ' %</strong>.</p>' +
+    return html + '<p class="small strong">Livrée +' + money(s.avgDelivered) + ' · retour −' + money(s.avgReturnLoss) + ' · taux ' + cur + ' %' +
+      help('Sur ' + plural(s.finished, 'commande terminée', 'commandes terminées') + ' : une livrée rapporte en moyenne ' + money(s.avgDelivered) + ', un retour coûte ' + money(s.avgReturnLoss) + '. Votre taux actuel : ' + cur + ' %.') + '</p>' +
       '<label class="sim-row"><span>Taux de livraison : <strong id="sim-rate">' + target + ' %</strong></span>' +
       '<input type="range" min="20" max="100" step="1" value="' + target + '" data-sim aria-label="Taux de livraison simulé"></label>' +
       '<div id="sim-out">' + simText(d, target) + '</div></section>';
@@ -258,8 +260,7 @@
     var net = Math.round(profit - t.expenses + t.gains);
     var diff = net - t.net;
     return '<p style="margin-top:8px">Avec <strong>' + pct + ' %</strong> de livraison : bénéfice net <strong class="' + (net < 0 ? 'neg' : 'pos') + '">' + money(net) + '</strong>' +
-      (diff ? ' <span class="delta ' + (diff > 0 ? 'up' : 'down') + '">' + (diff > 0 ? '+' : '') + money(diff) + '</span>' : '') + ' sur la période.</p>' +
-      '<p class="small">Un meilleur taux de livraison vient d’une confirmation plus sérieuse (adresse, disponibilité) et d’un suivi rapide des colis suspendus.</p>';
+      (diff ? ' <span class="delta ' + (diff > 0 ? 'up' : 'down') + '">' + (diff > 0 ? '+' : '') + money(diff) + '</span>' : '') + ' sur la période.</p>';
   }
 
   function detailLines(d) {
@@ -274,7 +275,7 @@
       d.expensesByCategory.map(function (e) { return '<div><span>' + h(e.category) + '</span>' + signed(-e.amount) + '</div>'; }).join('') +
       (d.gainsByCategory || []).map(function (e) { return '<div><span>Gain · ' + h(e.category) + '</span>' + signed(e.amount) + '</div>'; }).join('') +
       '<div class="total"><span>Bénéfice net</span>' + signed(t.net) + '</div>' +
-      '</div><p class="small" style="margin-top:10px">' + t.inTransit + ' commande(s) encore en route ne sont pas comptées : leur bénéfice arrivera à la livraison.</p></section>';
+      '</div>' + (t.inTransit ? '<p class="small" style="margin-top:10px">' + plural(t.inTransit, 'commande en route', 'commandes en route') + ', pas encore comptées' + help('Leur bénéfice arrivera à la livraison.') + '</p>' : '') + '</section>';
   }
 
   /* ---------------- Produits (d) ---------------- */
@@ -300,7 +301,7 @@
     var top = byAfter.filter(function (g) { return g.profit !== 0 || g.ad; }).slice(0, 8);
     var max = Math.max.apply(null, top.map(function (g) { return Math.max(Math.abs(g.profit), g.ad || 0, Math.abs(after(g))); }).concat([1]));
     var BLUE = '#9DBEF0';
-    html += '<section class="card"><h2>Ce qui vous rapporte le plus' + (anyAd ? ', après pub' : '') + '</h2>' +
+    html += '<section class="card"><h2>Ce qui vous rapporte le plus' + (anyAd ? ', après pub' : '') + help('Classés par bénéfice' + (anyAd ? ' après pub' : '') + ' (après livraison, achat et retours), pas par nombre de ventes.') + '</h2>' +
       (top.length ? '<div class="hbars">' + top.map(function (g) {
         var a = after(g);
         var green = Math.max(a, 0);
@@ -314,9 +315,9 @@
           '<span class="hbar-n ' + (a < 0 ? 'neg' : '') + '">' + money(a) + '</span></div>';
       }).join('') + '</div>' +
       (anyAd ? '<p class="legend small"><span><i style="background:' + GREEN + '"></i>bénéfice après pub</span><span><i style="background:' + BLUE + '"></i>part payée en pub</span></p>' : '')
-      : '<p class="empty">Pas encore de bénéfice calculé (aucune commande livrée ou retournée).</p>') +
-      '<p class="small" style="margin-top:8px">Classés par bénéfice' + (anyAd ? ' après pub' : '') + ' (après livraison, achat et retours), pas par nombre de ventes.</p></section>';
-    html += '<section class="card"><h2>Par produit</h2>' +
+      : '<p class="empty">Pas encore de bénéfice calculé (aucune commande livrée ou retournée).</p>') + '</section>';
+    html += '<section class="card"><h2>Par produit' + help('Une commande à plusieurs produits est partagée selon les quantités. <strong>Pub</strong> : dépenses de publicité reliées au produit (case « Produit de cette pub » des dépenses). ' +
+      '<strong>Pub max. rentable</strong> : ce que le produit rapporte par commande livrée avant pub (retours compris) ; ✓ = vous payez moins, ▲ = vous payez plus. Les colis en route ne comptent pas encore : « Après pub » remonte quand ils sont livrés.') + '</h2>' +
       table(['Produit', 'Commandes', 'Livrées', 'Retours', 'Bénéfice avant pub', 'Pub', 'Après pub', 'Pub par livrée', 'Pub max. rentable'], byAfter.map(function (g) {
         var maxOk = g.maxAdPerDelivered === null ? '—' : money(g.maxAdPerDelivered) +
           (g.adPerDelivered === null ? '' : g.adPerDelivered <= g.maxAdPerDelivered ? ' <span class="pos" title="vous payez moins">✓</span>' : ' <span class="neg" title="vous payez plus">▲</span>');
@@ -324,9 +325,7 @@
           g.orders, g.delivered, g.returned, signed(g.profit), g.ad ? money(g.ad) : '—',
           '<strong>' + signed(after(g)) + '</strong>' + (g.ad && g.inTransit ? '<div class="small">' + plural(g.inTransit, 'colis en route', 'colis en route') + '</div>' : ''),
           g.adPerDelivered === null ? '—' : money(g.adPerDelivered), maxOk];
-      }), [1, 2, 3, 4, 5, 6, 7, 8]) +
-      '<p class="small" style="margin-top:10px">Une commande à plusieurs produits est partagée selon les quantités. <strong>Pub</strong> : dépenses de publicité reliées au produit (case « Produit de cette pub » des dépenses). ' +
-      '<strong>Pub max. rentable</strong> : ce que le produit rapporte par commande livrée avant pub (retours compris) ; ✓ = vous payez moins, ▲ = vous payez plus. Les colis en route ne comptent pas encore : « Après pub » remonte quand ils sont livrés.</p></section>';
+      }), [1, 2, 3, 4, 5, 6, 7, 8]) + '</section>';
     html += unlinkedNote(d) + '</div>';
     return html;
   }
@@ -357,12 +356,11 @@
       '<div class="card kpi"><span class="label">Coût par commande livrée</span><span class="value">' + (t.costPerDelivered === null ? '—' : money(t.costPerDelivered)) + '</span><span class="note">' + delta(t.costPerDelivered, (d.prev || {}).costPerDelivered, false) + '</span></div>' +
       '<div class="card kpi"><span class="label">ROAS</span><span class="value">' + roas(t.roas) + '</span><span class="note">encaissé ÷ publicité</span></div></section>' +
       '<section class="card"><h2>Par plateforme</h2>' + table(['Plateforme'].concat(head.slice(1)), adRows(d.platforms), [1, 2, 3, 4, 5, 6, 7, 8]) + '</section>' +
-      '<section class="card"><h2>Par campagne</h2>' + table(['Campagne'].concat(head.slice(1)), adRows(d.campaigns), [1, 2, 3, 4, 5, 6, 7, 8]) +
-      (d.adUnassigned ? '<p class="small" style="margin-top:10px">' + money(d.adUnassigned) + ' de publicité sans campagne : comptés pour la plateforme, pas pour une campagne.</p>' : '') +
-      '<p class="small" style="margin-top:10px"><strong>ROAS</strong> ×3 = 3 DA encaissés pour 1 DA de publicité. <strong>Net</strong> = bénéfice des commandes − publicité : c’est lui qui dit si une campagne vous enrichit.</p>' +
-      '<p class="small" style="margin-top:10px">Pour relier vos commandes à vos publicités : ajoutez « UTM source » et « UTM campaign » à la fin de l’onglet RELEASIT, et dans le lien de vos annonces : ' +
-      '<span class="mono">utm_source=facebook&amp;utm_campaign={{campaign.name}}</span> (Facebook) ou <span class="mono">utm_source=tiktok&amp;utm_campaign=__CAMPAIGN_NAME__</span> (TikTok). ' +
-      'Dans vos dépenses, écrivez le même nom de campagne.</p></section></div>';
+      '<section class="card"><h2>Par campagne' + help('<strong>ROAS</strong> ×3 = 3 DA encaissés pour 1 DA de publicité. <strong>Net</strong> = bénéfice des commandes − publicité : c’est lui qui dit si une campagne vous enrichit. ' +
+        'Pour relier vos commandes à vos publicités : ajoutez « UTM source » et « UTM campaign » à la fin de l’onglet RELEASIT, et dans le lien de vos annonces : ' +
+        '<span class="mono">utm_source=facebook&amp;utm_campaign={{campaign.name}}</span> (Facebook) ou <span class="mono">utm_source=tiktok&amp;utm_campaign=__CAMPAIGN_NAME__</span> (TikTok). ' +
+        'Dans vos dépenses, écrivez le même nom de campagne.') + '</h2>' + table(['Campagne'].concat(head.slice(1)), adRows(d.campaigns), [1, 2, 3, 4, 5, 6, 7, 8]) +
+      (d.adUnassigned ? '<p class="small" style="margin-top:10px">' + money(d.adUnassigned) + ' sans campagne' + help('Comptés pour la plateforme, pas pour une campagne.') + '</p>' : '') + '</section></div>';
   }
 
   /* ---------------- Dépenses et gains ---------------- */
@@ -379,8 +377,8 @@
     var html = '<div class="stack"><section class="card" id="expense-card"><h2>' + (e ? 'Corriger ' + (e.gain ? 'un gain' : 'une dépense') : 'Ajouter une dépense ou un gain') + '</h2>' +
       '<div class="form-grid" id="expense-form"></div>' +
       '<datalist id="campaign-list">' + d.knownCampaigns.map(function (c) { return '<option value="' + h(c) + '">'; }).join('') + '</datalist>' +
-      '<p class="small" style="margin:10px 0">Pour une dépense étalée (publicité du 1er au 10…), remplissez « Au » : le montant est réparti sur chaque jour, et chaque période ne compte que ses jours. ' +
-      'Dollar : ' + money(d.rate) + ' (réglage TAUX_DOLLAR) ; une dépense garde le taux du jour où elle est saisie.</p>' +
+      '<p class="small" style="margin:10px 0">Dollar : ' + money(d.rate) + help('Pour une dépense étalée (publicité du 1er au 10…), remplissez « Au » : le montant est réparti sur chaque jour, et chaque période ne compte que ses jours. ' +
+        'Dollar : réglage TAUX_DOLLAR ; une dépense garde le taux du jour où elle est saisie.') + '</p>' +
       '<div class="quick"><button type="button" class="btn primary" data-act="expense-save">' + (e ? 'Enregistrer la correction' : 'Ajouter') + '</button>' +
       (e ? '<button type="button" class="btn" data-act="expense-cancel-edit">Annuler la correction</button>' : '') + '</div></section>';
 
@@ -411,7 +409,7 @@
               '<button type="button" class="btn danger" style="min-height:34px;padding:0 10px" data-act="expense-del-ask" data-id="' + h(x.id) + '">' + icon('trash') + 'Supprimer</button></span></td></tr>';
         }).join('') + '</tbody></table></div>' + DZ.bulkBar('expenses');
     }
-    html += '<p class="small" style="margin-top:10px">Tout est aussi dans l’onglet <strong>Dépenses</strong> du classeur (colonnes Fin, Type et Produit).</p></section>';
+    html += '</section>';
     html += unlinkedBlock(d) + '</div>';
     return html;
   }
@@ -520,8 +518,7 @@
   function unlinkedBlock(d) {
     var list = d.adUnlinked || [];
     if (!list.length) return '';
-    return '<section class="card" id="ad-unlinked"><h2>Pubs sans produit · ' + list.length + '</h2>' +
-      '<p class="small">Reliez-les pour que leur coût compte dans le bénéfice du produit. Les autres dépenses de la même campagne suivront.</p>' +
+    return '<section class="card" id="ad-unlinked"><h2>Pubs sans produit · ' + list.length + help('Reliez-les pour que leur coût compte dans le bénéfice du produit. Les autres dépenses de la même campagne suivront.') + '</h2>' +
       '<div class="ad-unlinked">' + list.map(function (x, i) {
         var pick = x.suggestion ? x.suggestion.product : '';
         return '<div class="ad-u-row"><div class="ad-u-name"><strong>' + h(x.campaign || x.category) + '</strong>' +
@@ -575,7 +572,7 @@
       field('Devise', '<select name="currency">' + options(['USD', 'DA'], v.currency || 'DA') + '</select>') +
       (showProduct && multi ? '<div class="field full" id="ad-multi"><span>Produits de cette pub et leur part</span>' + multiLines(parts) +
         '<div class="quick"><button type="button" class="btn" data-act="ad-line-add">' + icon('plus') + 'Ajouter un produit</button></div>' +
-        '<span class="small">Laissez la part vide : la pub est partagée selon les commandes de chaque produit.</span></div>' : '') +
+        help('Laissez la part vide : la pub est partagée selon les commandes de chaque produit.') + '</div>' : '') +
       field('Note', input('note', v.note || ''), 'full');
     if (showProduct) adHint();
   }

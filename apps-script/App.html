@@ -249,6 +249,24 @@
   }
   function wilayaName(w) { return String(w || '').replace(/^\d+\s*-\s*/, ''); }
 
+  /**
+   * v1.14 : une explication rangée derrière un « ? » (s'ouvre au toucher, se ferme au deuxième toucher ou
+   * en touchant ailleurs). `html` est déjà du HTML (textes de l'application).
+   */
+  function help(html) {
+    return '<button type="button" class="qh" data-act="qh" aria-label="Explication" aria-expanded="false">?</button><span class="qh-tip" hidden>' + html + '</span>';
+  }
+  function closeHelp(except) {
+    $all('.qh-tip:not([hidden])').forEach(function (t) {
+      if (t === except) return;
+      t.hidden = true;
+      var b = t.previousElementSibling;
+      if (b) { b.classList.remove('on'); b.setAttribute('aria-expanded', 'false'); }
+    });
+  }
+  /** État en un coup d'œil : point de couleur et quelques mots. */
+  function stat(ok, html) { return '<span class="st' + (ok === false ? ' warn' : '') + '"><i></i>' + html + '</span>'; }
+
   /** Icône (dessin du « sprite » de Index.html). */
   function icon(name, cls) {
     return '<svg class="ic' + (cls ? ' ' + cls : '') + '" aria-hidden="true"><use href="#i-' + name + '"/></svg>';
@@ -422,7 +440,7 @@
 
   function pageDashboard(onlyHead) {
     var p = S.dashP;
-    var head = '<div class="page-head"><div><h1>Tableau de bord</h1><p class="sub" id="dash-sub">Vue d’ensemble de vos commandes COD</p></div></div>' +
+    var head = '<div class="page-head"><div><h1>Tableau de bord</h1><p class="sub" id="dash-sub"></p></div></div>' +
       '<div id="dash-period">' + periodPicker(p, 'period') + '</div>';
     if (onlyHead && $('#dash-period')) { $('#dash-period').innerHTML = periodPicker(p, 'period'); return; }
     var t = ++S.token;
@@ -499,7 +517,7 @@
         '<button type="button" class="btn" data-act="goto" data-route="' + t[2] + '" data-status="' + h(t[3]) + '"' + (t[6] ? ' data-tab="' + t[6] + '"' : '') + '>' + t[4] + '</button></div>';
     }).join('') + '</section>';
 
-    html += '<section class="card"><h2>Taux de livraison par wilaya</h2>';
+    html += '<section class="card"><h2>Taux de livraison par wilaya' + help('Orange : moins de 70 % livrés. « — » : aucun colis terminé.') + '</h2>';
     if (!d.byWilaya.length) {
       html += '<p class="empty">Pas encore de colis expédiés sur la période.</p>';
     } else {
@@ -509,7 +527,7 @@
         return '<div class="bar-row"><span>' + h(w.name) + '<br><span class="small">' + plural(w.orders, 'colis', 'colis') + '</span></span>' +
           '<span class="bar" aria-hidden="true"><span class="' + (rate !== null && rate < 70 ? 'low' : '') + '" style="width:' + (rate || 0) + '%"></span></span>' +
           '<span class="strong" style="text-align:right">' + (rate === null ? '—' : rate + ' %') + '</span></div>';
-      }).join('') + '</div><p class="small" style="margin-top:12px">Orange : moins de 70 % livrés. « — » : aucun colis terminé.</p>';
+      }).join('') + '</div>';
     }
     html += '</section></div>';
 
@@ -547,7 +565,7 @@
     // Téléphone (v1.12) : la recherche en haut, les filtres sur une ligne qui défile, wilaya et période
     // dans « Filtres » (feuille du bas), le bouton « + » pour une nouvelle commande : la liste tout de suite.
     view.innerHTML =
-      '<div class="orders-page"><div class="page-head"><div><h1>Commandes</h1><p class="sub">Commandes pas encore confirmées. Une commande confirmée passe dans <strong>Expédier</strong>, puis <strong>Suivi</strong>. La recherche trouve toutes les commandes.</p></div>' +
+      '<div class="orders-page"><div class="page-head"><div><h1>Commandes' + help('Commandes pas encore confirmées. Une commande confirmée passe dans <strong>Expédier</strong>, puis <strong>Suivi</strong>. La recherche trouve toutes les commandes.') + '</h1></div>' +
       '<button type="button" class="btn primary" data-act="new-order">' + icon('plus') + 'Nouvelle commande</button></div>' +
       '<div class="ord-search">' + icon('search') + '<input type="search" id="f-q" value="' + h(f.q) + '" placeholder="Nom, téléphone, n° de commande ou de suivi" aria-label="Rechercher"></div>' +
       '<div class="chips-line"><button type="button" class="chip filters-chip" data-act="filters-sheet">' + icon('filter') + 'Filtres' + filterBadge() + '</button>' +
@@ -630,8 +648,7 @@
       var s = st.shopify;
       var html = '';
       if (r.found) {
-        html += srcLine(!r.lastError, '<strong>Releasit</strong> : arrivée automatique chaque minute' + (r.lastRun ? ' · dernière lecture ' + h(ago(r.lastRun)) : ''),
-          'releasit-transfer', 'transférer maintenant');
+        html += srcLine(!r.lastError, '<strong>Releasit</strong>' + (r.lastRun ? ' · ' + h(ago(r.lastRun)) : ''), 'releasit-transfer', 'transférer');
         if (r.missing.length) {
           html += '<div class="error-box" role="alert" style="margin-bottom:14px;background:#FFF3DC;color:#8A5200">Onglet RELEASIT : colonne(s) absente(s) : ' +
             h(r.missing.join(', ')) + '. Ajoutez-les dans les réglages Google Sheets de Releasit.</div>';
@@ -639,15 +656,14 @@
         if (r.lastError) html += '<div style="margin-bottom:14px">' + errorBox(r.lastError) + '</div>';
       }
       if (s.configured) {
-        html += srcLine(!s.lastError, '<strong>Shopify</strong> : importation toutes les 5 minutes' + (s.lastRun ? ' · dernière ' + h(ago(s.lastRun)) : ''),
-          'shop-import', 'importer maintenant') +
+        html += srcLine(!s.lastError, '<strong>Shopify</strong>' + (s.lastRun ? ' · ' + h(ago(s.lastRun)) : ''), 'shop-import', 'importer') +
           (s.lastError ? '<div style="margin-bottom:14px">' + errorBox(s.lastError) + '</div>' : '');
       }
       var sm = st.sms;
       if (sm && sm.configured) {
-        html += srcLine(!sm.lastError, '<strong>SMS</strong> : depuis le ' + h(sm.from) + ' · ' + (sm.waiting ? sm.waiting + ' en attente' : 'aucun en attente') +
-          '<span class="src-more" title="' + h('Statuts avec SMS : ' + (sm.statuses.join(', ') || 'aucun')) + '"> · ' + plural(sm.statuses.length, 'statut avec SMS', 'statuts avec SMS') + '</span>',
-          S.boot.user.admin && sm.waiting ? 'sms-send' : '', 'envoyer maintenant') +
+        html += srcLine(!sm.lastError, '<strong>SMS</strong> · ' + (sm.waiting ? sm.waiting + ' en attente' : '0 en attente') +
+          help('SMS envoyés depuis le ' + h(sm.from) + '. Statuts avec SMS : ' + h(sm.statuses.join(', ') || 'aucun') + '. Les textes se modifient dans Administration › Réglages › SMS.'),
+          S.boot.user.admin && sm.waiting ? 'sms-send' : '', 'envoyer') +
           (sm.lastError ? '<div style="margin-bottom:14px">' + errorBox(sm.lastError) + '</div>' : '');
       }
       if (!r.found && !s.configured) {
@@ -691,7 +707,7 @@
       var keep = {};
       ids.forEach(function (id) { if (S.sel.trash[id]) keep[id] = true; });
       S.sel.trash = keep;
-      box.innerHTML = '<div class="list-tools"><p class="small grow">Commandes supprimées avec le bouton « Supprimer » (aussi dans l’onglet <strong>Corbeille</strong> du classeur). Releasit et Shopify ne les font pas revenir.' +
+      box.innerHTML = '<div class="list-tools"><p class="small grow"><strong>Corbeille</strong>' + help('Commandes supprimées avec le bouton « Supprimer » (aussi dans l’onglet <strong>Corbeille</strong> du classeur). Releasit et Shopify ne les font pas revenir.') +
         (res.autoDays ? ' Effacées automatiquement après ' + res.autoDays + ' jours.' : '') + '</p>' +
         '<label class="small sel-all">' + selAllBox('trash', ids) + ' Tout cocher (' + ids.length + ')</label>' +
         '<button type="button" class="btn danger" style="min-height:36px" data-act="trash-purge-ask" data-scope="all">' + icon('trash') + 'Vider la corbeille</button></div>' +
@@ -1543,8 +1559,7 @@
     html += '<span class="queue-title" id="qb-later">Rappels à venir · ' + q.later.length + '</span>' +
       (q.later.length ? q.later.map(function (x) { return queueCard(x, 'later'); }).join('') : '<p class="small">Aucun rappel programmé.</p>');
     if (q.waiting.length) {
-      html += '<span class="queue-title" id="qb-waiting">En attente · ' + q.waiting.length + '</span>' +
-        '<p class="small" style="margin:0">Ni confirmées ni annulées : elles restent ici jusqu’à une décision.</p>' +
+      html += '<span class="queue-title" id="qb-waiting">En attente · ' + q.waiting.length + help('Ni confirmées ni annulées : elles restent ici jusqu’à une décision.') + '</span>' +
         q.waiting.map(function (x) { return queueCard(x, 'waiting'); }).join('');
     }
     $('#queue').innerHTML = html;
@@ -1617,10 +1632,10 @@
     var others = q.later.length + (q.waiting || []).length;
     var box = $('#detail');
     box.classList.add('is-empty');
-    box.innerHTML = '<div class="card"><h2>Personne à appeler maintenant</h2>' +
-      '<p class="sub">Les nouvelles commandes arrivent toutes seules, en général moins d’une minute après la commande.' +
-      (next ? ' Prochain rappel : <span dir="auto">' + h(next.client) + '</span>, ' + fmtDate(next.callback) + '.' : '') + '</p>' +
-      (others ? '<p class="small" style="margin-top:8px">Un client rappelle ? Touchez sa commande dans « Rappels à venir » ou « En attente » : vous pouvez la confirmer tout de suite.</p>' : '') +
+    box.innerHTML = '<div class="card"><h2>Personne à appeler maintenant' +
+      help('Les nouvelles commandes arrivent toutes seules, en général moins d’une minute après la commande.' +
+        (others ? ' Un client rappelle ? Touchez sa commande dans « Rappels à venir » ou « En attente » : vous pouvez la confirmer tout de suite.' : '')) + '</h2>' +
+      (next ? '<p class="sub">Prochain rappel : <span dir="auto">' + h(next.client) + '</span>, ' + fmtDate(next.callback) + '</p>' : '') +
       '</div>';
     var list = $('#queue');
     if (list) list.classList.add('open');
@@ -1706,7 +1721,7 @@
           field('Notes', '<textarea name="notes" dir="auto">' + h(o.notes) + '</textarea>', 'full') +
         '</div>' +
         '<datalist id="d-product-list">' + (b.products || []).map(function (p) { return '<option value="' + h(p.name) + '">'; }).join('') + '</datalist>' +
-        '<p class="small" style="margin-top:6px">Prix et frais se recalculent seuls (quantité, produit, wilaya, livraison, société) ; si vous les tapez à la main, votre montant est gardé.</p>' +
+        '<p class="small" style="margin-top:6px">Prix et frais automatiques' + help('Prix et frais se recalculent seuls (quantité, produit, wilaya, livraison, société) ; si vous les tapez à la main, votre montant est gardé.') + '</p>' +
         '<div class="sum" id="d-sum"></div>' +
         '</div>' +
       '</div>' +
@@ -1719,8 +1734,7 @@
           '<button type="button" class="btn danger big" data-act="show-cancel">' + icon('x') + 'Annuler<kbd>A</kbd></button>' +
         '</div><div id="d-panel"></div>' +
       '</div>' +
-      '<div class="card"><h3>Message WhatsApp</h3><p class="message" id="d-msg"></p>' +
-        '<p class="small" style="margin-top:8px">Modèle modifiable dans l’onglet Paramètres (MESSAGE_WHATSAPP).</p></div>';
+      '<div class="card"><h3>Message WhatsApp' + help('Modèle modifiable dans Administration › Réglages (MESSAGE_WHATSAPP).') + '</h3><p class="message" id="d-msg"></p></div>';
     updateSummary();
     prefetchNext();
   }
@@ -2030,7 +2044,7 @@
 
   function pageShipping() {
     view.innerHTML =
-      '<div class="page-head"><div><h1>Expéditions</h1><p class="sub">Envoi à Ecotrack, bordereaux et validation de l’expédition</p></div>' +
+      '<div class="page-head"><div><h1>Expéditions' + help('Envoi à Ecotrack, bordereaux et validation de l’expédition. Les colis partent avec le total affiché (livraison comprise) ; une commune inconnue d’Ecotrack est signalée avant l’envoi.') + '</h1></div>' +
       '<button type="button" class="btn" data-act="ship-reload">' + icon('refresh') + 'Actualiser</button></div>' +
       '<div id="ship"><p class="loading">Chargement…</p></div>';
     if (S.ship.data) renderShipping();
@@ -2079,7 +2093,7 @@
 
     // Connexion
     html += '<section class="card"><div class="detail-head"><div><h2>Ecotrack</h2><p class="muted">' +
-      (d.configured ? 'Connecté à ' + h(d.host) : 'Pas encore configuré') + '</p></div>';
+      (d.configured ? stat(true, 'Connecté') + help('Plateforme : ' + h(d.host)) : stat(false, 'Pas encore configuré')) + '</p></div>';
     if (d.configured) {
       html += '<div class="quick">' +
         '<button type="button" class="btn" data-act="eco-test">Tester la connexion</button>' +
@@ -2170,8 +2184,7 @@
           '<button type="button" class="btn" style="min-height:36px" data-act="open-order" data-id="' + h(o.id) + '">' + icon('edit') + 'Modifier</button>' +
           (manualCarriers().length ? '<button type="button" class="btn" style="min-height:36px" data-act="manual-ship-ask" data-id="' + h(o.id) + '">Expédiée (autre société)</button>' : '') + '</span></td></tr>';
     });
-    return html + '</tbody></table></div>' +
-      '<p class="small">Les colis partent chez Ecotrack avec le total affiché (livraison comprise). La commune doit être écrite comme chez Ecotrack : sinon le colis est refusé et vous en êtes prévenu ici.</p>';
+    return html + '</tbody></table></div>';
   }
 
   function renderCreated(d) {
@@ -2183,9 +2196,11 @@
     var n = pickedCreated().length;
     var allPicked = list.length > 0 && list.every(function (o) { return c.sel[o.id]; });
     var fmt = labelFormat();
-    var html = '<p class="small"><strong>1.</strong> Imprimez les bordereaux et collez-les sur les colis. ' +
-      '<strong>2.</strong> Validez l’expédition, ici ou sur le site d’Ecotrack : la commande passe « Expédiée » et va dans Suivi. ' +
-      'Un colis pas validé depuis plus de ' + d.alertHours + ' h est signalé.</p>';
+    var html = '<p class="small"><strong>1.</strong> Imprimer · <strong>2.</strong> Valider' +
+      help('<strong>1.</strong> Imprimez les bordereaux et collez-les sur les colis. <strong>2.</strong> Validez l’expédition, ici ou sur le site d’Ecotrack : la commande passe « Expédiée » et va dans Suivi. ' +
+        'Un colis pas validé depuis plus de ' + d.alertHours + ' h est signalé.' +
+        (d.canValidate ? '' : ' La validation est réservée à l’administrateur et au magasinier (onglet Équipe).') +
+        ' Une erreur dans un colis pas encore validé ? « Annuler le colis » le supprime chez Ecotrack : la commande redevient modifiable, puis vous recréez le colis (et réimprimez son bordereau).') + '</p>';
     html += '<div class="chips" role="group" aria-label="Filtre des colis">' +
       '<button type="button" class="chip" data-act="created-filter" data-filter="all" aria-pressed="' + (c.filter !== 'unprinted') + '">Tous · ' + d.created.length + '</button>' +
       '<button type="button" class="chip" data-act="created-filter" data-filter="unprinted" aria-pressed="' + (c.filter === 'unprinted') + '">Pas encore imprimés · ' + unprinted.length + '</button></div>';
@@ -2216,8 +2231,7 @@
         '<td data-label=""><button type="button" class="btn danger" style="min-height:36px" data-act="parcel-cancel-ask" data-from="ship" data-id="' + h(o.id) + '" data-tracking="' + h(o.tracking) + '">Annuler le colis</button></td></tr>';
     });
     return html + '</tbody></table></div>' +
-      (d.canValidate ? '' : '<p class="small">La validation de l’expédition est réservée à l’administrateur et au magasinier (onglet Équipe).</p>') +
-      '<p class="small">Une erreur dans un colis pas encore validé ? « Annuler le colis » le supprime chez Ecotrack : la commande redevient modifiable, puis vous recréez le colis (et réimprimez son bordereau).</p>';
+      '';
   }
 
   function pickedCreated() {
@@ -2446,7 +2460,7 @@
       'en cas de problème, il faudra faire une demande de retour.</p>' +
       (notPrinted ? '<div class="lock-box warn"><p>' + icon('alert') + '' + plural(notPrinted, 'colis n’a pas', 'colis n’ont pas') + ' de bordereau imprimé dans l’outil.</p></div>' : '') +
       '<label class="check-line" style="margin:14px 0"><input type="checkbox" class="check" id="v-pickup"' + (d.pickup ? ' checked' : '') + '> ' +
-      'Demander le ramassage <span class="small">(décoché : vous déposez les colis à l’agence)</span></label>' +
+      'Demander le ramassage' + help('Décoché : vous déposez les colis à l’agence.') + '</label>' +
       '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Annuler</button>' +
       '<button type="button" class="btn primary" data-act="validate-go">' + (notPrinted ? 'Valider quand même' : 'Valider ' + plural(ids.length, 'colis', 'colis')) + '</button></div>');
   }
@@ -2628,8 +2642,8 @@
     var d = S.track.data;
     var box = $('#track');
     if (!d || !box) return;
-    var html = '<div class="page-head"><div><h1>Suivi des colis</h1><p class="sub">' +
-      (d.lastSync ? 'Statuts vérifiés chez Ecotrack ' + h(ago(d.lastSync)) + ' · automatiquement ' + h(everyText(d.every)) : 'Statuts pas encore lus chez Ecotrack') + '</p></div>' +
+    var html = '<div class="page-head"><div><h1>Suivi des colis' + help('Statuts relus chez Ecotrack automatiquement ' + h(everyText(d.every)) + '. L’argent (chez le livreur, à recevoir, versements d’Ecotrack) est dans Statistiques › Argent.') + '</h1><p class="sub">' +
+      (d.lastSync ? stat(true, 'Ecotrack · lu ' + h(ago(d.lastSync))) : stat(false, 'Statuts pas encore lus')) + '</p></div>' +
       '<button type="button" class="btn primary" data-act="track-sync">' + icon('refresh') + 'Actualiser les statuts</button></div>';
     html += '<div class="stack">';
     if (!d.configured) {
@@ -2648,7 +2662,7 @@
         return '<div class="result-row track-alert lv-' + h(a.level) + '"><span class="pill" style="min-width:96px;text-align:center;background:' + lv.bg + ';color:' + lv.fg + '">' + lv.label + '</span>' +
           '<span class="grow"><strong>' + h(a.title) + '</strong> · <button type="button" class="link-btn" data-act="open-order" data-id="' + h(a.id) + '">' + h(a.id) + '</button> · <span dir="auto">' + h(a.client) + '</span> · ' + h(wilayaName(a.wilaya)) +
           (a.tagLabel ? ' ' + tagPill(a.tag, a.tagLabel) : '') +
-          '<br><span class="small" style="color:var(--ink-2)">' + h(a.detail) + '</span>' +
+          '<br><span class="act-short">→ ' + h(shortAction(a)) + '</span>' + help(h(a.detail)) +
           (a.courierNote ? '<br><span class="small courier-note">' + icon('courier') + 'Livreur : ' + h(a.courierNote) + '</span>' : '') +
           (a.calls && !a.proposeReturn ? '<br><span class="small strong">' + plural(a.calls, 'appel sans réponse', 'appels sans réponse') + '</span>' : '') +
           '<br><span class="small mono">' + h(a.tracking) + ' · ' + h(a.carrierLabel || 'statut pas encore lu') + ' · depuis ' + h(ago(a.since).replace(/^il y a /, '')) + '</span>' +
@@ -2678,7 +2692,7 @@
       '<button type="button" data-act="track-view" data-view="done" aria-pressed="' + (view === 'done') + '">Terminées (' + d.days + ' j) · ' + d.finishedTotal + '</button></div>';
     if (view === 'done') html += finishedSection(d);
     else html += activeSection(d);
-    html += '<p class="small">L’argent (chez le livreur, à recevoir, versements d’Ecotrack) est dans Statistiques › Argent.</p></div>';
+    html += '</div>';
     box.innerHTML = html;
   }
 
@@ -2735,6 +2749,18 @@
   }
 
   /* ---------------- Résultat de l'appel (alertes de suivi) ---------------- */
+
+  /** Suivi : l'action à faire, en quelques mots (la phrase complète est dans le « ? »). */
+  function shortAction(a) {
+    var map = { suspended: 'Appeler le client', returning: 'Rappeler le client', return_stuck: 'Réclamer le retour à Ecotrack', draft: 'Valider dans Expédier',
+      money_late: 'Vérifier le paiement avec Ecotrack', missing: 'Vérifier dans Ecotrack', unknown: 'Mettre à jour à la main' };
+    if (map[a.kind]) return map[a.kind];
+    var t = String(a.detail || '');
+    if (a.kind === 'stale') return t.split(' (')[0];
+    var i = t.lastIndexOf(' : ');
+    t = i >= 0 ? t.slice(i + 3) : t;
+    return t.charAt(0).toUpperCase() + t.slice(1).replace(/\.$/, '');
+  }
 
   function alertById(id) {
     var d = S.track.data;
@@ -2841,7 +2867,6 @@
         return '<li><span class="t-date">' + (e.date ? (e.dayOnly ? fmtDay(e.date) : fmtDate(e.date)) : h(e.dateText || '—')) + '</span><span class="t-body"><strong>' + h(e.label) + '</strong>' +
           (e.note ? '<br><span class="small">' + h(e.note) + '</span>' : '') + '</span></li>';
       }).join('') + '</ol>' +
-        '<p class="small">Heures d’Algérie, telles que données par Ecotrack.</p>' +
         (d.raw ? '<details><summary class="small">Réponse brute d’Ecotrack (en cas de doute sur une date)</summary><pre class="mono" style="white-space:pre-wrap;font-size:12px;overflow:auto">' + h(d.raw) + '</pre></details>' : '');
     }
     return html + remarksHtml(d) + '</div>';
@@ -2868,10 +2893,10 @@
   function showMoreMenu() {
     var u = S.boot.user;
     showModal(modalHead('Plus') + '<div class="more-list">' +
-      (u.admin ? '<a href="#/benefices">' + icon('benefices') + 'Bénéfices<div class="small" style="font-weight:400">Résumé, produits, publicité, dépenses</div></a>' : '') +
-      (u.stock ? '<a href="#/stock">' + icon('stock') + 'Stock<div class="small" style="font-weight:400">Produits, entrées, inventaire, historique</div></a>' : '') +
-      (u.admin ? '<a href="#/stats">' + icon('stats') + 'Statistiques<div class="small" style="font-weight:400">Commandes, argent, wilayas, produits, équipe</div></a>' : '') +
-      (u.admin ? '<a href="#/admin">' + icon('admin') + 'Administration<div class="small" style="font-weight:400">État de l’outil, connexions, réglages, équipe</div></a>' : '') +
+      (u.admin ? '<a href="#/benefices">' + icon('benefices') + 'Bénéfices</a>' : '') +
+      (u.stock ? '<a href="#/stock">' + icon('stock') + 'Stock</a>' : '') +
+      (u.admin ? '<a href="#/stats">' + icon('stats') + 'Statistiques</a>' : '') +
+      (u.admin ? '<a href="#/admin">' + icon('admin') + 'Administration</a>' : '') +
       '</div>');
   }
 
@@ -2953,6 +2978,8 @@
   DZ['showBackupBanner'] = showBackupBanner;
   DZ['pct'] = pct;
   DZ['plural'] = plural;
+  DZ['help'] = help;
+  DZ['stat'] = stat;
   DZ['fmtDate'] = fmtDate;
   DZ['fmtDay'] = fmtDay;
   DZ['periodPicker'] = periodPicker;
@@ -3062,6 +3089,15 @@
     'trash-purge': purgeTrash,
     'trash-restore-sel': restoreTrashSel,
     'new-order': openNewOrder,
+    'qh': function (el) {
+      var tip = el.nextElementSibling;
+      if (!tip || !tip.classList.contains('qh-tip')) return;
+      var open = tip.hidden;
+      closeHelp();
+      tip.hidden = !open;
+      el.classList.toggle('on', open);
+      el.setAttribute('aria-expanded', open ? 'true' : 'false');
+    },
     'commune-pick': function (el) {
       var form = el.closest('#order-form, #d-form');
       if (!form) return;
@@ -3238,6 +3274,7 @@
       }
       return;
     }
+    if (!(e.target.closest && e.target.closest('.qh, .qh-tip'))) closeHelp();
     var el = e.target.closest('[data-act]');
     if (!el || el.disabled) return;
     var fn = ACTIONS[el.getAttribute('data-act')];

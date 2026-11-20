@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.13
+## Ce que fait la version 1.14
 
 | Écran | Contenu |
 |---|---|
@@ -19,6 +19,8 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 | **Bénéfices** | Bénéfice net sur la **période de votre choix** comparé à la période d'avant, **graphiques** (bénéfice par jour, où part l'argent, seuil de rentabilité, simulateur du taux de livraison), produits classés par bénéfice **après pub** (chaque pub reliée à son produit), publicité (coût par livrée, ROAS), **dépenses et gains** sur un jour ou un intervalle, à corriger ou supprimer (administrateur) |
 | **Statistiques** | Commandes et argent par période, comparés à la période d'avant : **ce qui a changé** en phrases, parcours des commandes avec les pertes et leurs motifs, **carte des wilayas**, heures × jours, **meilleure heure pour appeler**, vitesse de confirmation, bureau ou domicile, produits, **équipe** (appels, réponses, objectif du jour, prime), publicité (**qualité des sources**), **filtre croisé** (une wilaya, un produit, une campagne, une source ou une confirmatrice), où est l'argent et versements d'Ecotrack ; tableaux triables, export pour Excel (administrateur) |
 | **Administration** | État de l'outil, connexions (Ecotrack, SMS, Shopify, Releasit), réglages en formulaires, équipe (**connexion par téléphone et mot de passe**, version Cloudflare), clients, sauvegarde **Tout exporter (Excel)**, entretien (administrateur) |
+
+Écrans plus légers (v1.14) : les explications sont rangées derrière un petit **?** (elles s'ouvrent au toucher), les états tiennent en un point de couleur et quelques mots.
 
 Communes (version Cloudflare, envoi par Ecotrack) : la **liste officielle d'Ecotrack** (1 529 communes actives, avec leur nom arabe) dans la case Commune, la commune écrite en arabe par le client **reconnue toute seule**, et **pas d'envoi** d'un colis dont la commune est inconnue d'Ecotrack. Voir « v1.13 » plus bas.
 
@@ -685,6 +687,18 @@ Rien à coller dans Apps Script pour cette version. Seulement dans la version Cl
 - **Commune à vérifier** : sinon (un quartier, une faute), la Confirmation affiche un cadre orange avec **Choisir la commune** et les communes proches (orthographe proche, ou nom de la commune trouvé dans l'adresse). Le choix est enregistré avec le résultat de l'appel.
 - **Expédier** : une commande dont la commune est inconnue d'Ecotrack ne peut pas partir (« Commune inconnue d'Ecotrack : « Azazgua » ») ; **Mettre « Azazga »** la corrige en un geste, ou **Choisir la commune**. Le colis part toujours avec le nom d'Ecotrack, même si la commune a été écrite en arabe.
 - Les noms arabes viennent de la liste libre **@dzcode-io/leblad** (licence MIT, `cloudflare/src/communes-ar.js`) : 1 510 communes actives d'Ecotrack sur 1 529 ont leur nom arabe.
+
+### v1.14 : moins d'écriture dans les pages
+
+Rien à coller dans Apps Script pour cette version (la version Google profite aussi des changements si vous recollez `dist/Code.gs`, mais ce n'est pas nécessaire).
+
+- **« ? »** à côté d'un titre, d'un réglage ou d'une action : l'explication s'ouvre au toucher, se ferme au deuxième toucher ou en touchant ailleurs. Rien n'est perdu.
+- **États courts** : « ● Ecotrack · lu il y a 1 min », « ● Releasit · il y a 1 min », « ● SMS · 0 en attente », « ● Connecté ».
+- **Suivi** : chaque colis à traiter montre l'action à faire (« → Appeler le client », « → Valider dans Expédier »…), la phrase complète est dans le « ? ».
+- **Bénéfices** : « Il manque 0,3 livrée / semaine », « Livrée +2 018 DA · retour −50 DA · taux 69 % ».
+- **Réglages** : un titre court pour chacun des 56 réglages ; la description et le nom dans le classeur sont dans le « ? ».
+- Phrases devenues inutiles supprimées (rappel des communes dans Expédier, renvois vers le classeur, descriptions du menu Plus).
+- Mesuré sur les pages d'exemple (téléphone) : **37 % de mots en moins** à l'écran (Réglages : −63 %, Expédier : −32 %, Suivi : −25 %, Bénéfices : −23 %). Les chiffres, dates, n° de suivi et remarques du livreur ne changent pas.
 
 ### Comment ça marche
 
