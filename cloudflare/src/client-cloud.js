@@ -329,7 +329,7 @@
     return {
       ensure: ensure,
       ready: function () { return !!idx; },
-      list: function (w) { return idx ? (idx.byW[w] || []) : []; },
+      list: function (w) { return idx ? (DZC.list(idx, w) || []) : []; },
       find: function (w, t) { return idx ? DZC.find(idx, w, t) : null; },
       suggest: function (w, t, extra) { return idx ? DZC.suggest(idx, w, t, extra) : []; },
       search: function (w, q) { return idx ? DZC.search(idx, w, q) : []; }

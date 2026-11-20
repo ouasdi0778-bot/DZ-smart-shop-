@@ -56,22 +56,36 @@ var DZC = (function () {
   /** Ressemblance de 0 à 1 entre deux textes déjà normalisés. */
   function sim(a, b) { return a && b ? 1 - lev(a, b) / Math.max(a.length, b.length) : 0; }
 
+  /**
+   * Communes groupées par wilaya. Tri et clés de recherche préparés seulement pour la wilaya demandée
+   * (peu de calcul : le moteur Cloudflare gratuit compte chaque milliseconde).
+   */
   function index(list) {
     var byW = {};
-    var keys = {};
-    var add = function (k, key, c) { if (key.length > 3) (k[key] = k[key] || []).push(c); };
-    (list || []).forEach(function (c) {
-      (byW[c.w] = byW[c.w] || []).push(c);
-      var k = keys[c.w] = keys[c.w] || {};
-      add(k, 'l:' + latin(c.n), c);
-      if (c.a) { add(k, 'a:' + arabic(c.a), c); add(k, 'A:' + arabicLoose(c.a), c); }
+    (list || []).forEach(function (c) { (byW[c.w] = byW[c.w] || []).push(c); });
+    return { byW: byW, sorted: {}, keys: {}, n: (list || []).length };
+  }
+  function listOf(idx, w) {
+    var l = idx && idx.byW[w];
+    if (!l) return null;
+    if (!idx.sorted[w]) { l.sort(function (x, y) { return x.n < y.n ? -1 : x.n > y.n ? 1 : 0; }); idx.sorted[w] = true; }
+    return l;
+  }
+  function keysOf(idx, w) {
+    if (!idx || !idx.byW[w]) return null;
+    if (idx.keys[w]) return idx.keys[w];
+    var k = {};
+    var add = function (key, c) { if (key.length > 3) (k[key] = k[key] || []).push(c); };
+    idx.byW[w].forEach(function (c) {
+      add('l:' + latin(c.n), c);
+      if (c.a) { add('a:' + arabic(c.a), c); add('A:' + arabicLoose(c.a), c); }
     });
-    Object.keys(byW).forEach(function (w) { byW[w].sort(function (x, y) { return x.n.localeCompare(y.n, 'fr'); }); });
-    return { byW: byW, keys: keys, n: (list || []).length };
+    idx.keys[w] = k;
+    return k;
   }
 
   function find(idx, w, text) {
-    var k = idx && idx.keys[w];
+    var k = keysOf(idx, w);
     var t = str(text).trim();
     if (!k || !t) return null;
     var tries = isArabic(t) ? ['a:' + arabic(t), 'A:' + arabicLoose(t)] : ['l:' + latin(t)];
@@ -83,7 +97,7 @@ var DZC = (function () {
   }
 
   function suggest(idx, w, text, extra) {
-    var list = idx && idx.byW[w];
+    var list = listOf(idx, w);
     if (!list) return [];
     var t = str(text).trim();
     var ar = isArabic(t);
@@ -107,7 +121,7 @@ var DZC = (function () {
   }
 
   function search(idx, w, q) {
-    var list = (idx && idx.byW[w]) || [];
+    var list = listOf(idx, w) || [];
     var t = str(q).trim();
     var ar = isArabic(t);
     var key = ar ? arabic(t) : latin(t);
@@ -122,36 +136,49 @@ var DZC = (function () {
     return starts.concat(inside);
   }
 
-  /** Ajoute le nom arabe (table [wilaya d'avant 2019, nom, nom arabe]) : même nom, sinon orthographe proche. */
+  /**
+   * Ajoute le nom arabe. Table { « wilaya d'avant 2019:nom » : nom arabe, « 0:nom » pour un nom unique en
+   * Algérie } préparée une fois pour toutes (cloudflare/tools/communes-ar.js) : ici, une simple lecture.
+   */
   function enrich(list, table) {
-    var byKey = {};
-    var byOld = {};
-    (table || []).forEach(function (r) {
-      var k = latin(r[1]);
-      (byKey[k] = byKey[k] || []).push(r);
-      (byOld[r[0]] = byOld[r[0]] || []).push(r);
-    });
+    var t = table || {};
     return (list || []).map(function (c) {
-      var old = PARENT[c.w] || c.w;
       var k = latin(c.n);
-      var cands = byKey[k] || [];
-      var r = cands.filter(function (x) { return x[0] === old; })[0] || (cands.length === 1 ? cands[0] : null);
-      if (!r) {
-        var best = null;
-        var bs = 0;
-        var sk = skel(c.n);
-        (byOld[old] || []).forEach(function (x) {
-          var s = Math.max(sim(k, latin(x[1])), sk.length > 2 && sk === skel(x[1]) ? 0.86 : 0);
-          if (s > bs) { bs = s; best = x; }
-        });
-        if (bs >= 0.75) r = best;
-      }
       var out = {};
       Object.keys(c).forEach(function (key) { out[key] = c[key]; });
-      out.a = r ? r[2] : '';
+      out.a = t[(PARENT[c.w] || c.w) + ':' + k] || t[c.w + ':' + k] || t['0:' + k] || '';
       return out;
     });
   }
 
-  return { isArabic: isArabic, latin: latin, arabic: arabic, skel: skel, sim: sim, index: index, find: find, suggest: suggest, search: search, enrich: enrich };
+  /** Préparation de la table (outil, pas à chaque lecture) : rapproche aussi les orthographes proches. */
+  function arabicTable(rows, ecotrack) {
+    var t = {};
+    var count = {};
+    var byOld = {};
+    rows.forEach(function (r) {
+      var k = latin(r[1]);
+      t[r[0] + ':' + k] = r[2];
+      count[k] = (count[k] || 0) + 1;
+      (byOld[r[0]] = byOld[r[0]] || []).push({ k: k, sk: skel(r[1]), a: r[2] });
+    });
+    rows.forEach(function (r) { var k = latin(r[1]); if (count[k] === 1) t['0:' + k] = r[2]; });
+    (ecotrack || []).forEach(function (c) {
+      var old = PARENT[c.w] || c.w;
+      var k = latin(c.n);
+      if (t[old + ':' + k] || t['0:' + k]) return;
+      var sk = skel(c.n);
+      var best = null;
+      var bs = 0;
+      (byOld[old] || []).forEach(function (x) {
+        var s = Math.max(sim(k, x.k), sk.length > 2 && sk === x.sk ? 0.86 : 0);
+        if (s > bs) { bs = s; best = x; }
+      });
+      if (bs >= 0.75) t[old + ':' + k] = best.a;
+    });
+    return t;
+  }
+
+  return { isArabic: isArabic, latin: latin, arabic: arabic, skel: skel, sim: sim, index: index, list: listOf, find: find, suggest: suggest, search: search,
+    enrich: enrich, arabicTable: arabicTable };
 })();
