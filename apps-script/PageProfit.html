@@ -279,23 +279,65 @@
 
   /* ---------------- Produits (d) ---------------- */
 
+  /**
+   * Produits : bénéfice avant pub, pub reliée (case « Produit » des dépenses), après pub, pub par
+   * livrée et pub maximum rentable (ce qu'une livrée rapporte avant pub). Alerte quand la pub coûte
+   * plus que ce que le produit rapporte.
+   */
   function profitProducts(d) {
-    if (!d.products.length) return '<div class="card"><p class="empty">Aucune commande sur la période.</p></div>';
-    var byProfit = d.products.slice().sort(function (a, b) { return b.profit - a.profit; });
-    var top = byProfit.filter(function (g) { return g.profit !== 0; }).slice(0, 8);
-    var max = Math.max.apply(null, top.map(function (g) { return Math.abs(g.profit); }).concat([1]));
-    var html = '<div class="stack"><section class="card"><h2>Ce qui vous rapporte le plus</h2>' +
+    if (!d.products.length) return '<div class="card"><p class="empty">Aucune commande sur la période.</p></div>' + unlinkedNote(d);
+    var after = function (g) { return g.afterAd === undefined ? g.profit : g.afterAd; };
+    var anyAd = d.products.some(function (g) { return g.ad > 0; });
+    var html = '<div class="stack">';
+    (d.adAlerts || []).forEach(function (a) {
+      html += '<div class="stock-warn ad-alert">' + icon('alert') + '<span><strong>' + h(a.name) + '</strong> : ' + money(a.ad) + ' de pub pour ' + money(a.profit) + ' de bénéfice : <strong>' + money(a.afterAd) + ' après pub</strong> sur la période. ' +
+        (a.profit > 0
+          ? 'Le produit gagne de l’argent ; c’est la pub qui ne rapporte pas assez' + (a.adPerDelivered !== null && a.maxAdPerDelivered !== null ? ' (pub maximum rentable : ' + money(a.maxAdPerDelivered) + ' par livrée, vous payez ' + money(a.adPerDelivered) + ')' : '') + '.'
+          : 'Le produit perd déjà de l’argent avant pub (retours, coût d’achat, livraison) : la pub creuse la perte.') +
+        (a.inTransit ? ' <span class="small">(' + plural(a.inTransit, 'colis encore en route', 'colis encore en route') + ' : le chiffre peut remonter.)</span>' : '') + '</span></div>';
+    });
+    var byAfter = d.products.slice().sort(function (a, b) { return after(b) - after(a) || b.profit - a.profit; });
+    var top = byAfter.filter(function (g) { return g.profit !== 0 || g.ad; }).slice(0, 8);
+    var max = Math.max.apply(null, top.map(function (g) { return Math.max(Math.abs(g.profit), g.ad || 0, Math.abs(after(g))); }).concat([1]));
+    var BLUE = '#9DBEF0';
+    html += '<section class="card"><h2>Ce qui vous rapporte le plus' + (anyAd ? ', après pub' : '') + '</h2>' +
       (top.length ? '<div class="hbars">' + top.map(function (g) {
-        return '<div class="hbar"><span class="hbar-label">' + h(g.name) + '</span><span class="hbar-track"><span style="width:' + Math.max(Math.abs(g.profit) / max * 100, 2).toFixed(1) + '%;background:' + (g.profit < 0 ? RED : GREEN) + '"></span></span>' +
-          '<span class="hbar-n ' + (g.profit < 0 ? 'neg' : '') + '">' + money(g.profit) + '</span></div>';
-      }).join('') + '</div>' : '<p class="empty">Pas encore de bénéfice calculé (aucune commande livrée ou retournée).</p>') +
-      '<p class="small" style="margin-top:8px">Classés par bénéfice (après livraison, achat et retours), pas par nombre de ventes.</p></section>';
+        var a = after(g);
+        var green = Math.max(a, 0);
+        var blue = g.ad ? (a >= 0 ? g.ad : Math.max(g.profit, 0) || g.ad) : 0;
+        var red = !g.ad && a < 0 ? -a : 0;
+        var w = function (n) { return n ? Math.max(n / max * 100, 1.5).toFixed(1) : 0; };
+        return '<div class="hbar"><span class="hbar-label">' + h(g.name) + '</span><span class="hbar-track stacked">' +
+          (green ? '<span style="width:' + w(green) + '%;background:' + GREEN + '"></span>' : '') +
+          (blue ? '<span style="width:' + w(blue) + '%;background:' + BLUE + '"></span>' : '') +
+          (red ? '<span style="width:' + w(red) + '%;background:' + RED + '"></span>' : '') + '</span>' +
+          '<span class="hbar-n ' + (a < 0 ? 'neg' : '') + '">' + money(a) + '</span></div>';
+      }).join('') + '</div>' +
+      (anyAd ? '<p class="legend small"><span><i style="background:' + GREEN + '"></i>bénéfice après pub</span><span><i style="background:' + BLUE + '"></i>part payée en pub</span></p>' : '')
+      : '<p class="empty">Pas encore de bénéfice calculé (aucune commande livrée ou retournée).</p>') +
+      '<p class="small" style="margin-top:8px">Classés par bénéfice' + (anyAd ? ' après pub' : '') + ' (après livraison, achat et retours), pas par nombre de ventes.</p></section>';
     html += '<section class="card"><h2>Par produit</h2>' +
-      table(['Produit', 'Commandes', 'Livrées', 'Retours', 'Livraison', 'Ventes', 'Bénéfice', 'Par livrée'], byProfit.map(function (g) {
-        return [h(g.name), g.orders, g.delivered, g.returned, rate(g.deliveryRate), money(g.sales), signed(g.profit), g.profitPerDelivered === null ? '—' : signed(g.profitPerDelivered)];
-      }), [1, 2, 3, 4, 5, 6, 7]) +
-      '<p class="small" style="margin-top:10px">Une commande à plusieurs produits est partagée selon les quantités. Bénéfice avant dépenses (publicité…). « Par livrée » : bénéfice divisé par les commandes livrées, retours compris.</p></section></div>';
+      table(['Produit', 'Commandes', 'Livrées', 'Retours', 'Bénéfice avant pub', 'Pub', 'Après pub', 'Pub par livrée', 'Pub max. rentable'], byAfter.map(function (g) {
+        var maxOk = g.maxAdPerDelivered === null ? '—' : money(g.maxAdPerDelivered) +
+          (g.adPerDelivered === null ? '' : g.adPerDelivered <= g.maxAdPerDelivered ? ' <span class="pos" title="vous payez moins">✓</span>' : ' <span class="neg" title="vous payez plus">▲</span>');
+        return [h(g.name) + (g.adBy && g.adBy.length ? '<div class="small">' + h(g.adBy.slice(0, 3).map(function (b) { return b.campaign || b.category; }).join(', ')) + '</div>' : ''),
+          g.orders, g.delivered, g.returned, signed(g.profit), g.ad ? money(g.ad) : '—',
+          '<strong>' + signed(after(g)) + '</strong>' + (g.ad && g.inTransit ? '<div class="small">' + plural(g.inTransit, 'colis en route', 'colis en route') + '</div>' : ''),
+          g.adPerDelivered === null ? '—' : money(g.adPerDelivered), maxOk];
+      }), [1, 2, 3, 4, 5, 6, 7, 8]) +
+      '<p class="small" style="margin-top:10px">Une commande à plusieurs produits est partagée selon les quantités. <strong>Pub</strong> : dépenses de publicité reliées au produit (case « Produit de cette pub » des dépenses). ' +
+      '<strong>Pub max. rentable</strong> : ce que le produit rapporte par commande livrée avant pub (retours compris) ; ✓ = vous payez moins, ▲ = vous payez plus. Les colis en route ne comptent pas encore : « Après pub » remonte quand ils sont livrés.</p></section>';
+    html += unlinkedNote(d) + '</div>';
     return html;
+  }
+
+  /** Rappel des pubs pas encore reliées à un produit (leur coût ne compte dans aucun produit). */
+  function unlinkedNote(d) {
+    var list = d.adUnlinked || [];
+    if (!list.length) return '';
+    var total = list.reduce(function (a, x) { return a + x.amount; }, 0);
+    return '<p class="small" style="margin-top:10px">' + money(total) + ' de publicité sans produit (' + plural(list.length, 'campagne', 'campagnes') + ') : ' +
+      '<button type="button" class="link-btn" data-act="ad-unlinked-go">les relier</button> pour qu’elle compte dans le bénéfice des produits.</p>';
   }
 
   /* ---------------- Publicité (e) ---------------- */
@@ -353,7 +395,7 @@
       html += '<p class="empty">Aucune dépense ni gain sur la période.</p>';
     } else {
       html += '<div class="table-wrap"><table class="data cards"><thead><tr><th scope="col" class="sel">' + DZ.selAllBox('expenses', ids) + '</th>' +
-        ['Date', 'Type', 'Catégorie', 'Campagne', 'Montant', 'Dans la période', ''].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        ['Date', 'Type', 'Catégorie', 'Campagne', 'Produit', 'Montant', 'Dans la période', ''].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>' +
         rows.map(function (x) {
           var when = x.end ? dayText(x.date) + ' → ' + dayText(x.end) + '<div class="small">' + x.days + ' jours</div>' : dayText(x.date) || '—';
           return '<tr' + (P.edit === x.id ? ' class="row-edit"' : '') + '>' + DZ.selCell('expenses', x.id) +
@@ -361,6 +403,7 @@
             '<td data-label="Type"><span class="pill" style="background:' + (x.gain ? '#DDF0E4;color:#146C2E' : '#EEF0F3;color:#3D4350') + '">' + (x.gain ? 'Gain' : 'Dépense') + '</span></td>' +
             '<td data-label="Catégorie" class="multi">' + h(x.category) + (x.note ? '<div class="small">' + h(x.note) + '</div>' : '') + '</td>' +
             '<td data-label="Campagne">' + h(x.campaign || '—') + '</td>' +
+            '<td data-label="Produit" class="multi">' + productCell(x) + '</td>' +
             '<td data-label="Montant" class="num">' + (x.currency === 'USD' ? h(x.amount + ' $ × ' + x.rate) + '<div class="small">' + money(x.amountDA) + '</div>' : money(x.amountDA)) + '</td>' +
             '<td data-label="Dans la période" class="num strong">' + (x.gain ? signed(x.inPeriod) : money(x.inPeriod)) + '</td>' +
             '<td data-label=""><span class="quick" style="justify-content:flex-end">' +
@@ -368,8 +411,138 @@
               '<button type="button" class="btn danger" style="min-height:34px;padding:0 10px" data-act="expense-del-ask" data-id="' + h(x.id) + '">' + icon('trash') + 'Supprimer</button></span></td></tr>';
         }).join('') + '</tbody></table></div>' + DZ.bulkBar('expenses');
     }
-    html += '<p class="small" style="margin-top:10px">Tout est aussi dans l’onglet <strong>Dépenses</strong> du classeur (colonnes Fin et Type).</p></section></div>';
+    html += '<p class="small" style="margin-top:10px">Tout est aussi dans l’onglet <strong>Dépenses</strong> du classeur (colonnes Fin, Type et Produit).</p></section>';
+    html += unlinkedBlock(d) + '</div>';
     return html;
+  }
+
+  /* ---------------- Pub reliée à un produit ---------------- */
+
+  /** Clé de comparaison (comme normalizeLoose_ côté serveur, en plus simple). */
+  function loose(s) {
+    return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9\u0621-\u064A]+/g, ' ').trim();
+  }
+
+  /** « Montre 60 %; Écouteurs » → [{ product: 'Montre', pct: '60' }, { product: 'Écouteurs', pct: '' }]. */
+  function adParts(text) {
+    return String(text || '').split(/\s*[;\n]\s*/).map(function (p) {
+      p = p.trim();
+      if (!p) return null;
+      var m = p.match(/^(.+?)\s*[=:(]?\s*(\d+(?:[.,]\d+)?)\s*%\s*\)?$/);
+      return m ? { product: m[1].trim(), pct: m[2].replace(',', '.') } : { product: p, pct: '' };
+    }).filter(Boolean);
+  }
+
+  /** Cellule Produit d'une dépense : le ou les produits, « à relier » pour une pub sans produit. */
+  function productCell(x) {
+    if (!x.ad) return '<span class="small">—</span>';
+    if (!x.linked) {
+      return '<button type="button" class="pill ad-pill todo" data-act="ad-unlinked-go" title="Relier cette pub à un produit">à relier</button>' +
+        (x.product ? '<div class="small">« ' + h(x.product) + ' » introuvable</div>' : '');
+    }
+    var opts = (P.data && P.data.adProducts) || [];
+    return adParts(x.product).map(function (p) {
+      var o = opts.filter(function (q) { return loose(q.product) === loose(p.product); })[0];
+      return '<span class="pill ad-pill">' + h(p.product) + (o && o.models.length ? ' · toutes les variantes' : '') + (p.pct ? ' · ' + h(p.pct) + ' %' : '') + '</span>';
+    }).join(' ');
+  }
+
+  /** Options de la case « Produit de cette pub » : chaque produit (toutes ses variantes), puis ses modèles. */
+  function productOptions(selected, noneLabel, withMulti) {
+    var d = P.data;
+    var list = d.adProducts || [];
+    var found = !selected;
+    var html = noneLabel ? '<option value="">' + h(noneLabel) + '</option>' : '';
+    list.forEach(function (p) {
+      var sel = loose(selected) === loose(p.product);
+      if (sel) found = true;
+      html += '<option value="' + h(p.product) + '"' + (sel ? ' selected' : '') + '>' + h(p.product) + (p.models.length ? ' · toutes les variantes' : '') + '</option>';
+      p.models.forEach(function (m) {
+        var s2 = loose(selected) === loose(m);
+        if (s2) found = true;
+        html += '<option value="' + h(m) + '"' + (s2 ? ' selected' : '') + '>\u00a0\u00a0\u00a0' + h(m.slice(p.product.length).replace(/^\s*[—–-]\s*/, '')) + '</option>';
+      });
+    });
+    if (!found && selected !== '__multi') html = '<option value="' + h(selected) + '" selected>' + h(selected) + '</option>' + html;
+    if (withMulti) html += '<option value="__multi"' + (selected === '__multi' ? ' selected' : '') + '>Plusieurs produits…</option>';
+    return html;
+  }
+
+  var NONE = '— Aucun (à relier plus tard) —';
+
+  function isAdCat(cat) { return (P.data.adCategories || []).indexOf(cat) >= 0; }
+
+  function adLinkOf(campaign) {
+    var k = loose(campaign);
+    if (!k) return null;
+    var list = P.data.adLinks || [];
+    for (var i = 0; i < list.length; i++) if (loose(list[i].campaign) === k) return list[i];
+    return null;
+  }
+
+  /** Lignes « plusieurs produits » : un produit et sa part (vide = selon les commandes). */
+  function multiLines(parts) {
+    if (parts.length < 2) parts = parts.concat([{ product: '', pct: '' }, { product: '', pct: '' }]).slice(0, 2);
+    return parts.map(adLine).join('');
+  }
+  function adLine(p) {
+    return '<div class="ad-line"><select data-ad-line aria-label="Produit">' + productOptions(p.product, 'Choisir le produit…', false) + '</select>' +
+        '<span class="ad-pct"><input data-ad-pct type="number" min="0" max="100" step="1" inputmode="decimal" placeholder="auto" value="' + h(p.pct) + '" aria-label="Part en %"> %</span>' +
+        '<button type="button" class="btn" data-act="ad-line-del" aria-label="Retirer">' + icon('x') + '</button></div>';
+  }
+
+  /** Texte de la case Produit, tel qu'il sera rangé dans l'onglet Dépenses. */
+  function productValue(form) {
+    if (!form || !isAdCat(form.category) || form.type === 'Gain') return '';
+    if (form.productPick !== '__multi') return form.productPick || '';
+    return Array.prototype.map.call(document.querySelectorAll('#ad-multi .ad-line'), function (line) {
+      var p = line.querySelector('[data-ad-line]').value;
+      var pct = line.querySelector('[data-ad-pct]').value;
+      return p ? p + (pct !== '' ? ' ' + pct + ' %' : '') : '';
+    }).filter(Boolean).join('; ');
+  }
+
+  /** Petit texte sous la case Produit : retenu pour la campagne, ou le sera. */
+  function adHint() {
+    var box = $('#ad-hint');
+    var form = readForm($('#expense-form'));
+    if (!box) return;
+    var camp = String(form.campaign || '').trim();
+    var link = adLinkOf(camp);
+    var val = productValue(form);
+    if (!camp) box.innerHTML = val ? '' : 'Sans produit, la pub ne compte dans aucun produit.';
+    else if (link && loose(link.product) === loose(val)) box.innerHTML = '<span class="pos">✓ retenu pour la campagne « ' + h(link.campaign) + ' »</span>';
+    else if (val) box.innerHTML = 'sera retenu pour la campagne « ' + h(camp) + ' »';
+    else box.innerHTML = 'Sans produit, la pub ne compte dans aucun produit.';
+  }
+
+  /** Bloc « Pubs sans produit » : une ligne par campagne, produit proposé, bouton Relier. */
+  function unlinkedBlock(d) {
+    var list = d.adUnlinked || [];
+    if (!list.length) return '';
+    return '<section class="card" id="ad-unlinked"><h2>Pubs sans produit · ' + list.length + '</h2>' +
+      '<p class="small">Reliez-les pour que leur coût compte dans le bénéfice du produit. Les autres dépenses de la même campagne suivront.</p>' +
+      '<div class="ad-unlinked">' + list.map(function (x, i) {
+        var pick = x.suggestion ? x.suggestion.product : '';
+        return '<div class="ad-u-row"><div class="ad-u-name"><strong>' + h(x.campaign || x.category) + '</strong>' +
+          '<div class="small">' + h(x.category) + ' · ' + (x.date ? dayText(x.date).slice(0, 5) : 'sans date') + ' · ' + money(x.amount) + (x.count > 1 ? ' · ' + plural(x.count, 'dépense', 'dépenses') : '') + '</div></div>' +
+          '<select data-ad-u="' + i + '" aria-label="Produit de la pub">' + productOptions(pick, 'Choisir le produit…', false) + '</select>' +
+          '<span class="small ad-u-tip">' + (x.suggestion ? 'Proposé : la campagne parle de « ' + h(x.suggestion.word) + ' »' : (x.product ? '« ' + h(x.product) + ' » introuvable dans les produits' : '')) + '</span>' +
+          '<button type="button" class="btn primary" data-act="ad-link" data-i="' + i + '">Relier</button></div>';
+      }).join('') + '</div></section>';
+  }
+
+  function linkAd(btn) {
+    var i = Number(btn.getAttribute('data-i'));
+    var x = (P.data.adUnlinked || [])[i];
+    var sel = document.querySelector('[data-ad-u="' + i + '"]');
+    if (!x || !sel) return;
+    if (!sel.value) { toast('Choisissez le produit de cette pub.', true); sel.focus(); return; }
+    btn.disabled = true;
+    call('api_linkCampaign', x.campaign, sel.value, x.id, x.sig).then(function (r) {
+      toast(r.message);
+      loadProfit(true);
+    }).catch(function (e) { btn.disabled = false; toast(errText(e), true); });
   }
 
   /** Formulaire : vide (ajout) ou rempli avec la ligne à corriger. Le type choisit la liste des catégories. */
@@ -383,8 +556,13 @@
     var cats = gain ? d.gainCategories : d.categories;
     // Changement de type : la catégorie de l'autre liste n'est pas gardée.
     if (cur && cats.indexOf(cur.category) < 0) cur.category = cats[0];
-    var v = cur || (e ? { date: e.date, end: e.end, category: e.category, campaign: e.campaign, amount: e.amount, currency: e.currency, note: e.note }
-      : { date: DZ.isoDay(new Date()), end: '', category: cats[0], campaign: '', amount: '', currency: gain ? 'DA' : 'USD', note: '' });
+    var v = cur || (e ? { date: e.date, end: e.end, category: e.category, campaign: e.campaign, amount: e.amount, currency: e.currency, note: e.note, product: e.product }
+      : { date: DZ.isoDay(new Date()), end: '', category: cats[0], campaign: '', amount: '', currency: gain ? 'DA' : 'USD', note: '', product: '' });
+    // Formulaire redessiné : le produit choisi est gardé (ou celui retenu pour la campagne, P.forceProduct).
+    if (cur) { v.product = P.forceProduct !== undefined ? P.forceProduct : productValue(cur); P.forceProduct = undefined; }
+    var parts = adParts(v.product);
+    var multi = parts.length > 1 || (parts.length === 1 && parts[0].pct !== '') || (cur && cur.productPick === '__multi');
+    var showProduct = !gain && isAdCat(v.category);
     var catList = cats.indexOf(v.category) >= 0 || !v.category ? cats : [v.category].concat(cats);
     box.innerHTML =
       field('Type', '<select name="type">' + options(['Dépense', 'Gain'], gain ? 'Gain' : 'Dépense') + '</select>') +
@@ -392,13 +570,21 @@
       field('Au (facultatif)', '<input name="end" type="date" value="' + h(v.end || '') + '">') +
       field('Catégorie', '<select name="category">' + options(catList, cats.indexOf(v.category) >= 0 || v.category ? v.category : cats[0]) + '</select>') +
       (gain ? '' : field('Campagne (facultatif)', input('campaign', v.campaign || '', ' list="campaign-list" placeholder="Nom de la campagne"'))) +
+      (showProduct ? field('Produit de cette pub', '<select name="productPick">' + productOptions(multi ? '__multi' : (parts[0] ? parts[0].product : ''), NONE, true) + '</select><span class="small ad-hint" id="ad-hint"></span>', 'wide') : '') +
       field('Montant', input('amount', v.amount === '' ? '' : v.amount, ' type="number" min="0" step="0.01" inputmode="decimal"')) +
       field('Devise', '<select name="currency">' + options(['USD', 'DA'], v.currency || 'DA') + '</select>') +
+      (showProduct && multi ? '<div class="field full" id="ad-multi"><span>Produits de cette pub et leur part</span>' + multiLines(parts) +
+        '<div class="quick"><button type="button" class="btn" data-act="ad-line-add">' + icon('plus') + 'Ajouter un produit</button></div>' +
+        '<span class="small">Laissez la part vide : la pub est partagée selon les commandes de chaque produit.</span></div>' : '') +
       field('Note', input('note', v.note || ''), 'full');
+    if (showProduct) adHint();
   }
 
   function saveExpense(btn) {
     var data = readForm($('#expense-form'));
+    data.product = productValue(data);
+    if (data.productPick === '__multi' && !data.product) { toast('Choisissez au moins un produit (ou « Aucun »).', true); return; }
+    delete data.productPick;
     if (data.end && data.date && data.end < data.date) { toast('La date « Au » est avant la date « Du ».', true); return; }
     P.lastType = data.type;
     var e = P.edit ? expenseById(P.edit) : null;
@@ -450,7 +636,36 @@
     var out = $('#sim-out');
     if (out) out.innerHTML = simText(P.data, P.simRate);
   });
+  document.addEventListener('input', function (e) {
+    if (!P.data || !e.target.closest || !e.target.closest('#expense-form')) return;
+    if (e.target.name !== 'campaign') { if (e.target.hasAttribute('data-ad-pct')) adHint(); return; }
+    // Campagne déjà reliée : son produit est repris (si la case est vide).
+    var link = adLinkOf(e.target.value);
+    var pick = $('#expense-form select[name="productPick"]');
+    if (link && pick && !pick.value && !$('#ad-multi')) {
+      P.forceProduct = link.product;
+      fillExpenseForm(true);
+      var camp = $('#expense-form [name="campaign"]');
+      if (camp) { camp.focus(); camp.setSelectionRange(camp.value.length, camp.value.length); }
+      return;
+    }
+    adHint();
+  });
   document.addEventListener('change', function (e) {
+    if (P.data && e.target.closest && e.target.closest('#expense-form') && (e.target.name === 'category' || e.target.name === 'productPick')) {
+      var multiNow = !!$('#ad-multi');
+      var form = readForm($('#expense-form'));
+      var wantMulti = form.productPick === '__multi';
+      var adNow = !!$('#expense-form select[name="productPick"]');
+      if (adNow !== isAdCat(form.category) || multiNow !== wantMulti) {
+        // Catégorie de pub choisie : le produit retenu pour la campagne est proposé.
+        var link = e.target.name === 'category' && isAdCat(form.category) && !adNow ? adLinkOf(form.campaign) : null;
+        if (link) P.forceProduct = link.product;
+        fillExpenseForm(true);
+      } else adHint();
+      return;
+    }
+    if (e.target.hasAttribute && e.target.hasAttribute('data-ad-line')) { adHint(); return; }
     if (e.target.name === 'type' && e.target.closest && e.target.closest('#expense-form')) {
       var form = readForm($('#expense-form'));
       var cats = form.type === 'Gain' ? P.data.gainCategories : P.data.categories;
@@ -477,7 +692,27 @@
     'expense-cancel-edit': function () { P.edit = null; renderProfit(); },
     'expense-del-ask': function (el) { askDelete([el.getAttribute('data-id')]); },
     'expense-del-sel': function () { askDelete(DZ.selIds('expenses')); },
-    'expense-del': doDelete
+    'expense-del': doDelete,
+    'ad-link': linkAd,
+    'ad-unlinked-go': function () {
+      if (P.tab !== 'depenses') { P.tab = 'depenses'; renderProfit(); }
+      var box = $('#ad-unlinked');
+      if (box) box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
+    'ad-line-add': function () {
+      var box = $('#ad-multi');
+      var last = box && box.querySelectorAll('.ad-line');
+      if (!last || !last.length) return;
+      last[last.length - 1].insertAdjacentHTML('afterend', adLine({ product: '', pct: '' }));
+    },
+    'ad-line-del': function (el) {
+      var line = el.closest('.ad-line');
+      var box = $('#ad-multi');
+      if (!line || !box) return;
+      if (box.querySelectorAll('.ad-line').length <= 1) { line.querySelector('[data-ad-line]').value = ''; line.querySelector('[data-ad-pct]').value = ''; }
+      else line.parentNode.removeChild(line);
+      adHint();
+    }
   });
 
   function renderPeriodOnly() {

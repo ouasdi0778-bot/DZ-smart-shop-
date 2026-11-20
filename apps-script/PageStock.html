@@ -350,7 +350,8 @@
         field('Seuil d’alerte', input('threshold', m.ownThreshold === null ? '' : m.ownThreshold, ' type="number" min="0" step="1" placeholder="Réglage général"')) +
         field('Autres noms (séparés par « ; »)', input('aliases', m.aliases, ' placeholder="Écritures de ce modèle dans les commandes"')) +
         (m.pack ? '<div class="field full"><span>Contenu du pack</span>' + packEditor(m.pack.items.map(function (i) { return { key: i.key, label: i.label, qty: i.qty }; })) + '</div>' : '') +
-      '</div><p class="small" style="margin-top:8px">Le stock se change avec « Entrée » ou « Inventaire ». Si vous renommez, l’ancien nom est gardé dans « autres noms ».</p>' +
+      '</div>' + (S.boot.user.admin ? '<div class="sk-ad" id="sk-ad" style="margin-top:12px"><span class="small">Publicité ce mois : chargement…</span></div>' : '') +
+      '<p class="small" style="margin-top:8px">Le stock se change avec « Entrée » ou « Inventaire ». Si vous renommez, l’ancien nom est gardé dans « autres noms ».</p>' +
       '<div class="sk-danger">' +
         (m.pack ? '' : '<div class="sk-drow"><span>⇄ <b>Fusionner</b> avec un autre modèle (doublon)</span><button type="button" class="btn" data-act="model-merge" data-key="' + h(key) + '">Fusionner…</button></div>') +
         '<div class="sk-drow"><span>' + (m.active ? '◌ <b>Masquer</b> : n’est plus vendu (historique gardé)' : '◉ <b>Réafficher</b> : il est masqué') + '</span>' +
@@ -360,6 +361,46 @@
       '</div>' +
       '<div class="modal-actions"><button type="button" class="btn" data-act="close-modal">Fermer</button>' +
       '<button type="button" class="btn primary" data-act="model-save">Enregistrer</button></div>');
+    if (S.boot.user.admin) showProductAds(x.g.product);
+  }
+
+  /**
+   * Encadré « Publicité ce mois » (administrateur) : pub reliée au produit (case « Produit de cette pub »
+   * des dépenses), par campagne, pub par livrée et pub maximum rentable. Données de Bénéfices › Ce mois,
+   * gardées 2 minutes.
+   */
+  var adMonth = null;
+  function showProductAds(product) {
+    var fresh = adMonth && Date.now() - adMonth.at < 120000;
+    (fresh ? Promise.resolve(adMonth.data) : call('api_profit', 'month')).then(function (d) {
+      if (!fresh) adMonth = { at: Date.now(), data: d };
+      var box = $('#sk-ad');
+      if (box) box.innerHTML = productAdsHtml(d, product);
+    }).catch(function () {
+      var box = $('#sk-ad');
+      if (box) box.parentNode.removeChild(box);
+    });
+  }
+
+  function loose(s) {
+    return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9\u0621-\u064A]+/g, ' ').trim();
+  }
+
+  function productAdsHtml(d, product) {
+    var x = (d.adByProduct || []).filter(function (p) { return loose(p.product) === loose(product); })[0];
+    var ad = x ? x.ad : 0;
+    var delivered = x ? x.delivered : 0;
+    var profit = x ? x.profit : 0;
+    if (!ad) return '<span>📣 <strong>Publicité ce mois : aucune</strong></span>' +
+      '<span class="small">Aucune pub reliée à « ' + h(product) + ' » ce mois-ci. Reliez-la dans Bénéfices › Dépenses et gains (case « Produit de cette pub »).</span>';
+    var camps = x.adBy.map(function (c) { return { name: c.campaign || c.category, platform: c.platform, amount: c.amount }; });
+    var per = delivered ? Math.round(ad / delivered) : null;
+    var max = delivered ? Math.round(profit / delivered) : null;
+    return '<span>📣 <strong>Publicité ce mois : ' + money(ad) + '</strong>' + (x.models > 1 ? ' <span class="small">(tous les modèles)</span>' : '') + '</span>' +
+      '<span class="small">' + camps.slice(0, 4).map(function (c) { return h(c.name) + (c.platform && c.platform !== c.name ? ' (' + h(c.platform) + ')' : '') + ' ' + money(c.amount); }).join(' · ') +
+        (camps.length > 4 ? ' · …' : '') + '</span>' +
+      '<span class="small">' + (per === null ? 'Aucune commande livrée ce mois-ci : pub par livrée pas encore connue.' :
+        money(per) + ' de pub par commande livrée · rentable jusqu’à ' + money(max) + (per <= max ? ' <span class="pos">✓</span>' : ' <span class="neg">▲ la pub coûte plus que ce que rapporte une livrée</span>')) + '</span>';
   }
 
   function saveModel(btn) {

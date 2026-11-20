@@ -730,6 +730,36 @@ button.st-card { cursor: pointer; }
 .st-brow { grid-template-columns: 96px minmax(0, 1fr) 70px; }
 .st-g { grid-template-columns: 84px minmax(0, 1fr) 64px; }
 }
+.hbar-track.stacked { display: flex; }
+.hbar-track.stacked span { flex: none; border-radius: 0; }
+.hbar-track.stacked span:first-child { border-radius: 6px 0 0 6px; }
+.hbar-track.stacked span:last-child { border-radius: 0 6px 6px 0; }
+.hbar-track.stacked span:only-child { border-radius: 6px; }
+.ad-alert { flex-wrap: nowrap; align-items: flex-start; font-weight: 500; margin: 0; }
+.ad-alert .ic { flex: none; margin-top: 2px; }
+.ad-pill { background: #E8F0FD; color: #1E4FA8; border: 0; margin: 1px 0; white-space: normal; text-align: left; }
+.ad-pill.todo { background: #FFF1DE; color: #9A5B00; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap; line-height: 1.5; min-height: 0; width: auto; }
+@media (min-width: 700px) { .form-grid .field.wide { grid-column: span 2; } }
+.ad-hint { font-weight: 600; min-height: 1em; }
+.ad-hint .pos { font-weight: 600; }
+#ad-multi { gap: 8px; }
+.ad-line { display: grid; grid-template-columns: minmax(0, 1fr) 110px auto; gap: 8px; align-items: center; }
+.ad-line .btn { min-height: 40px; padding: 0 10px; }
+.ad-pct { display: flex; align-items: center; gap: 6px; color: var(--ink); font-weight: 600; }
+.ad-pct input { width: 100%; }
+.ad-unlinked { display: grid; gap: 4px; margin-top: 10px; }
+.ad-u-row { display: grid; grid-template-columns: minmax(150px, 1.1fr) minmax(180px, 1fr) minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.ad-u-row:first-child { border-top: 0; }
+.ad-u-row select { min-height: 42px; border: 1px solid var(--line-2); border-radius: 10px; padding: 0 10px; background: #fff; font: inherit; min-width: 0; }
+.ad-u-tip { color: var(--muted); }
+.sk-ad { background: #F2F6FD; border: 1px solid #D9E4F7; border-radius: 12px; padding: 10px 12px; font-size: 13px; display: grid; gap: 3px; }
+.sk-ad strong { font-size: 14px; }
+.sk-ad .small { color: var(--muted); }
+@media (max-width: 860px) {
+.ad-u-row { grid-template-columns: 1fr; gap: 8px; }
+.ad-u-row .btn { width: 100%; }
+.ad-line { grid-template-columns: minmax(0, 1fr) 92px auto; }
+}
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }
 </style>
@@ -831,7 +861,7 @@ button.st-card { cursor: pointer; }
   var STEP_KEY = 'dz-smart-shop:step';
   /** Pages restées dans l'application Google (étape 3) : ouvertes là-bas. */
   var EXTERNAL = ['benefices', 'stock', 'stats', 'admin'];
-  var VERSION = '1.9.0';
+  var VERSION = '1.10.0';
 
   /** Même empreinte que shortHash_ (Api.gs) : clé de la mémoire sur l'appareil, sans l'adresse. */
   function shortHash(text) {

@@ -1088,7 +1088,8 @@ const FN_TABS = {
   api_setCatalogActive: ['Produits'], api_deleteCatalogRow: ['Produits'], api_mergeCatalogRows: ['Produits'], api_undoStockMove: ['Produits', 'Paramètres'],
   api_stockAt: ['Produits'], api_shopifyPhotos: ['Produits'],
   api_markReturnDamaged: ['Produits'], api_validateParcels: ['Produits'], api_ecotrackSyncStatuses: ['Produits'], api_updateOrder: [], api_recordCall: [],
-  api_addExpense: ['Dépenses'], api_updateExpense: ['Dépenses'], api_deleteExpenses: ['Dépenses'], api_profit: ['Dépenses'], api_stats: ['Dépenses'],
+  api_addExpense: ['Dépenses', 'Produits'], api_updateExpense: ['Dépenses', 'Produits'], api_deleteExpenses: ['Dépenses'], api_linkCampaign: ['Dépenses', 'Produits'],
+  api_profit: ['Dépenses', 'Produits'], api_stats: ['Dépenses'],
   api_settingsGet: ['Paramètres'], api_settingsSave: ['Paramètres'], api_setPrime: ['Paramètres'], api_setGoal: ['Paramètres'],
   api_teamList: ['Équipe'], api_teamSave: ['Équipe'], api_teamRemove: ['Équipe'], api_clientsAdmin: ['Clients'], api_clearFlag: ['Clients'], api_setBlacklist: ['Clients']
 };
@@ -1304,6 +1305,7 @@ Object.assign(PAGES, {
   api_addExpense: gasPage('api_addExpense'),
   api_updateExpense: gasPage('api_updateExpense'),
   api_deleteExpenses: gasPage('api_deleteExpenses'),
+  api_linkCampaign: gasPage('api_linkCampaign'),
 
   /* Statistiques : résumés par jour ; la journée en cours, les colis en route et les versements en direct. */
   async api_stats(env, R, args) {

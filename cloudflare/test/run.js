@@ -667,6 +667,26 @@ test('Étape 3 · Bénéfices et Statistiques : mêmes chiffres que la version G
   const g = gas('api_profit', '30');
   assert.deepStrictEqual([w.totals.expenses, w.totals.net], [g.totals.expenses, g.totals.net]);
   assert.strictEqual(w.expenses.length, g.expenses.length);
+  // v1.10 : pub reliée à un produit (case Produit), pubs sans produit, Relier : comme la version Google.
+  const prod = g.adProducts[0].product;
+  assert.deepStrictEqual(w.adProducts, g.adProducts);
+  const ad = { category: 'Publicité TikTok', campaign: 'TT produit', amount: 3000, currency: 'DA', date: new Date(Date.now() - 86400000).toISOString(), product: prod };
+  await api('api_addExpense', ad);
+  gas('api_addExpense', ad);
+  const w2 = await api('api_profit', '30');
+  const g2 = gas('api_profit', '30');
+  assert.ok(w2.products.some((x) => x.product === prod && x.ad > 0), 'la pub compte dans le produit');
+  assert.deepStrictEqual(round(w2.products), round(g2.products), 'produits après pub');
+  assert.deepStrictEqual([w2.adLinks, w2.adAlerts, w2.adUnlinked], [g2.adLinks, g2.adAlerts, g2.adUnlinked]);
+  assert.ok(w2.adUnlinked.some((u) => u.campaign === 'Promo'));
+  const lk = await api('api_linkCampaign', 'Promo', prod);
+  gas('api_linkCampaign', 'Promo', prod);
+  assert.strictEqual(lk.linked, 1);
+  const w3 = await api('api_profit', '30');
+  const g3 = gas('api_profit', '30');
+  assert.ok(!w3.adUnlinked.some((u) => u.campaign === 'Promo'), 'campagne reliée');
+  assert.deepStrictEqual(round(w3.products), round(g3.products), 'produits après Relier');
+  assert.ok((await bridge('/bridge/changes', { after: 0 })).changes.some((c) => c.id === 'Dépenses'), 'onglet Dépenses recopié dans le classeur');
   // Statistiques.
   for (const period of ['30', 'month']) {
     const ws = await api('api_stats', period);

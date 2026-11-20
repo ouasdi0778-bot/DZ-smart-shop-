@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.9
+## Ce que fait la version 1.10
 
 | Écran | Contenu |
 |---|---|
@@ -16,7 +16,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 | **Expéditions** | Commandes confirmées prêtes à partir (avec les problèmes à corriger avant l'envoi), **création des colis chez Ecotrack** en un clic avec n° de suivi écrit dans le classeur, **impression des bordereaux** Ecotrack (A4 ou étiquette 10×15) et **validation de l'expédition** (avec ou sans ramassage) |
 | **Suivi** | Statut de chaque colis relu **toutes les heures** (réglable : 30 min, 1 h ou 2 h), **alertes « à traiter »** (colis suspendu, retour en cours ou bloqué, sans mouvement selon l'étape, argent en retard…), **résultat de l'appel** (remarque au livreur, demande de retour), motif du livreur et **chronologie** de chaque colis (heures d'Algérie) |
 | **Stock** | Une ligne par modèle avec le **disponible en couleur**, recherche, filtres et tri, photos, **packs**, variantes créées d'un coup, commandes qui réservent, fusionner, masquer ou supprimer un modèle, entrées, inventaire, **annuler un mouvement mal tapé**, export Excel / feuille d'inventaire / **valeur du stock à une date** (administrateur et magasinier) |
-| **Bénéfices** | Bénéfice net sur la **période de votre choix** comparé à la période d'avant, **graphiques** (bénéfice par jour, où part l'argent, seuil de rentabilité, simulateur du taux de livraison), produits classés par bénéfice, publicité (coût par livrée, ROAS), **dépenses et gains** sur un jour ou un intervalle, à corriger ou supprimer (administrateur) |
+| **Bénéfices** | Bénéfice net sur la **période de votre choix** comparé à la période d'avant, **graphiques** (bénéfice par jour, où part l'argent, seuil de rentabilité, simulateur du taux de livraison), produits classés par bénéfice **après pub** (chaque pub reliée à son produit), publicité (coût par livrée, ROAS), **dépenses et gains** sur un jour ou un intervalle, à corriger ou supprimer (administrateur) |
 | **Statistiques** | Commandes et argent par période, comparés à la période d'avant : **ce qui a changé** en phrases, parcours des commandes avec les pertes et leurs motifs, **carte des wilayas**, heures × jours, **meilleure heure pour appeler**, vitesse de confirmation, bureau ou domicile, produits, **équipe** (appels, réponses, objectif du jour, prime), publicité (**qualité des sources**), **filtre croisé** (une wilaya, un produit, une campagne, une source ou une confirmatrice), où est l'argent et versements d'Ecotrack ; tableaux triables, export pour Excel (administrateur) |
 | **Administration** | État de l'outil, connexions (Ecotrack, SMS, Shopify, Releasit), réglages en formulaires, équipe, clients, entretien du classeur (administrateur) |
 
@@ -299,9 +299,10 @@ Page **Bénéfices** (menu de gauche ; sur téléphone : **☰ Plus**), visible 
 | Retour | − frais de retour (`FRAIS_RETOUR`, 50 DA) − emballage |
 | En route, en confirmation, annulée | Non comptée |
 
-- **Onglet Dépenses** (la publicité en fait partie) : **Date | Catégorie | Campagne | Montant | Devise (DA ou USD) | Taux | Note | Fin | Type**.
+- **Onglet Dépenses** (la publicité en fait partie) : **Date | Catégorie | Campagne | Montant | Devise (DA ou USD) | Taux | Note | Fin | Type | Produit**.
   - **Fin** : pour une dépense étalée (publicité du 1er au 10…). Le montant est **réparti à parts égales sur chaque jour** : une période ne compte que ses jours (7 jours sur 10 = 70 % du montant). Vide = un seul jour.
   - **Type** : « Dépense » (vide = dépense) ou **« Gain »** : argent reçu en dehors des commandes (remboursement, vente directe, bonus…), **ajouté au bénéfice net**.
+  - **Produit** (publicité seulement, v1.10) : le produit dont parle la pub. `Montre connectée` = tout le produit (tous ses modèles) ; `cover iPhone — iphone 15` = un seul modèle ; plusieurs produits séparés par `;`, avec leur part si vous voulez (`Montre connectée 60 %; Écouteurs sans fil 40 %`). Sans part, la pub est partagée **selon les commandes** de chaque produit (et de chaque modèle). Les noms sont ceux de l'onglet Produits.
   - Les catégories se règlent dans `CATEGORIES_DEPENSES` et `CATEGORIES_GAINS`.
   - Une dépense en dollars prend le **taux du jour** (`TAUX_DOLLAR`) quand elle est saisie dans l'application, ou la première fois qu'elle est lue si elle est tapée dans le classeur. Changer le taux plus tard ne modifie pas les anciennes dépenses.
 - **Livraison** = prix de la société de livraison (onglet Tarifs ; ceux d'Ecotrack sont récupérés par l'API) **− livraison payée par le client**. Positive, elle vous coûte (par exemple 700 − 450 = 250, ou 700 en livraison gratuite). Négative, vous gagnez dessus (par exemple 400 − 600 = −200). Le bénéfice est le même que « total encaissé − prix de la société − achat » ; la livraison est simplement montrée à part.
@@ -316,12 +317,19 @@ Page **Bénéfices** (menu de gauche ; sur téléphone : **☰ Plus**), visible 
   | **Simulateur** | un curseur : « avec 75 % de livraison, votre bénéfice net serait de … » |
 
   Un avertissement apparaît s'il manque un coût d'achat ou un tarif de livraison ; dans ce cas, les frais payés par le client sont utilisés.
-- **Produits** : classés par **bénéfice** (barres), avec commandes, livrées, retours, taux de livraison, ventes, bénéfice et **bénéfice par livrée**.
+- **Produits** : classés par **bénéfice après pub** (barres : vert = ce qui reste, bleu = la part payée en pub), avec commandes, livrées, retours, **bénéfice avant pub**, **Pub** (la publicité reliée au produit), **Après pub**, **Pub par livrée** et **Pub max. rentable** (ce qu'une commande livrée rapporte avant pub : ✓ vous payez moins, ▲ vous payez plus). Les colis encore en route ne comptent pas encore : « Après pub » remonte quand ils sont livrés.
+  - **Alerte** quand la pub d'un produit coûte plus que ce qu'il rapporte (seulement s'il a déjà des commandes livrées ou retournées), avec la pub maximum rentable.
 - **Publicité** :
   - **par plateforme** (Facebook, TikTok, selon « UTM source ») et **par campagne** (« UTM campaign ») : commandes, livrées, bénéfice, dépense, **coût par livrée**, **ROAS** (×3 = 3 DA encaissés pour 1 DA de publicité), **net** ;
   - pour relier commandes et publicités, ajoutez « UTM source » et « UTM campaign » à la fin de l'onglet RELEASIT, et dans le lien des annonces : `utm_source=facebook&utm_campaign={{campaign.name}}` (Facebook) ou `utm_source=tiktok&utm_campaign=__CAMPAIGN_NAME__` (TikTok) ;
   - écrivez le même nom de campagne dans vos dépenses.
 - **Dépenses et gains** : ajout depuis le téléphone (type, du / au, catégorie, campagne, montant, devise), liste de la période avec la part de chaque ligne dans la période ; **Corriger** (le formulaire se remplit), **Supprimer**, ou cochez plusieurs lignes et **Supprimer (n)**. Chaque correction et suppression est notée dans le Journal.
+- **Pub reliée à un produit** (v1.10, sans UTM) :
+  - pour une catégorie de publicité, la case **« Produit de cette pub »** apparaît : un produit (toutes ses variantes), un modèle, ou **Plusieurs produits…** (une ligne par produit, part en % facultative) ;
+  - **mémoire par campagne** : retapez le nom d'une campagne déjà reliée, son produit se remplit tout seul (« ✓ retenu pour la campagne ») ;
+  - colonne **Produit** dans la liste : le produit, ou **« à relier »** ;
+  - bloc **« Pubs sans produit »** : une ligne par campagne, un produit proposé d'après le nom de la campagne (« la campagne parle de « montre » »), bouton **Relier** : toutes les pubs sans produit de cette campagne (même d'autres périodes) prennent ce produit ;
+  - **Stock › Modifier** (administrateur) : encadré **« Publicité ce mois »** du produit (total, par campagne, pub par livrée et jusqu'où elle reste rentable).
 
 ## Apparence
 
@@ -660,7 +668,7 @@ apps-script/Cloud.gs  côté Google : relier, copier les données, page de conne
 Il faut Node.js 18 ou plus récent, sans aucune dépendance à installer.
 
 ```bash
-npm test          # 148 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
+npm test          # 149 tests du code serveur (dont stock, bénéfices, SMS, Releasit, Shopify, Ecotrack et le suivi, contre de faux serveurs) sur une imitation du classeur
 npm run bundle    # régénère dist/Code.gs (le fichier unique à coller dans Apps Script)
 npm run preview   # crée preview/index.html : l'application avec des données d'exemple
 ```

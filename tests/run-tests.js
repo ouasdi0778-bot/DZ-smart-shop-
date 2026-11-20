@@ -4029,7 +4029,7 @@ test('Dépenses : sur un intervalle (réparties par jour), gains, corriger, supp
   assert.throws(function () { api_addExpense({ category: 'Loyer', amount: 5, currency: 'DA', date: key(0), end: key(3) }); }, /fin est avant/);
   var g = api_addExpense({ type: 'Gain', category: 'Remboursement', amount: 300, currency: 'DA', date: key(1) });
   assert.strictEqual(g.message, 'Gain ajouté : 300 DA.');
-  assert.deepStrictEqual(headerOf('Dépenses').slice(-2), ['Fin', 'Type']);
+  assert.deepStrictEqual(headerOf('Dépenses').slice(-3), ['Fin', 'Type', 'Produit']);
 
   var d7 = api_profit('7');
   assertSerializable(d7, 'api_profit');
@@ -4067,6 +4067,95 @@ test('Dépenses : sur un intervalle (réparties par jour), gains, corriger, supp
   assert.strictEqual(sheet('Dépenses').getLastRow(), 1);
   asAgent();
   assert.throws(function () { api_deleteExpenses([{ id: '2' }]); }, /Réservé/);
+});
+
+test('Pub reliée à un produit : case Produit, parts, mémoire des campagnes, après pub, alerte, pubs sans produit, Relier', function () {
+  baseSetup(); // Ecotrack Alger : 700 domicile
+  setCatalog([
+    { 'Produit': 'cover iPhone', 'Modèle': 'iphone 15', "Coût d'achat": 600, 'Stock': 50 },
+    { 'Produit': 'cover iPhone', 'Modèle': 'iphone 13', "Coût d'achat": 600, 'Stock': 50 },
+    { 'Produit': 'Montre', "Coût d'achat": 1000, 'Stock': 10 },
+    { 'Produit': 'Écouteurs sans fil', "Coût d'achat": 500, 'Stock': 10 }
+  ]);
+  var day = 86400000;
+  addOrder('#A1', 'cover iPhone - iphone 15', { 'Statut': 'Livrée', 'Société': 'Ecotrack' });
+  addOrder('#A2', 'cover iPhone - iphone 15', { 'Statut': 'Livrée', 'Société': 'Ecotrack' });
+  addOrder('#A3', 'cover iPhone - iphone 13', { 'Statut': 'Livrée', 'Société': 'Ecotrack' });
+  addOrder('#A4', 'Montre', { 'Statut': 'Livrée', 'Société': 'Ecotrack' });
+  addOrder('#A5', 'Montre', { 'Statut': 'Retour', 'Société': 'Ecotrack' });
+
+  // Tout le produit (ses deux modèles) ; un produit ; plusieurs produits avec leur part.
+  api_addExpense({ category: 'Publicité Facebook', campaign: 'Promo coques', amount: 1500, currency: 'DA', product: 'COVER iphone' });
+  api_addExpense({ category: 'Publicité TikTok', campaign: 'TT montre', amount: 2000, currency: 'DA', product: 'Montre' });
+  api_addExpense({ category: 'Publicité Facebook', campaign: 'Mix', amount: 1000, currency: 'DA', product: 'montre 60%; cover iPhone - iphone 13' });
+  assert.throws(function () { api_addExpense({ category: 'Publicité Facebook', amount: 10, currency: 'DA', product: 'Bidule' }); }, /introuvable dans l’onglet Produits : « Bidule »/);
+  assert.throws(function () { api_addExpense({ category: 'Publicité Facebook', amount: 10, currency: 'DA', product: 'Montre 70 %; Écouteurs sans fil 50 %' }); }, /dépassent 100 %/);
+  assert.throws(function () { api_addExpense({ category: 'Publicité Facebook', amount: 10, currency: 'DA', product: 'Montre 30 %; Écouteurs sans fil 20 %' }); }, /doivent faire 100 %/);
+  api_addExpense({ category: 'Salaires', amount: 100, currency: 'DA', product: 'Montre' });
+  var col = headerOf('Dépenses').indexOf('Produit');
+  var stored = sheet('Dépenses').getRange(2, col + 1, 4, 1).getValues().map(function (r) { return r[0]; });
+  assert.deepStrictEqual(stored, ['cover iPhone', 'Montre', 'Montre 60 %; cover iPhone — iphone 13', ''], 'noms du catalogue ; pas de produit pour une dépense hors pub');
+  // Pubs sans produit : une campagne en deux lignes (dont une hors période), un nom inconnu tapé dans le classeur, une ligne sans campagne.
+  setExpenseRow({ 'Date': new Date(), 'Catégorie': 'Publicité Facebook', 'Campagne': 'Story écouteurs', 'Montant': 4200, 'Devise': 'DA' });
+  setExpenseRow({ 'Date': new Date(Date.now() - 40 * day), 'Catégorie': 'Publicité Facebook', 'Campagne': 'Story écouteurs', 'Montant': 800, 'Devise': 'DA' });
+  setExpenseRow({ 'Date': new Date(), 'Catégorie': 'Publicité Facebook', 'Campagne': 'Vieux', 'Montant': 50, 'Devise': 'DA', 'Produit': 'Produit supprimé' });
+  setExpenseRow({ 'Date': new Date(), 'Catégorie': 'Publicité TikTok', 'Montant': 100, 'Devise': 'DA' });
+
+  var d = api_profit('30');
+  assertSerializable(d, 'api_profit');
+  var g = function (data, name) { return data.products.filter(function (x) { return x.name === name; })[0]; };
+  // Promo coques 1 500 : iphone 15 (2 commandes) 1 000, iphone 13 (1) 500 ; Mix 1 000 : Montre 600, iphone 13 400.
+  var i15 = g(d, 'cover iPhone — iphone 15');
+  var i13 = g(d, 'cover iPhone — iphone 13');
+  var montre = g(d, 'Montre');
+  assert.deepStrictEqual([i15.profit, i15.ad, i15.afterAd, i15.adPerDelivered, i15.maxAdPerDelivered, i15.product], [1900, 1000, 900, 500, 950, 'cover iPhone']);
+  assert.deepStrictEqual([i13.profit, i13.ad, i13.afterAd], [950, 900, 50]);
+  assert.deepStrictEqual([montre.profit, montre.ad, montre.afterAd, montre.adPerDelivered, montre.maxAdPerDelivered], [500, 2600, -2100, 2600, 500]);
+  assert.deepStrictEqual(montre.adBy.map(function (b) { return [b.campaign, b.platform, b.amount]; }), [['TT montre', 'TikTok', 2000], ['Mix', 'Facebook', 600]]);
+  assert.deepStrictEqual(d.adAlerts.map(function (a) { return [a.name, a.ad, a.profit, a.afterAd]; }), [['Montre', 2600, 500, -2100]]);
+  // Pub par produit (tous ses modèles, sans écart d'arrondi) : fiche Stock › Modifier.
+  var cover = d.adByProduct.filter(function (x) { return x.product === 'cover iPhone'; })[0];
+  assert.deepStrictEqual([cover.ad, cover.models, cover.delivered, cover.profit], [1900, 2, 3, 2850]);
+  assert.deepStrictEqual(cover.adBy.map(function (b) { return [b.campaign, b.amount]; }), [['Promo coques', 1500], ['Mix', 400]]);
+  assert.strictEqual(d.totals.adSpend, 1500 + 2000 + 1000 + 4200 + 50 + 100, 'les totaux ne changent pas');
+  // Mémoire des campagnes, produits proposés, catégories de pub.
+  assert.deepStrictEqual(d.adLinks.filter(function (l) { return l.campaign === 'Promo coques'; })[0], { campaign: 'Promo coques', product: 'cover iPhone' });
+  assert.deepStrictEqual(d.adProducts, [
+    { product: 'cover iPhone', models: ['cover iPhone — iphone 15', 'cover iPhone — iphone 13'] }, { product: 'Écouteurs sans fil', models: [] }, { product: 'Montre', models: [] }]);
+  assert.ok(d.adCategories.indexOf('Publicité Facebook') >= 0 && d.adCategories.indexOf('Salaires') < 0);
+  // Liste des dépenses : produit et « à relier ».
+  var row = function (data, camp) { return data.expenses.filter(function (e) { return e.campaign === camp; })[0]; };
+  assert.deepStrictEqual([row(d, 'Mix').product, row(d, 'Mix').linked], ['Montre 60 %; cover iPhone — iphone 13', true]);
+  assert.deepStrictEqual([row(d, 'Story écouteurs').linked, row(d, 'Vieux').linked], [false, false]);
+  // Pubs sans produit (de la période), par campagne, avec un produit proposé d'après le nom de la campagne.
+  var story = d.adUnlinked.filter(function (u) { return u.campaign === 'Story écouteurs'; })[0];
+  assert.deepStrictEqual([story.amount, story.count, story.suggestion], [4200, 1, { product: 'Écouteurs sans fil', word: 'écouteurs' }]);
+  assert.strictEqual(d.adUnlinked.length, 3);
+  assert.strictEqual(d.adUnlinked.filter(function (u) { return u.campaign === 'Vieux'; })[0].product, 'Produit supprimé');
+
+  // Relier : toutes les pubs sans produit de la campagne (même hors période) ; sans campagne : la ligne.
+  var r = api_linkCampaign('story ECOUTEURS', 'Écouteurs sans fil');
+  assert.strictEqual(r.linked, 2);
+  assert.ok(/Pub reliée à « Écouteurs sans fil » \(2 dépenses/.test(r.message));
+  assert.throws(function () { api_linkCampaign('Story écouteurs', 'Montre'); }, /Aucune pub à relier/);
+  assert.throws(function () { api_linkCampaign('Vieux', ''); }, /Choisissez un produit/);
+  var lone = d.adUnlinked.filter(function (u) { return !u.campaign; })[0];
+  assert.strictEqual(api_linkCampaign('', 'Montre', lone.id, lone.sig).linked, 1);
+  assert.throws(function () { api_linkCampaign('', 'Montre', lone.id, 'autre'); }, /a changé/);
+  assert.ok(logActions().indexOf('Pub reliée') >= 0);
+  var d2 = api_profit('30');
+  var ecouteurs = g(d2, 'Écouteurs sans fil');
+  assert.deepStrictEqual([ecouteurs.orders, ecouteurs.ad, ecouteurs.afterAd], [0, 4200, -4200], 'produit relié sans commande : une ligne à lui');
+  assert.strictEqual(g(d2, 'Montre').ad, 2700);
+  assert.deepStrictEqual(d2.adUnlinked.map(function (u) { return u.campaign; }), ['Vieux']);
+  assert.strictEqual(g(api_profit('all'), 'Écouteurs sans fil').ad, 5000);
+
+  // Corriger garde (ou change) le produit ; une pub tapée pour une campagne connue reprend son produit côté page.
+  var mix = row(d2, 'Mix');
+  api_updateExpense(mix.id, mix.sig, { type: 'Dépense', category: 'Publicité Facebook', campaign: 'Mix', amount: 1000, currency: 'DA', date: mix.date, product: 'Écouteurs sans fil' });
+  assert.strictEqual(g(api_profit('30'), 'Écouteurs sans fil').ad, 5200);
+  asAgent();
+  assert.throws(function () { api_linkCampaign('Vieux', 'Montre'); }, /Réservé/);
 });
 
 test('Bénéfices : comparaison, bénéfice par jour, où part l’argent, seuil de rentabilité, simulateur, ROAS', function () {
