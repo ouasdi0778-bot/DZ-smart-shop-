@@ -45,6 +45,10 @@ function buildWorker(page) {
   var parts = [
     '// DZ Smart Shop ' + version + ' — version Cloudflare (fichier généré par cloudflare/build.js, ne pas modifier).',
     '',
+    // v1.13 : communes d'Ecotrack (recherche, noms arabes), aussi dans la page.
+    read(path.join(HERE, 'src', 'communes-core.js')),
+    read(path.join(HERE, 'src', 'communes-ar.js')),
+    '',
     'function makeApp() {',
     'var REQ = null;',
     shim,
@@ -93,7 +97,7 @@ function buildPage() {
   var version = (read(path.join(SRC, 'Config.gs')).match(/APP_VERSION = '([^']+)'/) || [])[1] || '';
   var html = bundle.minify(read(path.join(SRC, 'Index.html')))
     .replace(/<\?!=\s*include\('(\w+)'\);?\s*\?>/g, function (m, name) { return bundle.minify(read(path.join(SRC, name + '.html'))); })
-    .replace(/<script>window\.DZ_DEVICE = <\?!=\s*device\s*\?>;<\/script>/, '<script>' + read(path.join(HERE, 'src', 'client-cloud.js')).replace('__VERSION__', version) + '</script>');
+    .replace(/<script>window\.DZ_DEVICE = <\?!=\s*device\s*\?>;<\/script>/, '<script>' + read(path.join(HERE, 'src', 'communes-core.js')) + '\n' + read(path.join(HERE, 'src', 'client-cloud.js')).replace('__VERSION__', version) + '</script>');
   if (/<\?/.test(html)) throw new Error('Balise Apps Script restée dans la page.');
   var head = '<!doctype html>\n<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' +
     '<title>DZ Smart Shop · Commandes COD</title>' +

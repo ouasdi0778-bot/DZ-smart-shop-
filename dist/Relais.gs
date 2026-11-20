@@ -1,7 +1,7 @@
 /**
  * @OnlyCurrentDoc
  *
- * DZ Smart Shop — RELAIS RELEASIT (version 1.12.0).
+ * DZ Smart Shop — RELAIS RELEASIT (version 1.13.0).
  *
  * Quand toute l'application est dans la version Cloudflare, ce petit script remplace l'ancien Code.gs.
  * Il ne fait qu'une chose : chaque minute, il lit les nouvelles lignes de l'onglet RELEASIT (écrites
@@ -20,7 +20,7 @@
  */
 
 var RELAIS = {
-  VERSION: '1.12.0',
+  VERSION: '1.13.0',
   SHEET: 'RELEASIT',
   PROP_URL: 'CF_URL',
   PROP_SECRET: 'CF_SECRET',

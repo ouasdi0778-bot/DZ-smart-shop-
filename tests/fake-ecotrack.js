@@ -22,6 +22,7 @@
     createThenFail: false, // true : crée les colis puis « coupe » la connexion (délai dépassé)
     counter: 0,
     badCommunes: ['xx'],
+    communesList: null,  // liste complète des communes (aperçu local), sinon 5 communes d'exemple
     statusEndpoint: 'ok',  // 'ok' | 'missing' (erreur 404) | 'weird' (réponse de forme inconnue)
     apiDisabled: false,    // true : « TOKEN_NOT_ALLOWED »
     history: {},           // n° de suivi -> étapes renvoyées par get/tracking/info
@@ -224,7 +225,7 @@
 
   /** Comme Ecotrack : un objet { "0": {...}, "1": {...} } (pas une liste). */
   function communes(q) {
-    var all = [
+    var all = fake.communesList || [
       { nom: 'Alger Centre', wilaya_id: 16, code_postal: '16001', has_stop_desk: 1 },
       { nom: 'Bab Ezzouar', wilaya_id: 16, code_postal: '16024', has_stop_desk: 1 },
       { nom: 'Hydra', wilaya_id: 16, code_postal: '16035', has_stop_desk: 0 },

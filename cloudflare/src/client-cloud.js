@@ -299,7 +299,44 @@
     });
   }
 
-  window.DZ_CLOUD = { applyStep: applyStep, authPost: authPost, setSession: setSession, logout: logout, via: function () { return session && session.v === 2 ? 'password' : 'google'; },
+  /* ---------------- v1.13 : communes d'Ecotrack (liste gardée sur l'appareil jusqu'à la suivante) ---------------- */
+
+  var communes = (function () {
+    var KEY = 'dz-communes';
+    var idx = null;
+    var at = '';
+    var loading = null;
+    function use(d) { at = d.at; idx = DZC.index(d.list); }
+    function ensure(want) {
+      if (!want) return Promise.resolve(false);
+      if (idx && at === want) return Promise.resolve(true);
+      try {
+        var c = JSON.parse(window.localStorage.getItem(KEY) || 'null');
+        if (c && c.at === want && c.list && c.list.length) { use(c); return Promise.resolve(true); }
+      } catch (e) { /* liste illisible : on la redemande */ }
+      if (loading) return loading;
+      loading = new Promise(function (resolve) {
+        window.google.script.run.withSuccessHandler(function (d) {
+          loading = null;
+          if (!d || !d.list || !d.list.length) { resolve(false); return; }
+          use(d);
+          try { window.localStorage.setItem(KEY, JSON.stringify({ at: d.at, list: d.list })); } catch (e) { /* mémoire pleine : gardée pour cette fois */ }
+          resolve(true);
+        }).withFailureHandler(function () { loading = null; resolve(false); }).api_communes();
+      });
+      return loading;
+    }
+    return {
+      ensure: ensure,
+      ready: function () { return !!idx; },
+      list: function (w) { return idx ? (idx.byW[w] || []) : []; },
+      find: function (w, t) { return idx ? DZC.find(idx, w, t) : null; },
+      suggest: function (w, t, extra) { return idx ? DZC.suggest(idx, w, t, extra) : []; },
+      search: function (w, q) { return idx ? DZC.search(idx, w, q) : []; }
+    };
+  })();
+
+  window.DZ_CLOUD = { communes: communes, applyStep: applyStep, authPost: authPost, setSession: setSession, logout: logout, via: function () { return session && session.v === 2 ? 'password' : 'google'; },
     install: install, canInstall: function () { return !!installEvent; }, standalone: standalone, isIos: isIos, push: push };
   function googleLink(route) { return step.google ? step.google + '&page=' + route : ''; }
   // Une page de l'application Google demandée ici (lien, menu « Plus ») : ouverte dans l'application Google.

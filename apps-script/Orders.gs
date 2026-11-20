@@ -193,6 +193,7 @@ function serializeOrder_(o) {
     phone: String(o.phone),
     wilaya: String(o.wilaya),
     commune: String(o.commune),
+    communeRaw: String(o.communeRaw == null ? '' : o.communeRaw),
     address: String(o.address),
     product: String(o.product),
     qty: toNumber_(o.qty) || 1,

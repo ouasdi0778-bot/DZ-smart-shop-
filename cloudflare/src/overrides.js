@@ -9,7 +9,7 @@
 
 /*
  * Fonctions d'origine gardées sous le nom gas_… (voir build.js) :
- * @wrap applyStockMoves_ logStockMoves_ api_markReturnDamaged flagClient_ */
+ * @wrap applyStockMoves_ logStockMoves_ api_markReturnDamaged flagClient_ ecotrackProblems_ ecotrackPayload_ */
 
 /* ---------------- Classeur : seulement les onglets gardés dans D1 (étape 3) ---------------- */
 
@@ -277,3 +277,30 @@ function cloudStatus_() {
 }
 function api_repair() { throw new Error('La réparation du classeur se fait dans l’application Google (lien de secours, Administration › Classeur).'); }
 function api_reinstallTriggers() { throw new Error('Rien à installer : les tâches automatiques de Cloudflare tournent toutes seules (chaque minute).'); }
+
+/**
+ * v1.13 : commune inconnue d'Ecotrack (liste officielle, lue chaque semaine) : le colis serait refusé,
+ * il ne part pas. Une commune proche est proposée (REQ.communeFix) pour la corriger en un geste.
+ */
+function ecotrackProblems_(o, catalog) {
+  var p = gas_ecotrackProblems_(o, catalog);
+  var idx = REQ && REQ.communes;
+  var code = wilayaCode_(o.wilaya);
+  if (!idx || !code || !idx.byW[code] || !String(o.commune).trim()) return p;
+  if (DZC.find(idx, code, o.commune)) return p;
+  p.push('Commune inconnue d’Ecotrack : « ' + String(o.commune).trim() + ' »');
+  var near = DZC.suggest(idx, code, o.commune, o.address);
+  REQ.communeFix = REQ.communeFix || {};
+  REQ.communeFix[String(o.id)] = near.length ? near[0].n : '';
+  return p;
+}
+
+/** Le colis part avec le nom d'Ecotrack (« باب الزوار » écrit par le client → « Bab Ezzouar »). */
+function ecotrackPayload_(o) {
+  var p = gas_ecotrackPayload_(o);
+  var idx = REQ && REQ.communes;
+  var code = idx ? wilayaCode_(o.wilaya) : null;
+  var c = code ? DZC.find(idx, code, o.commune) : null;
+  if (c) p.commune = c.n;
+  return p;
+}

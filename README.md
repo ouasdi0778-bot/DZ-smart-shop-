@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.12
+## Ce que fait la version 1.13
 
 | Écran | Contenu |
 |---|---|
@@ -19,6 +19,8 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 | **Bénéfices** | Bénéfice net sur la **période de votre choix** comparé à la période d'avant, **graphiques** (bénéfice par jour, où part l'argent, seuil de rentabilité, simulateur du taux de livraison), produits classés par bénéfice **après pub** (chaque pub reliée à son produit), publicité (coût par livrée, ROAS), **dépenses et gains** sur un jour ou un intervalle, à corriger ou supprimer (administrateur) |
 | **Statistiques** | Commandes et argent par période, comparés à la période d'avant : **ce qui a changé** en phrases, parcours des commandes avec les pertes et leurs motifs, **carte des wilayas**, heures × jours, **meilleure heure pour appeler**, vitesse de confirmation, bureau ou domicile, produits, **équipe** (appels, réponses, objectif du jour, prime), publicité (**qualité des sources**), **filtre croisé** (une wilaya, un produit, une campagne, une source ou une confirmatrice), où est l'argent et versements d'Ecotrack ; tableaux triables, export pour Excel (administrateur) |
 | **Administration** | État de l'outil, connexions (Ecotrack, SMS, Shopify, Releasit), réglages en formulaires, équipe (**connexion par téléphone et mot de passe**, version Cloudflare), clients, sauvegarde **Tout exporter (Excel)**, entretien (administrateur) |
+
+Communes (version Cloudflare, envoi par Ecotrack) : la **liste officielle d'Ecotrack** (1 529 communes actives, avec leur nom arabe) dans la case Commune, la commune écrite en arabe par le client **reconnue toute seule**, et **pas d'envoi** d'un colis dont la commune est inconnue d'Ecotrack. Voir « v1.13 » plus bas.
 
 Sur téléphone (version Cloudflare) : **une vraie application** à installer (icône sur l'écran d'accueil, plein écran) et des **notifications** (nouvelle commande, rappel à l'heure, colis à traiter, alerte), même application fermée. Voir « v1.12 » plus bas.
 
@@ -673,6 +675,17 @@ Rien à coller dans Apps Script pour cette version (`dist/Code.gs` et `dist/Rela
 - **Fiche commande** : un **résumé lisible** (statut et alerte, client avec **Copier** le numéro et son historique, livraison, produit avec photo et stock, **total à encaisser**, historique des appels) et, toujours visibles en bas, **Appeler**, **WhatsApp**, **Modifier**. Modifier ouvre le formulaire **en blocs** (statut, client, livraison, produit et prix, notes) avec le total recalculé et **Annuler / Enregistrer** en bas. Liste noire et Supprimer sont sous **⋯**.
 - Sur ordinateur, ces pages ne changent pas.
 
+### v1.13 : communes d'Ecotrack
+
+Rien à coller dans Apps Script pour cette version. Seulement dans la version Cloudflare, pour les commandes envoyées par **Ecotrack** (une autre société garde la commune libre).
+
+- **La liste officielle** : l'application lit les communes d'Ecotrack (`/api/v1/get/communes`) une fois par semaine : nom, code postal, bureau stop desk (les communes désactivées par Ecotrack sont écartées). Si Ecotrack ne répond pas, la liste d'avant reste en service. Chaque appareil la garde en mémoire et ne la recharge que lorsqu'elle change.
+- **Case Commune** (Nouvelle commande, Modifier, Confirmation) : un bouton qui ouvre la liste des communes de la wilaya, avec une **recherche en français ou en arabe** (« bab » ou « باب »), le nom arabe à côté et 🏢 pour un bureau stop desk. Changer la wilaya vide la commune. « Écrire … (hors liste) » reste possible, mais Ecotrack refusera le colis.
+- **Commune écrite en arabe par le client** (Releasit, Shopify) : à l'arrivée, « باب الزوار » devient **Bab Ezzouar** quand il n'y a pas de doute (même nom, « ال », « وادي / واد », « ة / ا » en fin de mot indifférents). Ce que le client a écrit est gardé (colonne « Commune écrite ») ; la Confirmation affiche « ✓ Commune reconnue (le client a écrit « … ») ».
+- **Commune à vérifier** : sinon (un quartier, une faute), la Confirmation affiche un cadre orange avec **Choisir la commune** et les communes proches (orthographe proche, ou nom de la commune trouvé dans l'adresse). Le choix est enregistré avec le résultat de l'appel.
+- **Expédier** : une commande dont la commune est inconnue d'Ecotrack ne peut pas partir (« Commune inconnue d'Ecotrack : « Azazgua » ») ; **Mettre « Azazga »** la corrige en un geste, ou **Choisir la commune**. Le colis part toujours avec le nom d'Ecotrack, même si la commune a été écrite en arabe.
+- Les noms arabes viennent de la liste libre **@dzcode-io/leblad** (licence MIT, `cloudflare/src/communes-ar.js`) : 1 510 communes actives d'Ecotrack sur 1 529 ont leur nom arabe.
+
 ### Comment ça marche
 
 - **Connexion** : l'application Cloudflare renvoie vers le lien de cette application Google avec `?cf=1`. Google sait qui vous êtes ; un **jeton signé** (valable 30 jours sur l'appareil) vous renvoie vers Cloudflare. Seuls les membres de l'onglet **Équipe** (et le propriétaire du classeur) entrent.
@@ -693,6 +706,7 @@ Rien à coller dans Apps Script pour cette version (`dist/Code.gs` et `dist/Rela
    npx wrangler d1 execute dz-smart-shop --remote --file migrations/0003-etape3.sql   # v1.6 (déjà fait)
    npx wrangler d1 execute dz-smart-shop --remote --file migrations/0004-connexion.sql   # v1.11 (déjà fait)
    npx wrangler d1 execute dz-smart-shop --remote --file migrations/0005-notifications.sql   # v1.12 (déjà fait)
+   # v1.13 : rien à faire dans la base (la liste des communes est lue par la tâche de chaque minute)
    npx wrangler deploy                                                # à chaque nouvelle version
    ```
    La page de l'interface est intégrée au moteur : une seule mise en ligne, rien d'autre à envoyer.
@@ -703,7 +717,7 @@ Rien à coller dans Apps Script pour cette version (`dist/Code.gs` et `dist/Rela
 
 ```
 npm run cf:build    # cloudflare/dist/worker.js et cloudflare/public/index.html
-npm run cf:test     # 24 tests : la version Cloudflare (base SQLite locale) comparée à la version Google (Stock, Bénéfices, Statistiques compris), Ecotrack, SMS et Shopify contre de faux serveurs
+npm run cf:test     # 25 tests : la version Cloudflare (base SQLite locale) comparée à la version Google (Stock, Bénéfices, Statistiques compris), Ecotrack, SMS et Shopify contre de faux serveurs
 npm run cf:serve    # la version Cloudflare sur http://localhost:8787/connexion, avec les données d'exemple
 node cloudflare/test/serve.js 8787 --etape2   # la même, après le basculement (Expédier, Suivi, faux Ecotrack et SMS)
 node cloudflare/test/serve.js 8787 --etape3   # tout dans Cloudflare (Stock, Bénéfices, Statistiques, Administration)
@@ -719,6 +733,10 @@ cloudflare/
                       tâches de chaque minute, pont avec Apps Script
   src/gas-shim.js     (aussi) imitation des onglets du classeur gardés dans la base (étape 3)
   src/client-cloud.*  l'interface : google.script.run → /api, écran de connexion (téléphone et mot de passe), étape 1 ou 2
+  src/communes-core.js  communes d'Ecotrack (v1.13) : recherche français / arabe, commune reconnue, communes proches
+                      (dans le moteur et dans la page)
+  src/communes-ar.js  noms arabes des communes (@dzcode-io/leblad, licence MIT)
+  src/sw.js           service worker (v1.12) : application installable, notifications
 relay/Relais.gs       le relais RELEASIT (v1.11) : copié dans dist/Relais.gs par npm run bundle
   migrations/         changements de la base pour les versions suivantes
   build.js            assemble le moteur (code de apps-script/ compris) et la page

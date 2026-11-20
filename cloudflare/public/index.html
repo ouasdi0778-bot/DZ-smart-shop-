@@ -872,6 +872,58 @@ body:has(.bulk-bar:not([hidden])) .fab { display: none; }
 .modal.sheet .modal-actions .btn { min-height: 48px; justify-content: center; }
 .modal.of-modal { gap: 14px; padding-bottom: 20px; }
 }
+.cm-box { display: grid; gap: 6px; font-weight: 400; }
+.cm-pick { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface);
+font: inherit; font-size: 15px; color: var(--ink); text-align: left; cursor: pointer; }
+.cm-pick:hover:not(:disabled) { border-color: var(--brand); }
+.cm-pick:disabled { background: #F4F5F7; color: var(--muted); cursor: default; }
+.cm-pick.bad { border-color: #E8A23A; background: #FFF8EC; }
+.cm-pick .ar { margin-left: auto; color: var(--muted); font-size: 14px; }
+.cm-pick .chev { color: var(--muted); font-size: 13px; }
+.cm-pick > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-pick .ar + .chev { margin-left: 4px; }
+.cm-pick > span:first-child + .chev { margin-left: auto; }
+.cm-ph { color: var(--muted); }
+.cm-hint { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 12.5px; font-weight: 600; }
+.cm-hint .ic { width: 14px; height: 14px; flex: none; }
+.cm-hint.ok { color: #146C2E; }
+.cm-hint.bad { color: #9A4A06; }
+.cm-tag { display: inline-flex; align-items: center; gap: 3px; background: #E3F2EC; color: #0B6B4C; border-radius: 999px; padding: 1px 8px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.cm-recog { display: block; margin-top: 3px; font-size: 12.5px; color: #146C2E; font-weight: 600; }
+.cm-recog .ic { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }
+.cm-warn { display: block; margin-top: 8px; border: 1px solid #F3C98B; background: #FFF5E6; color: #7A4100; border-radius: 12px; padding: 10px 12px; font-size: 14px; line-height: 1.4; }
+.cm-warn b { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+.cm-warn b .ic { width: 16px; height: 16px; }
+.cm-warn .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cm-warn .acts .btn { min-height: 36px; padding: 0 12px; font-size: 13.5px; }
+.cm-pill { background: #FFF1E2 !important; color: #9A4A06 !important; }
+.cm-fix { display: block; color: var(--ink-2); font-weight: 400; margin-top: 2px; }
+#cm-root { position: fixed; inset: 0; z-index: 70; }
+.cm-bg { position: absolute; inset: 0; background: rgba(10, 15, 12, .45); }
+.cm-sheet { position: absolute; left: 50%; top: 8vh; transform: translateX(-50%); width: min(520px, calc(100% - 32px)); max-height: 84vh; background: var(--surface);
+border-radius: 16px; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
+.cm-grab { display: none; }
+.cm-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cm-head h2 { font: 700 18px var(--font-title); margin: 0; }
+.cm-search { display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 0 12px; border: 2px solid var(--brand); border-radius: 12px; }
+.cm-search .ic { color: var(--muted); flex: none; }
+.cm-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: inherit; font-size: 16px; min-height: 42px; padding: 0; }
+.cm-list { flex: 1; min-height: 120px; overflow: auto; border: 1px solid var(--line); border-radius: 12px; }
+.cm-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 11px 14px; border: 0; border-top: 1px solid #EEF0F3; background: var(--surface); font: inherit; font-size: 15px; color: var(--ink); text-align: left; cursor: pointer; }
+.cm-row:first-child { border-top: 0; }
+.cm-row:hover { background: #F4F7F5; }
+.cm-row b { font-weight: 600; }
+.cm-row .ar { margin-left: auto; color: var(--muted); font-size: 14.5px; }
+.cm-row .ok { color: var(--brand); font-weight: 800; }
+.cm-row.on { background: #E3F2EC; }
+.cm-row.cm-free { color: #9A4A06; font-size: 13.5px; }
+.cm-none { padding: 12px 14px; }
+.cm-legend { margin: 0; }
+@media (max-width: 860px) {
+.cm-sheet { left: 0; right: 0; bottom: 0; top: 9vh; transform: none; width: auto; max-height: none; border-radius: 20px 20px 0 0; padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
+.cm-grab { display: block; width: 44px; height: 5px; border-radius: 9px; background: #D7DBE1; margin: 0 auto; }
+.cm-pick { min-height: 48px; font-size: 16px; }
+}
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }
 </style>
@@ -968,6 +1020,164 @@ body:has(.bulk-bar:not([hidden])) .fab { display: none; }
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="modal-root"></div>
 <script>/*
+ * Communes d'Ecotrack (v1.13) : recherche en français ou en arabe, commune reconnue, communes proches.
+ * Partagé par le moteur Cloudflare (server.js) et l'application (client-cloud.js) : mêmes règles des deux côtés.
+ *
+ * Une commune : { w: n° de wilaya, n: nom chez Ecotrack, p: code postal, s: 1 si bureau stop desk, a: nom arabe }.
+ *
+ *   find(index, wilaya, texte)      la commune écrite (même orthographe, ou même nom arabe), sinon null
+ *   suggest(index, wilaya, texte, adresse)   jusqu'à 3 communes proches (orthographe, nom dans l'adresse)
+ *   search(index, wilaya, recherche)          communes de la wilaya qui correspondent (début du nom d'abord)
+ */
+var DZC = (function () {
+  'use strict';
+  // Wilayas créées en 2019 : leurs communes étaient avant dans ces wilayas (table des noms arabes).
+  var PARENT = { 49: 1, 50: 1, 51: 7, 52: 8, 53: 11, 54: 11, 55: 30, 56: 33, 57: 39, 58: 47 };
+
+  function str(s) { return String(s == null ? '' : s); }
+  function isArabic(s) { return /[؀-ۿ]/.test(str(s)); }
+  /** « Aïn El-Turck » → « aineltruck » : minuscules, sans accents, lettres seulement. */
+  function latin(s) { return str(s).normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z]/g, ''); }
+  function arabicWords(s) {
+    return str(s).replace(/[ً-ٰٟـ]/g, '')
+      .replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/ؤ/g, 'و').replace(/ئ/g, 'ي')
+      .replace(/[^ء-ي]+/g, ' ').split(' ').filter(function (w) { return w && w !== 'بلديه' && w !== 'البلديه'; });
+  }
+  /** Nom arabe sans voyelles ni espaces, lettres proches unifiées (أ إ آ → ا, ة → ه, ى → ي). */
+  function arabic(s) { return arabicWords(s).join(''); }
+  /**
+   * Plus souple : sans l'article « ال » (« عين البنيان » = « عين بنيان »), « وادي » = « واد »,
+   * fin de mot ة / ا / ي indifférente (« السانية » = « السانيا »).
+   */
+  function arabicLoose(s) {
+    return arabicWords(s).map(function (w) {
+      if (w === 'وادي' || w === 'الوادي') return 'واد';
+      if (w.length > 3) w = w.replace(/^ال/, '');
+      return w.length > 3 ? w.replace(/[اهي]$/, '') : w;
+    }).join('');
+  }
+  /** Squelette : « Azazgua » = « Azazga », « Bab zouar » = « Bab Ezzouar » (consonnes, sans lettres doublées). */
+  function skel(s) {
+    var l = latin(s).replace(/dj/g, 'j').replace(/ch/g, 'sh').replace(/ou/g, 'u').replace(/gh/g, 'r');
+    if (!l) return '';
+    return (l[0] + l.slice(1).replace(/[aeiouy]/g, '')).replace(/(.)\1+/g, '$1');
+  }
+  function lev(a, b) {
+    if (a === b) return 0;
+    if (!a.length || !b.length) return Math.max(a.length, b.length);
+    var prev = [];
+    for (var j = 0; j <= b.length; j++) prev[j] = j;
+    for (var i = 1; i <= a.length; i++) {
+      var cur = [i];
+      for (var k = 1; k <= b.length; k++) cur[k] = Math.min(prev[k] + 1, cur[k - 1] + 1, prev[k - 1] + (a[i - 1] === b[k - 1] ? 0 : 1));
+      prev = cur;
+    }
+    return prev[b.length];
+  }
+  /** Ressemblance de 0 à 1 entre deux textes déjà normalisés. */
+  function sim(a, b) { return a && b ? 1 - lev(a, b) / Math.max(a.length, b.length) : 0; }
+
+  function index(list) {
+    var byW = {};
+    var keys = {};
+    var add = function (k, key, c) { if (key.length > 3) (k[key] = k[key] || []).push(c); };
+    (list || []).forEach(function (c) {
+      (byW[c.w] = byW[c.w] || []).push(c);
+      var k = keys[c.w] = keys[c.w] || {};
+      add(k, 'l:' + latin(c.n), c);
+      if (c.a) { add(k, 'a:' + arabic(c.a), c); add(k, 'A:' + arabicLoose(c.a), c); }
+    });
+    Object.keys(byW).forEach(function (w) { byW[w].sort(function (x, y) { return x.n.localeCompare(y.n, 'fr'); }); });
+    return { byW: byW, keys: keys, n: (list || []).length };
+  }
+
+  function find(idx, w, text) {
+    var k = idx && idx.keys[w];
+    var t = str(text).trim();
+    if (!k || !t) return null;
+    var tries = isArabic(t) ? ['a:' + arabic(t), 'A:' + arabicLoose(t)] : ['l:' + latin(t)];
+    for (var i = 0; i < tries.length; i++) {
+      var hit = k[tries[i]];
+      if (hit && hit.length === 1) return hit[0];
+    }
+    return null;
+  }
+
+  function suggest(idx, w, text, extra) {
+    var list = idx && idx.byW[w];
+    if (!list) return [];
+    var t = str(text).trim();
+    var ar = isArabic(t);
+    var tl = latin(t);
+    var ta = arabic(t);
+    var ts = skel(t);
+    var hayL = latin(t + ' ' + str(extra));
+    var hayA = arabic(t + ' ' + str(extra));
+    var scored = [];
+    list.forEach(function (c) {
+      var cl = latin(c.n);
+      var ca = c.a ? arabic(c.a) : '';
+      var s = ar ? (ca ? sim(ta, ca) : 0) : Math.max(sim(tl, cl), ts && ts.length > 2 && ts === skel(c.n) ? 0.9 : 0);
+      // Nom de la commune écrit dans la commune ou l'adresse (« Bab Ezzouar, cité 500 logements »).
+      if (cl.length >= 4 && hayL.indexOf(cl) >= 0) s = Math.max(s, 0.85 + cl.length / 1000);
+      if (ca.length >= 4 && hayA.indexOf(ca) >= 0) s = Math.max(s, 0.85 + ca.length / 1000);
+      if (s >= 0.6) scored.push([s, c]);
+    });
+    scored.sort(function (x, y) { return y[0] - x[0] || x[1].n.localeCompare(y[1].n, 'fr'); });
+    return scored.slice(0, 3).map(function (x) { return x[1]; });
+  }
+
+  function search(idx, w, q) {
+    var list = (idx && idx.byW[w]) || [];
+    var t = str(q).trim();
+    var ar = isArabic(t);
+    var key = ar ? arabic(t) : latin(t);
+    if (!key) return list.slice();
+    var starts = [];
+    var inside = [];
+    list.forEach(function (c) {
+      var v = ar ? (c.a ? arabic(c.a) : '') : latin(c.n);
+      var i = v.indexOf(key);
+      if (i === 0) starts.push(c); else if (i > 0) inside.push(c);
+    });
+    return starts.concat(inside);
+  }
+
+  /** Ajoute le nom arabe (table [wilaya d'avant 2019, nom, nom arabe]) : même nom, sinon orthographe proche. */
+  function enrich(list, table) {
+    var byKey = {};
+    var byOld = {};
+    (table || []).forEach(function (r) {
+      var k = latin(r[1]);
+      (byKey[k] = byKey[k] || []).push(r);
+      (byOld[r[0]] = byOld[r[0]] || []).push(r);
+    });
+    return (list || []).map(function (c) {
+      var old = PARENT[c.w] || c.w;
+      var k = latin(c.n);
+      var cands = byKey[k] || [];
+      var r = cands.filter(function (x) { return x[0] === old; })[0] || (cands.length === 1 ? cands[0] : null);
+      if (!r) {
+        var best = null;
+        var bs = 0;
+        var sk = skel(c.n);
+        (byOld[old] || []).forEach(function (x) {
+          var s = Math.max(sim(k, latin(x[1])), sk.length > 2 && sk === skel(x[1]) ? 0.86 : 0);
+          if (s > bs) { bs = s; best = x; }
+        });
+        if (bs >= 0.75) r = best;
+      }
+      var out = {};
+      Object.keys(c).forEach(function (key) { out[key] = c[key]; });
+      out.a = r ? r[2] : '';
+      return out;
+    });
+  }
+
+  return { isArabic: isArabic, latin: latin, arabic: arabic, skel: skel, sim: sim, index: index, find: find, suggest: suggest, search: search, enrich: enrich };
+})();
+
+/*
  * Version Cloudflare de l'interface : remplace google.script.run par des appels à /api/<fonction>,
  * gère la connexion (jeton reçu du lien Apps Script) et masque les pages pas encore disponibles.
  * Placé dans la page AVANT le code de l'application (App.html), qui ne change pas.
@@ -978,7 +1188,7 @@ body:has(.bulk-bar:not([hidden])) .fab { display: none; }
   var STEP_KEY = 'dz-smart-shop:step';
   /** Pages restées dans l'application Google (étape 3) : ouvertes là-bas. */
   var EXTERNAL = ['benefices', 'stock', 'stats', 'admin'];
-  var VERSION = '1.12.0';
+  var VERSION = '1.13.0';
 
   /** Même empreinte que shortHash_ (Api.gs) : clé de la mémoire sur l'appareil, sans l'adresse. */
   function shortHash(text) {
@@ -1268,7 +1478,44 @@ body:has(.bulk-bar:not([hidden])) .fab { display: none; }
     });
   }
 
-  window.DZ_CLOUD = { applyStep: applyStep, authPost: authPost, setSession: setSession, logout: logout, via: function () { return session && session.v === 2 ? 'password' : 'google'; },
+  /* ---------------- v1.13 : communes d'Ecotrack (liste gardée sur l'appareil jusqu'à la suivante) ---------------- */
+
+  var communes = (function () {
+    var KEY = 'dz-communes';
+    var idx = null;
+    var at = '';
+    var loading = null;
+    function use(d) { at = d.at; idx = DZC.index(d.list); }
+    function ensure(want) {
+      if (!want) return Promise.resolve(false);
+      if (idx && at === want) return Promise.resolve(true);
+      try {
+        var c = JSON.parse(window.localStorage.getItem(KEY) || 'null');
+        if (c && c.at === want && c.list && c.list.length) { use(c); return Promise.resolve(true); }
+      } catch (e) { /* liste illisible : on la redemande */ }
+      if (loading) return loading;
+      loading = new Promise(function (resolve) {
+        window.google.script.run.withSuccessHandler(function (d) {
+          loading = null;
+          if (!d || !d.list || !d.list.length) { resolve(false); return; }
+          use(d);
+          try { window.localStorage.setItem(KEY, JSON.stringify({ at: d.at, list: d.list })); } catch (e) { /* mémoire pleine : gardée pour cette fois */ }
+          resolve(true);
+        }).withFailureHandler(function () { loading = null; resolve(false); }).api_communes();
+      });
+      return loading;
+    }
+    return {
+      ensure: ensure,
+      ready: function () { return !!idx; },
+      list: function (w) { return idx ? (idx.byW[w] || []) : []; },
+      find: function (w, t) { return idx ? DZC.find(idx, w, t) : null; },
+      suggest: function (w, t, extra) { return idx ? DZC.suggest(idx, w, t, extra) : []; },
+      search: function (w, q) { return idx ? DZC.search(idx, w, q) : []; }
+    };
+  })();
+
+  window.DZ_CLOUD = { communes: communes, applyStep: applyStep, authPost: authPost, setSession: setSession, logout: logout, via: function () { return session && session.v === 2 ? 'password' : 'google'; },
     install: install, canInstall: function () { return !!installEvent; }, standalone: standalone, isIos: isIos, push: push };
   function googleLink(route) { return step.google ? step.google + '&page=' + route : ''; }
   // Une page de l'application Google demandée ici (lien, menu « Plus ») : ouverte dans l'application Google.
@@ -2072,13 +2319,92 @@ function modalHead(title, extra) {
 return '<div class="modal-head"><div><h2 id="modal-title" style="font:700 20px var(--font-title)">' + title + '</h2>' + (extra || '') + '</div>' +
 '<button type="button" class="icon-btn" data-act="close-modal" aria-label="Fermer">×</button></div>';
 }
+function CM() { var c = window.DZ_CLOUD && window.DZ_CLOUD.communes; return c && c.ready() ? c : null; }
+function wCode(w) { var m = String(w || '').match(/^0*(\d{1,2})\b/); return m ? +m[1] : 0; }
+function communeListOn(carrier) { return !!CM() && (carrier || S.boot.defaultCarrier) === 'Ecotrack'; }
+function communeState(wilaya, commune, carrier) {
+if (!communeListOn(carrier)) return null;
+var w = wCode(wilaya);
+var n = w ? CM().list(w).length : 0;
+return n ? { w: w, n: n, c: CM().find(w, commune) } : null;
+}
+function communeField(o) {
+return field('Commune', '<span class="cm-box">' + communeInner(o.wilaya, o.commune, o.carrier) + '</span>');
+}
+function communeInner(wilaya, commune, carrier) {
+commune = String(commune == null ? '' : commune);
+if (!communeListOn(carrier)) return input('commune', commune, ' dir="auto"');
+var w = wCode(wilaya);
+var st = communeState(wilaya, commune, carrier);
+var c = st && st.c;
+if (c) commune = c.n; // écrite autrement (en arabe, sans accents) : enregistrée avec le nom d'Ecotrack
+var label = c ? '<span>' + h(c.n) + '</span>' + (c.a ? '<span class="ar">' + h(c.a) + '</span>' : '')
+: commune ? '<span dir="auto">' + h(commune) + '</span>' : '<span class="cm-ph">' + (w ? 'Choisir la commune' : 'Choisissez d’abord la wilaya') + '</span>';
+var hint = !st ? '' : c ? '<span class="cm-hint ok">' + icon('check') + 'Liste officielle d’Ecotrack · ' + st.n + ' communes' + (c.s ? ' <span class="cm-tag">🏢 Bureau stop desk</span>' : '') + '</span>'
+: commune ? '<span class="cm-hint bad">' + icon('alert') + 'Pas dans la liste d’Ecotrack : choisissez la commune</span>' : '';
+return '<input type="hidden" name="commune" value="' + h(commune) + '">' +
+'<button type="button" class="cm-pick' + (c || !commune ? '' : ' bad') + '" data-act="commune-pick"' + (st ? '' : ' disabled') + '>' + label + '<span class="chev">▾</span></button>' + hint;
+}
+function refreshCommune(form, value) {
+var box = form && form.querySelector('.cm-box');
+if (!box) return;
+var get = function (n) { var el = form.querySelector('[name="' + n + '"]'); return el ? el.value : ''; };
+box.innerHTML = communeInner(get('wilaya'), value === undefined ? get('commune') : value, get('carrier'));
+}
+function setCommune(form, name) {
+if (!form) return;
+refreshCommune(form, name);
+var el = form.querySelector('[name="commune"]');
+if (el) el.dispatchEvent(new Event('input', { bubbles: true }));
+}
+function communeSheet(wilaya, current, onPick) {
+var w = wCode(wilaya);
+if (!CM() || !w) return;
+closeCommuneSheet();
+var root = document.createElement('div');
+root.id = 'cm-root';
+root.innerHTML = '<div class="cm-bg" data-act="cm-close"></div><div class="cm-sheet" role="dialog" aria-modal="true" aria-labelledby="cm-title">' +
+'<div class="cm-grab"></div><div class="cm-head"><h2 id="cm-title">Commune · ' + h(wilaya) + '</h2>' +
+'<button type="button" class="icon-btn" data-act="cm-close" aria-label="Fermer">×</button></div>' +
+'<label class="cm-search">' + icon('search') + '<input type="search" id="cm-q" placeholder="Nom de la commune (français ou arabe)" autocomplete="off" aria-label="Rechercher une commune"></label>' +
+'<p class="small" id="cm-count"></p><div class="cm-list" id="cm-list"></div>' +
+'<p class="small cm-legend">🏢 Bureau : un bureau stop desk Ecotrack dans la commune.</p></div>';
+document.body.appendChild(root);
+S.cmPick = { w: w, wilaya: wilaya, current: current, onPick: onPick };
+renderCommuneList('');
+setTimeout(function () { var q = $('#cm-q'); if (q && !isPhone()) q.focus(); }, 30);
+}
+function renderCommuneList(q) {
+var p = S.cmPick;
+var cm = CM();
+if (!p || !cm || !$('#cm-list')) return;
+var all = cm.list(p.w);
+var list = cm.search(p.w, q);
+var cur = cm.find(p.w, p.current);
+$('#cm-count').textContent = (String(q || '').trim() ? list.length + ' sur ' : '') + plural(all.length, 'commune', 'communes') + ' · en français ou en arabe';
+$('#cm-list').innerHTML = list.map(function (c) {
+var on = cur && cur.n === c.n;
+return '<button type="button" class="cm-row' + (on ? ' on' : '') + '" data-act="cm-choose" data-name="' + h(c.n) + '">' + (on ? '<span class="ok">✓</span>' : '') +
+'<b>' + h(c.n) + '</b>' + (c.s ? '<span class="cm-tag">🏢 Bureau</span>' : '') + '<span class="ar">' + h(c.a || '') + '</span></button>';
+}).join('') +
+(String(q || '').trim() && !list.length ? '<p class="small cm-none">Aucune commune « ' + h(q) + ' » dans cette wilaya. Vérifiez la wilaya.</p>' : '') +
+(String(q || '').trim() && !list.length ? '<button type="button" class="cm-row cm-free" data-act="cm-choose" data-name="' + h(String(q).trim()) + '">Écrire « ' + h(String(q).trim()) + ' » (hors liste : Ecotrack refusera le colis)</button>' : '');
+}
+function closeCommuneSheet() { var r = $('#cm-root'); if (r) r.remove(); S.cmPick = null; }
+function communeText(o) {
+var st = communeState(o.wilaya, o.commune, o.carrier);
+if (!o.commune) return '';
+if (!st) return '<span dir="auto">' + h(o.commune) + '</span>';
+return st.c ? h(st.c.n) + (st.c.a ? ' <span class="muted">· ' + h(st.c.a) + '</span>' : '')
+: '<span dir="auto">' + h(o.commune) + '</span> <span class="pill cm-pill">Commune à vérifier</span>';
+}
 function orderFieldMap(o) {
 var b = S.boot;
 return {
 client: field('Client', input('client', o.client)),
 phone: field('Téléphone', input('phone', o.phone, ' inputmode="tel"')),
 wilaya: field('Wilaya', '<select name="wilaya">' + options(b.wilayas, o.wilaya, 'Choisir…') + '</select>'),
-commune: field('Commune', input('commune', o.commune)),
+commune: communeField(o),
 address: field('Adresse', input('address', o.address), 'full'),
 product: field('Produit', input('product', o.product, ' list="product-list"')),
 qty: field('Quantité', input('qty', o.qty || 1, ' type="number" min="1" step="1"')),
@@ -2175,7 +2501,7 @@ showModal(
 '<button type="button" class="btn" style="min-height:36px;margin-left:auto" data-act="track-history" data-id="' + h(o.id) + '">Voir la chronologie</button></div>' +
 '<div id="parcel-history"></div>' : '') +
 '<section class="of-card"><h3>Livraison</h3><div class="brief">' +
-line('Wilaya', h(wilayaName(o.wilaya) || '—') + (o.commune ? ' · ' + h(o.commune) : '')) +
+line('Wilaya', h(wilayaName(o.wilaya) || '—') + (o.commune ? ' · ' + communeText(o) : '')) +
 line('Adresse', o.address ? '<span dir="auto">' + h(o.address) + '</span>' : '') +
 line('Mode', h(o.mode || '—') + ' · ' + h(o.carrier || S.boot.defaultCarrier || '')) +
 line('Frais', o.shipping === null || o.shipping === undefined || o.shipping === '' ? 'calcul automatique' : money(o.shipping)) +
@@ -2718,7 +3044,7 @@ callHistory(o) +
 field('Client', input('client', o.client, ' dir="auto"')) +
 field('Téléphone', input('phone', o.phone, ' inputmode="tel"')) +
 field('Wilaya', '<select name="wilaya">' + options(b.wilayas, o.wilaya, 'Choisir…') + '</select>') +
-field('Commune', input('commune', o.commune, ' dir="auto"')) +
+communeField(o) +
 field('Adresse', input('address', o.address, ' dir="auto"'), 'full') +
 field('Produit', input('product', o.product, ' list="d-product-list" dir="auto"'), 'full') +
 field('Quantité', input('qty', o.qty, ' type="number" min="1" step="1"')) +
@@ -2813,12 +3139,16 @@ var o = S.current.order;
 var a = confirmAmounts();
 var f = a.f;
 var brief = $('#d-brief');
+var cs = communeState(f.wilaya, f.commune, f.carrier);
 if (brief) {
 var unknown = (S.current.stock || []).filter(function (it) { return !it.matched; });
 brief.innerHTML =
 '<div class="brief-line"><span class="lab">Livraison</span><span>' +
-(f.commune ? '<span dir="auto">' + h(f.commune) + '</span>' : '') + (f.commune && f.address ? ', ' : '') + (f.address ? '<span dir="auto">' + h(f.address) + '</span>' : '') +
-(f.commune || f.address ? '<br>' : '') + '<strong>' + h(wilayaName(f.wilaya) || 'Wilaya à choisir') + '</strong> · ' + h(f.mode) + ' · ' + h(a.carrier) + '</span></div>' +
+(cs && cs.c ? '<strong>' + h(cs.c.n) + '</strong>' + (cs.c.a ? ' <span class="muted">· ' + h(cs.c.a) + '</span>' : '')
+: f.commune ? '<span dir="auto">' + h(f.commune) + '</span>' : '') + (f.commune && f.address ? ', ' : '') + (f.address ? '<span dir="auto">' + h(f.address) + '</span>' : '') +
+(f.commune || f.address ? '<br>' : '') + '<strong>' + h(wilayaName(f.wilaya) || 'Wilaya à choisir') + '</strong> · ' + h(f.mode) + ' · ' + h(a.carrier) +
+(cs && cs.c && o.communeRaw && o.communeRaw !== cs.c.n && f.commune === o.commune ? '<span class="cm-recog">' + icon('check') + 'Commune reconnue (le client a écrit « <span dir="auto">' + h(o.communeRaw) + '</span> »)</span>' : '') +
+(cs && !cs.c ? communeWarn(cs.w, f.commune, f.address) : '') + '</span></div>' +
 '<div class="brief-line"><span class="lab">Produit</span><span class="brief-prod">' + productPhoto(S.current.stock) + '<span><strong dir="auto">' + h(f.product || 'Produit à indiquer') + '</strong> × ' + a.qty +
 ' <span class="muted">· ' + money(a.price) + ' + livraison ' + money(a.shipping) + '</span></span></span></div>' +
 (String(f.notes || '').trim() ? '<div class="brief-line"><span class="lab">Note</span><span dir="auto">' + h(f.notes) + '</span></div>' : '') +
@@ -2839,6 +3169,13 @@ client: f.client, id: o.id, product: f.product || o.product, qty: a.qty, total: 
 $('#d-msg').textContent = msg;
 var wa = $('#d-wa');
 if (wa) wa.href = 'https://wa.me/' + S.current.intlPhone + '?text=' + encodeURIComponent(msg);
+}
+function communeWarn(w, commune, address) {
+var near = CM().suggest(w, commune, address).slice(0, 2);
+return '<span class="cm-warn"><b>' + icon('alert') + 'Commune à vérifier</b>' +
+(commune ? '« <span dir="auto">' + h(commune) + '</span> » n’est pas une commune d’Ecotrack.' : 'Commune manquante.') + ' Demandez-la au client pendant l’appel.' +
+'<span class="acts"><button type="button" class="btn primary" data-act="commune-pick-d">Choisir la commune</button>' +
+near.map(function (c) { return '<button type="button" class="btn" data-act="commune-set" data-name="' + h(c.n) + '">' + h(c.n) + ' ?</button>'; }).join('') + '</span></span>';
 }
 function confirmFields() {
 var a = confirmAmounts();
@@ -3003,6 +3340,13 @@ view.innerHTML =
 if (S.ship.data) renderShipping();
 loadShipping();
 }
+function shipCommune(el, id, name) {
+if (el) el.disabled = true;
+call('api_updateOrder', id, { commune: name }).then(function () {
+toast('Commune de la commande ' + id + ' : ' + name);
+loadShipping();
+}).catch(function (e) { if (el) el.disabled = false; toast(errText(e), true); });
+}
 function loadShipping() {
 var t = ++S.token;
 syncStart();
@@ -3108,8 +3452,12 @@ html += '<tr>' +
 '<td data-label="Livraison">' + h(o.mode) + '</td>' +
 '<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
 '<td data-label="État">' + (ok ? '<span class="pill" style="background:#DDF0E4;color:#146C2E">Prête</span>' :
-'<span class="problems">' + o.problems.map(function (p) { return '<span>' + h(p) + '</span>'; }).join('') + '</span>') + '</td>' +
-'<td data-label=""><span class="quick"><button type="button" class="btn" style="min-height:36px" data-act="open-order" data-id="' + h(o.id) + '">' + icon('edit') + 'Modifier</button>' +
+'<span class="problems">' + o.problems.map(function (p) { return '<span>' + h(p) + '</span>'; }).join('') +
+(o.communeFix ? '<span class="cm-fix">Proposée : <strong>' + h(o.communeFix) + '</strong></span>' : '') + '</span>') + '</td>' +
+'<td data-label=""><span class="quick">' +
+(o.communeBad && o.communeFix ? '<button type="button" class="btn primary" style="min-height:36px" data-act="ship-commune" data-id="' + h(o.id) + '" data-name="' + h(o.communeFix) + '">' + icon('check') + 'Mettre « ' + h(o.communeFix) + ' »</button>' : '') +
+(o.communeBad && CM() ? '<button type="button" class="btn" style="min-height:36px" data-act="ship-commune-pick" data-id="' + h(o.id) + '" data-wilaya="' + h(o.wilaya) + '" data-commune="' + h(o.commune) + '">Choisir la commune</button>' : '') +
+'<button type="button" class="btn" style="min-height:36px" data-act="open-order" data-id="' + h(o.id) + '">' + icon('edit') + 'Modifier</button>' +
 (manualCarriers().length ? '<button type="button" class="btn" style="min-height:36px" data-act="manual-ship-ask" data-id="' + h(o.id) + '">Expédiée (autre société)</button>' : '') + '</span></td></tr>';
 });
 return html + '</tbody></table></div>' +
@@ -3911,6 +4259,32 @@ refreshCount();
 'trash-purge': purgeTrash,
 'trash-restore-sel': restoreTrashSel,
 'new-order': openNewOrder,
+'commune-pick': function (el) {
+var form = el.closest('#order-form, #d-form');
+if (!form) return;
+var w = form.querySelector('[name="wilaya"]');
+var cur = form.querySelector('[name="commune"]');
+communeSheet(w ? w.value : '', cur ? cur.value : '', function (name) { setCommune(form, name); });
+},
+'commune-pick-d': function () {
+var form = $('#d-form');
+if (!form) return;
+if (form.closest('#d-edit')) { /* le formulaire peut rester replié : la commune choisie s'y écrit */ }
+communeSheet(form.querySelector('[name="wilaya"]').value, form.querySelector('[name="commune"]').value, function (name) { setCommune(form, name); });
+},
+'commune-set': function (el) { setCommune($('#d-form'), el.getAttribute('data-name')); },
+'cm-choose': function (el) {
+var p = S.cmPick;
+var name = el.getAttribute('data-name');
+closeCommuneSheet();
+if (p && p.onPick) p.onPick(name);
+},
+'cm-close': closeCommuneSheet,
+'ship-commune': function (el) { shipCommune(el, el.getAttribute('data-id'), el.getAttribute('data-name')); },
+'ship-commune-pick': function (el) {
+var id = el.getAttribute('data-id');
+communeSheet(el.getAttribute('data-wilaya'), el.getAttribute('data-commune'), function (name) { shipCommune(el, id, name); });
+},
 'order-edit': function () { if (!S.order) return; S.orderEdit = S.order.order.id; renderOrderModal(S.order); var bd = $('#modal-root .modal-backdrop'); if (bd) bd.scrollTop = 0; },
 'order-edit-cancel': function () { if (!S.order) return; S.orderEdit = null; S.unlockId = null; S.orderDirty = false; renderOrderModal(S.order); },
 'of-more': function () { var m = $('#of-more'); if (m) m.hidden = !m.hidden; },
@@ -4068,6 +4442,7 @@ fn(el, e);
 });
 var searchTimer = null;
 document.addEventListener('input', function (e) {
+if (e.target.id === 'cm-q') { renderCommuneList(e.target.value); return; }
 if (e.target.id === 'f-q') {
 clearTimeout(searchTimer);
 searchTimer = setTimeout(function () { S.filter.q = e.target.value; S.filter.limit = 100; loadOrders(); }, 350);
@@ -4087,6 +4462,10 @@ tot.textContent = money(price + (ship === '' ? known : Number(ship) || 0));
 }
 });
 document.addEventListener('change', function (e) {
+var cmForm = e.target.closest && e.target.closest('#order-form, #d-form');
+if (cmForm && cmForm.querySelector('.cm-box') && (e.target.name === 'wilaya' || e.target.name === 'carrier')) {
+refreshCommune(cmForm, e.target.name === 'wilaya' && communeListOn(((cmForm.querySelector('[name="carrier"]') || {}).value)) ? '' : undefined);
+}
 if (e.target.hasAttribute('data-sel')) {
 var g = e.target.getAttribute('data-sel');
 S.sel[g] = S.sel[g] || {};
@@ -4137,6 +4516,8 @@ else if (e.target.closest('#order-form') && !$('#order-form').getAttribute('data
 else if (e.target.closest('#d-form')) updateSummary();
 });
 document.addEventListener('keydown', function (e) {
+if (e.key === 'Escape' && $('#cm-root')) { closeCommuneSheet(); return; }
+if (e.key === 'Enter' && e.target.id === 'cm-q') { var first = $('#cm-list .cm-row'); if (first) first.click(); e.preventDefault(); return; }
 if (e.key === 'Escape' && modalOpen()) { closeModal(); return; }
 if (S.route !== 'confirmation' || !S.current || modalOpen() || e.ctrlKey || e.metaKey || e.altKey) return;
 var t = e.target;
@@ -4287,11 +4668,31 @@ view.innerHTML = '<section class="card"><h2>Cette page est dans la version Cloud
 return true;
 }
 function started() {
+loadCommunes();
 setTimeout(preloadPages, 1500);
 setInterval(tick, 30000);
 openFromLink(location.href);
 showInstallBanner();
 showPushBanner();
+}
+function loadCommunes() {
+var at = S.boot.cloud && S.boot.cloud.communesAt;
+var cm = window.DZ_CLOUD && window.DZ_CLOUD.communes;
+if (!at || !cm) return;
+var was = cm.ready();
+cm.ensure(at).then(function (ok) {
+if (!ok || was) return;
+$all('#order-form, #d-form').forEach(function (form) {
+var el = form.querySelector('[name="commune"]');
+if (el && !form.querySelector('.cm-box')) {
+var fld = el.closest('.field');
+if (fld) fld.innerHTML = 'Commune<span class="cm-box"></span>';
+}
+refreshCommune(form, el ? el.value : '');
+});
+if ($('#d-form')) updateSummary();
+if (S.route === 'expeditions' && S.ship && S.ship.data && $('#ship')) renderShipping();
+});
 }
 function openFromLink(url) {
 var u;

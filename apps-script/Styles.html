@@ -898,6 +898,60 @@ input.switch:disabled { opacity: .5; cursor: default; }
   .modal.of-modal { gap: 14px; padding-bottom: 20px; }
 }
 
+/* v1.13 : communes d'Ecotrack (liste avec recherche, commune reconnue / à vérifier). */
+.cm-box { display: grid; gap: 6px; font-weight: 400; }
+.cm-pick { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface);
+  font: inherit; font-size: 15px; color: var(--ink); text-align: left; cursor: pointer; }
+.cm-pick:hover:not(:disabled) { border-color: var(--brand); }
+.cm-pick:disabled { background: #F4F5F7; color: var(--muted); cursor: default; }
+.cm-pick.bad { border-color: #E8A23A; background: #FFF8EC; }
+.cm-pick .ar { margin-left: auto; color: var(--muted); font-size: 14px; }
+.cm-pick .chev { color: var(--muted); font-size: 13px; }
+.cm-pick > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-pick .ar + .chev { margin-left: 4px; }
+.cm-pick > span:first-child + .chev { margin-left: auto; }
+.cm-ph { color: var(--muted); }
+.cm-hint { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 12.5px; font-weight: 600; }
+.cm-hint .ic { width: 14px; height: 14px; flex: none; }
+.cm-hint.ok { color: #146C2E; }
+.cm-hint.bad { color: #9A4A06; }
+.cm-tag { display: inline-flex; align-items: center; gap: 3px; background: #E3F2EC; color: #0B6B4C; border-radius: 999px; padding: 1px 8px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.cm-recog { display: block; margin-top: 3px; font-size: 12.5px; color: #146C2E; font-weight: 600; }
+.cm-recog .ic { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }
+.cm-warn { display: block; margin-top: 8px; border: 1px solid #F3C98B; background: #FFF5E6; color: #7A4100; border-radius: 12px; padding: 10px 12px; font-size: 14px; line-height: 1.4; }
+.cm-warn b { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+.cm-warn b .ic { width: 16px; height: 16px; }
+.cm-warn .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cm-warn .acts .btn { min-height: 36px; padding: 0 12px; font-size: 13.5px; }
+.cm-pill { background: #FFF1E2 !important; color: #9A4A06 !important; }
+.cm-fix { display: block; color: var(--ink-2); font-weight: 400; margin-top: 2px; }
+#cm-root { position: fixed; inset: 0; z-index: 70; }
+.cm-bg { position: absolute; inset: 0; background: rgba(10, 15, 12, .45); }
+.cm-sheet { position: absolute; left: 50%; top: 8vh; transform: translateX(-50%); width: min(520px, calc(100% - 32px)); max-height: 84vh; background: var(--surface);
+  border-radius: 16px; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
+.cm-grab { display: none; }
+.cm-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cm-head h2 { font: 700 18px var(--font-title); margin: 0; }
+.cm-search { display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 0 12px; border: 2px solid var(--brand); border-radius: 12px; }
+.cm-search .ic { color: var(--muted); flex: none; }
+.cm-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: inherit; font-size: 16px; min-height: 42px; padding: 0; }
+.cm-list { flex: 1; min-height: 120px; overflow: auto; border: 1px solid var(--line); border-radius: 12px; }
+.cm-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 11px 14px; border: 0; border-top: 1px solid #EEF0F3; background: var(--surface); font: inherit; font-size: 15px; color: var(--ink); text-align: left; cursor: pointer; }
+.cm-row:first-child { border-top: 0; }
+.cm-row:hover { background: #F4F7F5; }
+.cm-row b { font-weight: 600; }
+.cm-row .ar { margin-left: auto; color: var(--muted); font-size: 14.5px; }
+.cm-row .ok { color: var(--brand); font-weight: 800; }
+.cm-row.on { background: #E3F2EC; }
+.cm-row.cm-free { color: #9A4A06; font-size: 13.5px; }
+.cm-none { padding: 12px 14px; }
+.cm-legend { margin: 0; }
+@media (max-width: 860px) {
+  .cm-sheet { left: 0; right: 0; bottom: 0; top: 9vh; transform: none; width: auto; max-height: none; border-radius: 20px 20px 0 0; padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
+  .cm-grab { display: block; width: 44px; height: 5px; border-radius: 9px; background: #D7DBE1; margin: 0 auto; }
+  .cm-pick { min-height: 48px; font-size: 16px; }
+}
+
 /* Application Google après le basculement : les pages des commandes sont dans la version Cloudflare. */
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }

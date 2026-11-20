@@ -57,6 +57,11 @@ ORDERS_CACHE_ON_ = false;
   seedDemo_();
   __mock.setUser('admin@example.com');
   transferReleasitOrders_();
+  // Aperçu avec la vraie liste des communes : DZ_COMMUNES=fichier.json ([{ w, n, p, s }]).
+  if (process.env.DZ_COMMUNES) {
+    __fakeEcotrack.communesList = JSON.parse(fs.readFileSync(process.env.DZ_COMMUNES, 'utf8'))
+      .map((c) => ({ nom: c.n, wilaya_id: c.w, code_postal: c.p, has_stop_desk: c.s, is_active: 1 }));
+  }
   if (STEP2) {
     saveEcotrackConfig_(__fakeEcotrack.host, __fakeEcotrack.token);
     saveSmsConfig_(__fakeHttpsms.key, '0550 12 34 56');

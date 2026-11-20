@@ -7,7 +7,7 @@
  */
 
 var APP_NAME = 'DZ Smart Shop';
-var APP_VERSION = '1.12.0';
+var APP_VERSION = '1.13.0';
 
 /** Noms des onglets du classeur. */
 var SHEET = {
@@ -74,6 +74,7 @@ var ORDER_COLUMNS = [
   { key: 'sms', title: 'SMS envoyés', kind: 'auto', width: 160, aliases: [] },
   { key: 'callLog', title: 'Historique appels', kind: 'auto', width: 280, aliases: ['Historique des appels'] },
   { key: 'confirmedAt', title: 'Confirmée le', kind: 'auto', width: 130, aliases: ['Date de confirmation'] },
+  { key: 'communeRaw', title: 'Commune écrite', kind: 'auto', width: 140, aliases: ['Commune écrite par le client'] },
   { key: 'updated', title: 'Mis à jour', kind: 'auto', width: 130, aliases: ['Dernière mise à jour'] }
 ];
 

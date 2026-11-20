@@ -447,8 +447,7 @@ test('Étape 2 · Suivi : statuts Ecotrack lus (bouton et tâche automatique), a
   // Communes d'Ecotrack (objet { "0": …, "1": … } comme l'API) : gardées à part, pas lues à chaque requête.
   assert.strictEqual(out.communes && out.communes.communes, 5, JSON.stringify(out.communes));
   const big = JSON.parse((await env.DB.prepare("SELECT value FROM kv WHERE key = 'big:ecoCommunes'").first()).value);
-  assert.deepStrictEqual(big.list[1], { w: 16, n: 'Bab Ezzouar', p: '16024', s: 1 });
-  assert.strictEqual(big.error, '');
+  assert.deepStrictEqual(big.list[1], { w: 16, n: 'Bab Ezzouar', p: '16024', s: 1, a: 'باب الزوار' });
   const again = await cron(env);
   assert.ok(!again.ecotrack, 'pas avant l’intervalle réglé (60 min)');
   assert.ok(!again.communes, 'communes : une fois par semaine');
@@ -1058,6 +1057,63 @@ const pushBox = { calls: [], gone: {} };
   };
 })();
 
+test('v1.13 · Communes d’Ecotrack : noms arabes, commune reconnue à l’arrivée, liste pour l’appareil, Expédier refuse une commune inconnue', async () => {
+  await fresh(true, true);
+  await api('api_settingsSave', { SOCIETE_PAR_DEFAUT: 'Ecotrack' });
+  // La liste officielle, lue par la tâche de chaque minute (une fois par semaine), avec les noms arabes.
+  await env.DB.prepare("DELETE FROM kv WHERE key LIKE 'cf:ecoCommunes%' OR key = 'big:ecoCommunes'").run();
+  const out = await cron(env);
+  assert.strictEqual(out.communes && out.communes.communes, 5, JSON.stringify(out.communes));
+  const big = JSON.parse((await env.DB.prepare("SELECT value FROM kv WHERE key = 'big:ecoCommunes'").first()).value);
+  assert.strictEqual(big.list.filter((c) => c.n === 'Bab Ezzouar')[0].a, 'باب الزوار');
+  assert.ok(!(await cron(env)).communes, 'pas avant une semaine');
+  // Ecotrack en panne : la liste d'avant reste.
+  await env.DB.prepare("DELETE FROM kv WHERE key = 'cf:ecoCommunesAt'").run();
+  __fakeEcotrack.queue.push({ code: 500 });
+  await env.DB.prepare("UPDATE kv SET value = '1' WHERE key = 'cf:ecoCommunesV'").run();
+  const failed = await cron(env);
+  assert.ok(failed.communes && failed.communes.error, JSON.stringify(failed.communes));
+  assert.strictEqual(JSON.parse((await env.DB.prepare("SELECT value FROM kv WHERE key = 'big:ecoCommunes'").first()).value).n, 5);
+  await env.DB.prepare("UPDATE kv SET value = '2' WHERE key = 'cf:ecoCommunesV'").run();
+  // L'appareil : la liste, et sa version au démarrage.
+  const boot = await api('api_bootstrap');
+  assert.ok(boot.cloud.communesAt);
+  const cm = await api('api_communes');
+  assert.deepStrictEqual([cm.n, cm.at], [5, boot.cloud.communesAt]);
+  // Arrivée par le relais : « باب الزوار » devient « Bab Ezzouar » (l'écrit du client est gardé) ; « حي 500 مسكن » reste (à vérifier).
+  await bridge('/bridge/releasit', { install: true, version: APP_VERSION });
+  releasitTab_();
+  releasitRow_('9601', '0550112244', { wilaya: 'Alger', commune: 'باب الزوار' });
+  releasitRow_('9602', '0661223355', { wilaya: 'Alger', commune: 'حي 500 مسكن' });
+  const vals = releasitTab_().getDataRange().getValues();
+  const res = await bridge('/bridge/releasit', { header: vals[0], rows: vals.slice(-2), from: vals.length - 1, more: false });
+  assert.deepStrictEqual(res.added, ['9601', '9602']);
+  const o1 = await dbOrder('9601');
+  assert.deepStrictEqual([o1.commune, o1.communeRaw, o1.wilaya], ['Bab Ezzouar', 'باب الزوار', '16 - Alger']);
+  const o2 = await dbOrder('9602');
+  assert.deepStrictEqual([o2.commune, o2.communeRaw], ['حي 500 مسكن', '']);
+  assert.strictEqual((await api('api_getOrder', '9601')).order.communeRaw, 'باب الزوار');
+  // Expédier : commune inconnue d'Ecotrack → pas d'envoi, la commune proche est proposée.
+  await api('api_updateOrder', '9602', { status: 'Confirmée', commune: 'Hydre' });
+  let ship = await api('api_shippingList');
+  let it = ship.toShip.filter((x) => x.id === '9602')[0];
+  assert.ok(it.problems.indexOf('Commune inconnue d’Ecotrack : « Hydre »') >= 0, JSON.stringify(it.problems));
+  assert.deepStrictEqual([it.communeBad, it.communeFix], [true, 'Hydra']);
+  const sent = await api('api_shipEcotrack', ['9602']);
+  const r = (sent.results || sent).filter ? (sent.results || sent).filter((x) => x.id === '9602')[0] : null;
+  assert.ok(r && !r.ok && /Commune inconnue/.test(r.message), JSON.stringify(sent));
+  assert.strictEqual((await dbOrder('9602')).tracking, '');
+  await api('api_updateOrder', '9602', { commune: 'Hydra' });
+  // Commune écrite en arabe (commande d'avant) : le colis part avec le nom d'Ecotrack.
+  await api('api_updateOrder', '9601', { status: 'Confirmée', commune: 'باب الزوار' });
+  const both = await api('api_shipEcotrack', ['9601']);
+  assert.ok((both.results || both)[0].ok, JSON.stringify(both));
+  assert.strictEqual(__fakeEcotrack.orders.filter((x) => x.reference === '9601')[0].commune, 'Bab Ezzouar');
+  ship = await api('api_shippingList');
+  it = ship.toShip.filter((x) => x.id === '9602')[0];
+  assert.ok(!it.communeBad && !it.problems.some((p) => /Commune/.test(p)), JSON.stringify(it));
+});
+
 test('v1.12 · Application installable ; notifications chiffrées (RFC 8291) et signées (VAPID) : nouvelle commande, choix, rappel à l’heure, essai, abonnement expiré', async () => {
   await fresh(true, true);
   // Application installable : manifeste, service worker, icônes.
@@ -1177,7 +1233,7 @@ function releasitTab_() {
   const s = __mock.ss().getSheetByName('RELEASIT') || __mock.ss().insertSheet('RELEASIT');
   return s;
 }
-function releasitRow_(id, phone) {
+function releasitRow_(id, phone, more) {
   const sh = releasitTab_();
   const head = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0];
   const col = releasitColumns_(head);
@@ -1186,6 +1242,7 @@ function releasitRow_(id, phone) {
   set('id', id); set('client', 'Client Test'); set('phone', phone); set('wilaya', 'bejaia'); set('commune', 'Bejaia'); set('address', 'Rue test');
   set('product', 'cover iPhone  - iphone 13'); set('qty', '1'); set('line', '1800'); set('sub', '1800'); set('ship', '450'); set('total', '2250');
   set('date', new Date(Date.now() - 60000).toISOString());
+  Object.keys(more || {}).forEach((k) => set(k, more[k]));
   sh.appendRow(row);
 }
 

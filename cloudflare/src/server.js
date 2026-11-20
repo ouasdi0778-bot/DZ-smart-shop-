@@ -569,7 +569,7 @@ const PAGES = {
     boot.counts = await fastCounts(env);
     boot.cloud = { version: K.APP_VERSION, step: R.full ? 3 : isLive(R) ? 2 : 1, google: R.cfInfo.google,
       auth: { via: R.user.sid ? 'password' : 'google', phone: R.user.phone || '', pwdOnly: !!R.base.secret['cf:pwdOnly'], relay: !!R.base.secret['cf:relay'] },
-      lastExport: R.base.secret['cf:lastExport'] || '' };
+      lastExport: R.base.secret['cf:lastExport'] || '', communesAt: R.base.secret['cf:ecoCommunesOk'] || '' };
     if (!R.user.sid && R.full) {
       const mine = run(R, () => F.readTeam_()).filter((t) => t[0] === String(R.user.email || ''))[0];
       const row = mine && mine[3] ? await authRow(env, mine[3]) : null;
@@ -865,12 +865,23 @@ async function external(env, R, fn, opts) {
 Object.assign(PAGES, {
   async api_shippingList(env, R) {
     await loadWhere(env, R, "archived = 0 AND stage = 'confirmed'", []);
-    if (!isLive(R)) return run(R, () => F.api_shippingList());
-    return exec(env, R, () => F.api_shippingList());
+    R.communes = await communeIndex(env, R.base);
+    const res = isLive(R) ? await exec(env, R, () => F.api_shippingList()) : run(R, () => F.api_shippingList());
+    // v1.13 : commune inconnue d'Ecotrack : la commune proche à mettre en un geste.
+    (res.toShip || []).forEach((o) => { if (R.communeFix && o.id in R.communeFix) { o.communeBad = true; o.communeFix = R.communeFix[o.id]; } });
+    return res;
   },
   async api_shipEcotrack(env, R, args) {
     await loadIds(env, R, idsOf(args[0]));
+    R.communes = await communeIndex(env, R.base);
     return external(env, R, () => F.api_shipEcotrack(args[0]));
+  },
+  /** v1.13 : communes d'Ecotrack (avec les noms arabes), gardées sur l'appareil jusqu'à la liste suivante. */
+  async api_communes(env, R) {
+    const row = await env.DB.prepare("SELECT value FROM kv WHERE key = 'big:ecoCommunes'").first();
+    let v = null;
+    try { v = row ? JSON.parse(row.value) : null; } catch (e) { v = null; }
+    return v && v.list && v.list.length ? { at: v.at, n: v.list.length, list: v.list } : { at: '', n: 0, list: [] };
   },
   async api_labelFiles(env, R, args) {
     await loadIds(env, R, idsOf(args[0]));
@@ -1029,7 +1040,7 @@ async function cron(env) {
   // 7. Notifications : rappels arrivés à leur heure.
   if (base.full) out.callbacks = await notifyCallbacks(env, base).catch((e) => ({ error: String(e && e.message ? e.message : e) }));
   // 8. Communes d'Ecotrack : la liste officielle, relue une fois par semaine (une heure après un échec).
-  if (base.props.ECOTRACK_TOKEN && due(base, 'cf:ecoCommunesAt', base.secret['cf:ecoCommunesOk'] ? 7 * 1440 : 60)) {
+  if (base.props.ECOTRACK_TOKEN && due(base, 'cf:ecoCommunesAt', base.secret['cf:ecoCommunesOk'] && base.secret['cf:ecoCommunesV'] === COMMUNES_V ? 7 * 1440 : 60)) {
     await kvSet(env, 'cf:ecoCommunesAt', new Date().toISOString()).run();
     out.communes = await ecotrackCommunes(env, base).catch((e) => ({ error: String(e && e.message ? e.message : e) }));
   }
@@ -1046,7 +1057,7 @@ async function cron(env) {
  */
 function communeList(raw) {
   const items = Array.isArray(raw) ? raw : raw && Array.isArray(raw.data) ? raw.data : raw && typeof raw === 'object' ? Object.values(raw) : [];
-  return items.filter((c) => c && typeof c === 'object').map((c) => ({
+  return items.filter((c) => c && typeof c === 'object' && Number(c.is_active) !== 0).map((c) => ({
     w: parseInt(c.wilaya_id, 10) || 0,
     n: String(c.nom || c.name || c.commune || '').trim(),
     p: String(c.code_postal || ''),
@@ -1058,13 +1069,53 @@ async function ecotrackCommunes(env, base) {
   let raw = null;
   let err = '';
   try { raw = await exec(env, R, () => F.ecotrackGet_('/api/v1/get/communes')); } catch (e) { err = String(e && e.message ? e.message : e); }
-  const list = communeList(raw);
+  const list = DZC.enrich(communeList(raw), COMMUNES_AR);
   const at = new Date().toISOString();
-  const shape = raw === null ? '' : (Array.isArray(raw) ? 'liste' : typeof raw) + ' · ' + Object.keys(raw || {}).slice(0, 5).join(',') + ' · ' +
-    JSON.stringify(Array.isArray(raw) ? raw[0] : raw && raw.data ? raw.data[0] : raw && typeof raw === 'object' ? raw[Object.keys(raw)[0]] : raw).slice(0, 300);
-  await env.DB.batch([kvSet(env, 'big:ecoCommunes', JSON.stringify({ at: at, n: list.length, error: err.slice(0, 300), shape: shape, list: list })),
-    kvSet(env, 'cf:ecoCommunesOk', list.length ? at : '')]);
-  return { communes: list.length, error: err };
+  if (!list.length) {
+    // Échec (ou réponse vide) : la liste d'avant reste en service ; nouvel essai dans une heure.
+    await kvSet(env, 'cf:ecoCommunesErr', JSON.stringify({ at: at, error: (err || 'Liste vide').slice(0, 300) })).run();
+    return { communes: 0, error: err || 'Liste vide' };
+  }
+  await env.DB.batch([kvSet(env, 'big:ecoCommunes', JSON.stringify({ v: COMMUNES_V, at: at, n: list.length, arabic: list.filter((c) => c.a).length, list: list })),
+    kvSet(env, 'cf:ecoCommunesOk', at), kvSet(env, 'cf:ecoCommunesV', COMMUNES_V), kvSet(env, 'cf:ecoCommunesErr', '')]);
+  return { communes: list.length, error: '' };
+}
+
+/** Communes d'Ecotrack prêtes à chercher (gardées en mémoire tant que la liste ne change pas), ou null. */
+const COMMUNES_V = '2';
+let communeMemo = { at: '', idx: null };
+async function communeIndex(env, base) {
+  const at = base.secret['cf:ecoCommunesOk'] || '';
+  if (!at) return null;
+  if (communeMemo.at === at) return communeMemo.idx;
+  const row = await env.DB.prepare("SELECT value FROM kv WHERE key = 'big:ecoCommunes'").first();
+  let v = null;
+  try { v = row ? JSON.parse(row.value) : null; } catch (e) { v = null; }
+  communeMemo = { at: at, idx: v && v.list && v.list.length ? DZC.index(v.list) : null };
+  return communeMemo.idx;
+}
+
+/**
+ * Commandes qui arrivent (relais RELEASIT, Shopify) : la commune écrite par le client (« باب الزوار »,
+ * « bab ezzouar ») devient le nom d'Ecotrack (« Bab Ezzouar ») quand elle est reconnue sans doute possible ;
+ * ce que le client avait écrit est gardé (colonne « Commune écrite »). Sinon, rien ne change : la commande
+ * sera « à vérifier » à la confirmation.
+ */
+async function fixCommunes(env, base, list) {
+  if (!list.length) return 0;
+  const idx = await communeIndex(env, base);
+  if (!idx) return 0;
+  const R = newReq(base, { email: '' });
+  const def = String(run(R, () => F.getSettings_().SOCIETE_PAR_DEFAUT) || '');
+  let n = 0;
+  list.forEach((o) => {
+    if (String(o.carrier || def) !== 'Ecotrack') return;
+    const text = String(o.commune == null ? '' : o.commune).trim();
+    const w = text ? run(R, () => F.wilayaCode_(o.wilaya)) : null;
+    const c = w ? DZC.find(idx, w, text) : null;
+    if (c && c.n !== text) { o.communeRaw = text; o.commune = c.n; n++; }
+  });
+  return n;
 }
 
 /**
@@ -1567,6 +1618,7 @@ async function shopifyImport(env, R) {
   }
   const fresh = f.rows.filter((o) => !known[String(o.id).trim()]);
   f.summary.skipped += f.rows.length - fresh.length;
+  await fixCommunes(env, R.base, fresh);
   const pq = phoneQuery(phonesOf(fresh.map((o) => o.phone)));
   if (pq) await loadWhere(env, R, pq[0], pq[1]); // doublons et historique du client (alerte)
   R.trashIds = Object.assign({}, known);
@@ -1627,6 +1679,7 @@ async function releasitIngest(env, base, body) {
   const known = await knownIds(env, found.candidates.map((o) => String(o.id).trim()));
   const fresh = found.candidates.filter((o) => !known[String(o.id).trim()]);
   if (fresh.length) {
+    await fixCommunes(env, base, fresh);
     const pq = phoneQuery(phonesOf(fresh.map((o) => o.phone)));
     if (pq) await loadWhere(env, R, pq[0], pq[1]); // doublons et historique du client (alerte)
     R.trashIds = Object.assign({}, known);

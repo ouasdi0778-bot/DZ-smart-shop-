@@ -880,6 +880,95 @@
       '<button type="button" class="icon-btn" data-act="close-modal" aria-label="Fermer">×</button></div>';
   }
 
+  /* ---------------- v1.13 : communes d'Ecotrack (version Cloudflare) ---------------- */
+
+  /** La liste des communes d'Ecotrack, reçue sur l'appareil (version Cloudflare), ou null. */
+  function CM() { var c = window.DZ_CLOUD && window.DZ_CLOUD.communes; return c && c.ready() ? c : null; }
+  function wCode(w) { var m = String(w || '').match(/^0*(\d{1,2})\b/); return m ? +m[1] : 0; }
+  /** La liste s'applique aux commandes envoyées par Ecotrack ; pour une autre société, la commune reste libre. */
+  function communeListOn(carrier) { return !!CM() && (carrier || S.boot.defaultCarrier) === 'Ecotrack'; }
+  /** État de la commune : { c: commune d'Ecotrack ou null, n: nombre de communes de la wilaya }, ou null (liste pas utilisée). */
+  function communeState(wilaya, commune, carrier) {
+    if (!communeListOn(carrier)) return null;
+    var w = wCode(wilaya);
+    var n = w ? CM().list(w).length : 0;
+    return n ? { w: w, n: n, c: CM().find(w, commune) } : null;
+  }
+  /** Case « Commune » : le choix dans la liste d'Ecotrack (avec recherche), ou une case libre. */
+  function communeField(o) {
+    return field('Commune', '<span class="cm-box">' + communeInner(o.wilaya, o.commune, o.carrier) + '</span>');
+  }
+  function communeInner(wilaya, commune, carrier) {
+    commune = String(commune == null ? '' : commune);
+    if (!communeListOn(carrier)) return input('commune', commune, ' dir="auto"');
+    var w = wCode(wilaya);
+    var st = communeState(wilaya, commune, carrier);
+    var c = st && st.c;
+    if (c) commune = c.n; // écrite autrement (en arabe, sans accents) : enregistrée avec le nom d'Ecotrack
+    var label = c ? '<span>' + h(c.n) + '</span>' + (c.a ? '<span class="ar">' + h(c.a) + '</span>' : '')
+      : commune ? '<span dir="auto">' + h(commune) + '</span>' : '<span class="cm-ph">' + (w ? 'Choisir la commune' : 'Choisissez d’abord la wilaya') + '</span>';
+    var hint = !st ? '' : c ? '<span class="cm-hint ok">' + icon('check') + 'Liste officielle d’Ecotrack · ' + st.n + ' communes' + (c.s ? ' <span class="cm-tag">🏢 Bureau stop desk</span>' : '') + '</span>'
+      : commune ? '<span class="cm-hint bad">' + icon('alert') + 'Pas dans la liste d’Ecotrack : choisissez la commune</span>' : '';
+    return '<input type="hidden" name="commune" value="' + h(commune) + '">' +
+      '<button type="button" class="cm-pick' + (c || !commune ? '' : ' bad') + '" data-act="commune-pick"' + (st ? '' : ' disabled') + '>' + label + '<span class="chev">▾</span></button>' + hint;
+  }
+  /** Redessine la case Commune d'un formulaire (wilaya ou société changée, commune choisie). */
+  function refreshCommune(form, value) {
+    var box = form && form.querySelector('.cm-box');
+    if (!box) return;
+    var get = function (n) { var el = form.querySelector('[name="' + n + '"]'); return el ? el.value : ''; };
+    box.innerHTML = communeInner(get('wilaya'), value === undefined ? get('commune') : value, get('carrier'));
+  }
+  function setCommune(form, name) {
+    if (!form) return;
+    refreshCommune(form, name);
+    var el = form.querySelector('[name="commune"]');
+    if (el) el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  /** Feuille « Commune » : les communes de la wilaya, recherche en français ou en arabe. */
+  function communeSheet(wilaya, current, onPick) {
+    var w = wCode(wilaya);
+    if (!CM() || !w) return;
+    closeCommuneSheet();
+    var root = document.createElement('div');
+    root.id = 'cm-root';
+    root.innerHTML = '<div class="cm-bg" data-act="cm-close"></div><div class="cm-sheet" role="dialog" aria-modal="true" aria-labelledby="cm-title">' +
+      '<div class="cm-grab"></div><div class="cm-head"><h2 id="cm-title">Commune · ' + h(wilaya) + '</h2>' +
+      '<button type="button" class="icon-btn" data-act="cm-close" aria-label="Fermer">×</button></div>' +
+      '<label class="cm-search">' + icon('search') + '<input type="search" id="cm-q" placeholder="Nom de la commune (français ou arabe)" autocomplete="off" aria-label="Rechercher une commune"></label>' +
+      '<p class="small" id="cm-count"></p><div class="cm-list" id="cm-list"></div>' +
+      '<p class="small cm-legend">🏢 Bureau : un bureau stop desk Ecotrack dans la commune.</p></div>';
+    document.body.appendChild(root);
+    S.cmPick = { w: w, wilaya: wilaya, current: current, onPick: onPick };
+    renderCommuneList('');
+    setTimeout(function () { var q = $('#cm-q'); if (q && !isPhone()) q.focus(); }, 30);
+  }
+  function renderCommuneList(q) {
+    var p = S.cmPick;
+    var cm = CM();
+    if (!p || !cm || !$('#cm-list')) return;
+    var all = cm.list(p.w);
+    var list = cm.search(p.w, q);
+    var cur = cm.find(p.w, p.current);
+    $('#cm-count').textContent = (String(q || '').trim() ? list.length + ' sur ' : '') + plural(all.length, 'commune', 'communes') + ' · en français ou en arabe';
+    $('#cm-list').innerHTML = list.map(function (c) {
+      var on = cur && cur.n === c.n;
+      return '<button type="button" class="cm-row' + (on ? ' on' : '') + '" data-act="cm-choose" data-name="' + h(c.n) + '">' + (on ? '<span class="ok">✓</span>' : '') +
+        '<b>' + h(c.n) + '</b>' + (c.s ? '<span class="cm-tag">🏢 Bureau</span>' : '') + '<span class="ar">' + h(c.a || '') + '</span></button>';
+    }).join('') +
+      (String(q || '').trim() && !list.length ? '<p class="small cm-none">Aucune commune « ' + h(q) + ' » dans cette wilaya. Vérifiez la wilaya.</p>' : '') +
+      (String(q || '').trim() && !list.length ? '<button type="button" class="cm-row cm-free" data-act="cm-choose" data-name="' + h(String(q).trim()) + '">Écrire « ' + h(String(q).trim()) + ' » (hors liste : Ecotrack refusera le colis)</button>' : '');
+  }
+  function closeCommuneSheet() { var r = $('#cm-root'); if (r) r.remove(); S.cmPick = null; }
+  /** Fiche résumée : la commune d'Ecotrack avec son nom arabe, ou « à vérifier ». */
+  function communeText(o) {
+    var st = communeState(o.wilaya, o.commune, o.carrier);
+    if (!o.commune) return '';
+    if (!st) return '<span dir="auto">' + h(o.commune) + '</span>';
+    return st.c ? h(st.c.n) + (st.c.a ? ' <span class="muted">· ' + h(st.c.a) + '</span>' : '')
+      : '<span dir="auto">' + h(o.commune) + '</span> <span class="pill cm-pill">Commune à vérifier</span>';
+  }
+
   /** Les cases d'une commande, une par une (ordinateur : une grille ; téléphone : des blocs). */
   function orderFieldMap(o) {
     var b = S.boot;
@@ -887,7 +976,7 @@
       client: field('Client', input('client', o.client)),
       phone: field('Téléphone', input('phone', o.phone, ' inputmode="tel"')),
       wilaya: field('Wilaya', '<select name="wilaya">' + options(b.wilayas, o.wilaya, 'Choisir…') + '</select>'),
-      commune: field('Commune', input('commune', o.commune)),
+      commune: communeField(o),
       address: field('Adresse', input('address', o.address), 'full'),
       product: field('Produit', input('product', o.product, ' list="product-list"')),
       qty: field('Quantité', input('qty', o.qty || 1, ' type="number" min="1" step="1"')),
@@ -994,7 +1083,7 @@
         '<button type="button" class="btn" style="min-height:36px;margin-left:auto" data-act="track-history" data-id="' + h(o.id) + '">Voir la chronologie</button></div>' +
         '<div id="parcel-history"></div>' : '') +
       '<section class="of-card"><h3>Livraison</h3><div class="brief">' +
-        line('Wilaya', h(wilayaName(o.wilaya) || '—') + (o.commune ? ' · ' + h(o.commune) : '')) +
+        line('Wilaya', h(wilayaName(o.wilaya) || '—') + (o.commune ? ' · ' + communeText(o) : '')) +
         line('Adresse', o.address ? '<span dir="auto">' + h(o.address) + '</span>' : '') +
         line('Mode', h(o.mode || '—') + ' · ' + h(o.carrier || S.boot.defaultCarrier || '')) +
         line('Frais', o.shipping === null || o.shipping === undefined || o.shipping === '' ? 'calcul automatique' : money(o.shipping)) +
@@ -1606,7 +1695,7 @@
           field('Client', input('client', o.client, ' dir="auto"')) +
           field('Téléphone', input('phone', o.phone, ' inputmode="tel"')) +
           field('Wilaya', '<select name="wilaya">' + options(b.wilayas, o.wilaya, 'Choisir…') + '</select>') +
-          field('Commune', input('commune', o.commune, ' dir="auto"')) +
+          communeField(o) +
           field('Adresse', input('address', o.address, ' dir="auto"'), 'full') +
           field('Produit', input('product', o.product, ' list="d-product-list" dir="auto"'), 'full') +
           field('Quantité', input('qty', o.qty, ' type="number" min="1" step="1"')) +
@@ -1717,12 +1806,16 @@
     var a = confirmAmounts();
     var f = a.f;
     var brief = $('#d-brief');
+    var cs = communeState(f.wilaya, f.commune, f.carrier);
     if (brief) {
       var unknown = (S.current.stock || []).filter(function (it) { return !it.matched; });
       brief.innerHTML =
         '<div class="brief-line"><span class="lab">Livraison</span><span>' +
-          (f.commune ? '<span dir="auto">' + h(f.commune) + '</span>' : '') + (f.commune && f.address ? ', ' : '') + (f.address ? '<span dir="auto">' + h(f.address) + '</span>' : '') +
-          (f.commune || f.address ? '<br>' : '') + '<strong>' + h(wilayaName(f.wilaya) || 'Wilaya à choisir') + '</strong> · ' + h(f.mode) + ' · ' + h(a.carrier) + '</span></div>' +
+          (cs && cs.c ? '<strong>' + h(cs.c.n) + '</strong>' + (cs.c.a ? ' <span class="muted">· ' + h(cs.c.a) + '</span>' : '')
+            : f.commune ? '<span dir="auto">' + h(f.commune) + '</span>' : '') + (f.commune && f.address ? ', ' : '') + (f.address ? '<span dir="auto">' + h(f.address) + '</span>' : '') +
+          (f.commune || f.address ? '<br>' : '') + '<strong>' + h(wilayaName(f.wilaya) || 'Wilaya à choisir') + '</strong> · ' + h(f.mode) + ' · ' + h(a.carrier) +
+          (cs && cs.c && o.communeRaw && o.communeRaw !== cs.c.n && f.commune === o.commune ? '<span class="cm-recog">' + icon('check') + 'Commune reconnue (le client a écrit « <span dir="auto">' + h(o.communeRaw) + '</span> »)</span>' : '') +
+          (cs && !cs.c ? communeWarn(cs.w, f.commune, f.address) : '') + '</span></div>' +
         '<div class="brief-line"><span class="lab">Produit</span><span class="brief-prod">' + productPhoto(S.current.stock) + '<span><strong dir="auto">' + h(f.product || 'Produit à indiquer') + '</strong> × ' + a.qty +
           ' <span class="muted">· ' + money(a.price) + ' + livraison ' + money(a.shipping) + '</span></span></span></div>' +
         (String(f.notes || '').trim() ? '<div class="brief-line"><span class="lab">Note</span><span dir="auto">' + h(f.notes) + '</span></div>' : '') +
@@ -1743,6 +1836,15 @@
     $('#d-msg').textContent = msg;
     var wa = $('#d-wa');
     if (wa) wa.href = 'https://wa.me/' + S.current.intlPhone + '?text=' + encodeURIComponent(msg);
+  }
+
+  /** Confirmation : commune absente de la liste d'Ecotrack, à demander au client (avec les communes proches). */
+  function communeWarn(w, commune, address) {
+    var near = CM().suggest(w, commune, address).slice(0, 2);
+    return '<span class="cm-warn"><b>' + icon('alert') + 'Commune à vérifier</b>' +
+      (commune ? '« <span dir="auto">' + h(commune) + '</span> » n’est pas une commune d’Ecotrack.' : 'Commune manquante.') + ' Demandez-la au client pendant l’appel.' +
+      '<span class="acts"><button type="button" class="btn primary" data-act="commune-pick-d">Choisir la commune</button>' +
+      near.map(function (c) { return '<button type="button" class="btn" data-act="commune-set" data-name="' + h(c.n) + '">' + h(c.n) + ' ?</button>'; }).join('') + '</span></span>';
   }
 
   /** Ce que la fiche envoie : prix et frais seulement s'ils ont été tapés (sinon le serveur les recalcule). */
@@ -1935,6 +2037,15 @@
     loadShipping();
   }
 
+  /** Expédier : la commune corrigée est enregistrée, puis la liste est relue. */
+  function shipCommune(el, id, name) {
+    if (el) el.disabled = true;
+    call('api_updateOrder', id, { commune: name }).then(function () {
+      toast('Commune de la commande ' + id + ' : ' + name);
+      loadShipping();
+    }).catch(function (e) { if (el) el.disabled = false; toast(errText(e), true); });
+  }
+
   function loadShipping() {
     var t = ++S.token;
     syncStart();
@@ -2051,8 +2162,12 @@
         '<td data-label="Livraison">' + h(o.mode) + '</td>' +
         '<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
         '<td data-label="État">' + (ok ? '<span class="pill" style="background:#DDF0E4;color:#146C2E">Prête</span>' :
-          '<span class="problems">' + o.problems.map(function (p) { return '<span>' + h(p) + '</span>'; }).join('') + '</span>') + '</td>' +
-        '<td data-label=""><span class="quick"><button type="button" class="btn" style="min-height:36px" data-act="open-order" data-id="' + h(o.id) + '">' + icon('edit') + 'Modifier</button>' +
+          '<span class="problems">' + o.problems.map(function (p) { return '<span>' + h(p) + '</span>'; }).join('') +
+          (o.communeFix ? '<span class="cm-fix">Proposée : <strong>' + h(o.communeFix) + '</strong></span>' : '') + '</span>') + '</td>' +
+        '<td data-label=""><span class="quick">' +
+          (o.communeBad && o.communeFix ? '<button type="button" class="btn primary" style="min-height:36px" data-act="ship-commune" data-id="' + h(o.id) + '" data-name="' + h(o.communeFix) + '">' + icon('check') + 'Mettre « ' + h(o.communeFix) + ' »</button>' : '') +
+          (o.communeBad && CM() ? '<button type="button" class="btn" style="min-height:36px" data-act="ship-commune-pick" data-id="' + h(o.id) + '" data-wilaya="' + h(o.wilaya) + '" data-commune="' + h(o.commune) + '">Choisir la commune</button>' : '') +
+          '<button type="button" class="btn" style="min-height:36px" data-act="open-order" data-id="' + h(o.id) + '">' + icon('edit') + 'Modifier</button>' +
           (manualCarriers().length ? '<button type="button" class="btn" style="min-height:36px" data-act="manual-ship-ask" data-id="' + h(o.id) + '">Expédiée (autre société)</button>' : '') + '</span></td></tr>';
     });
     return html + '</tbody></table></div>' +
@@ -2947,6 +3062,32 @@
     'trash-purge': purgeTrash,
     'trash-restore-sel': restoreTrashSel,
     'new-order': openNewOrder,
+    'commune-pick': function (el) {
+      var form = el.closest('#order-form, #d-form');
+      if (!form) return;
+      var w = form.querySelector('[name="wilaya"]');
+      var cur = form.querySelector('[name="commune"]');
+      communeSheet(w ? w.value : '', cur ? cur.value : '', function (name) { setCommune(form, name); });
+    },
+    'commune-pick-d': function () {
+      var form = $('#d-form');
+      if (!form) return;
+      if (form.closest('#d-edit')) { /* le formulaire peut rester replié : la commune choisie s'y écrit */ }
+      communeSheet(form.querySelector('[name="wilaya"]').value, form.querySelector('[name="commune"]').value, function (name) { setCommune(form, name); });
+    },
+    'commune-set': function (el) { setCommune($('#d-form'), el.getAttribute('data-name')); },
+    'cm-choose': function (el) {
+      var p = S.cmPick;
+      var name = el.getAttribute('data-name');
+      closeCommuneSheet();
+      if (p && p.onPick) p.onPick(name);
+    },
+    'cm-close': closeCommuneSheet,
+    'ship-commune': function (el) { shipCommune(el, el.getAttribute('data-id'), el.getAttribute('data-name')); },
+    'ship-commune-pick': function (el) {
+      var id = el.getAttribute('data-id');
+      communeSheet(el.getAttribute('data-wilaya'), el.getAttribute('data-commune'), function (name) { shipCommune(el, id, name); });
+    },
     'order-edit': function () { if (!S.order) return; S.orderEdit = S.order.order.id; renderOrderModal(S.order); var bd = $('#modal-root .modal-backdrop'); if (bd) bd.scrollTop = 0; },
     'order-edit-cancel': function () { if (!S.order) return; S.orderEdit = null; S.unlockId = null; S.orderDirty = false; renderOrderModal(S.order); },
     'of-more': function () { var m = $('#of-more'); if (m) m.hidden = !m.hidden; },
@@ -3108,6 +3249,7 @@
 
   var searchTimer = null;
   document.addEventListener('input', function (e) {
+    if (e.target.id === 'cm-q') { renderCommuneList(e.target.value); return; }
     if (e.target.id === 'f-q') {
       clearTimeout(searchTimer);
       searchTimer = setTimeout(function () { S.filter.q = e.target.value; S.filter.limit = 100; loadOrders(); }, 350);
@@ -3127,6 +3269,11 @@
     }
   });
   document.addEventListener('change', function (e) {
+    // v1.13 : wilaya changée → la commune est à choisir de nouveau ; société changée → liste ou case libre.
+    var cmForm = e.target.closest && e.target.closest('#order-form, #d-form');
+    if (cmForm && cmForm.querySelector('.cm-box') && (e.target.name === 'wilaya' || e.target.name === 'carrier')) {
+      refreshCommune(cmForm, e.target.name === 'wilaya' && communeListOn(((cmForm.querySelector('[name="carrier"]') || {}).value)) ? '' : undefined);
+    }
     if (e.target.hasAttribute('data-sel')) {
       var g = e.target.getAttribute('data-sel');
       S.sel[g] = S.sel[g] || {};
@@ -3177,6 +3324,8 @@
     else if (e.target.closest('#d-form')) updateSummary();
   });
   document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && $('#cm-root')) { closeCommuneSheet(); return; }
+    if (e.key === 'Enter' && e.target.id === 'cm-q') { var first = $('#cm-list .cm-row'); if (first) first.click(); e.preventDefault(); return; }
     if (e.key === 'Escape' && modalOpen()) { closeModal(); return; }
     // Confirmation : C confirmer, P pas de réponse, R rappeler, A annuler (hors saisie).
     if (S.route !== 'confirmation' || !S.current || modalOpen() || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -3354,11 +3503,33 @@
   }
 
   function started() {
+    loadCommunes();
     setTimeout(preloadPages, 1500);
     setInterval(tick, 30000);
     openFromLink(location.href);
     showInstallBanner();
     showPushBanner();
+  }
+
+  /** v1.13 : la liste des communes d'Ecotrack (gardée sur l'appareil) ; les écrans ouverts en profitent dès qu'elle arrive. */
+  function loadCommunes() {
+    var at = S.boot.cloud && S.boot.cloud.communesAt;
+    var cm = window.DZ_CLOUD && window.DZ_CLOUD.communes;
+    if (!at || !cm) return;
+    var was = cm.ready();
+    cm.ensure(at).then(function (ok) {
+      if (!ok || was) return;
+      $all('#order-form, #d-form').forEach(function (form) {
+        var el = form.querySelector('[name="commune"]');
+        if (el && !form.querySelector('.cm-box')) {
+          var fld = el.closest('.field');
+          if (fld) fld.innerHTML = 'Commune<span class="cm-box"></span>';
+        }
+        refreshCommune(form, el ? el.value : '');
+      });
+      if ($('#d-form')) updateSummary();
+      if (S.route === 'expeditions' && S.ship && S.ship.data && $('#ship')) renderShipping();
+    });
   }
 
   /* ---------------- Application installée, notifications (version Cloudflare, v1.12) ---------------- */
