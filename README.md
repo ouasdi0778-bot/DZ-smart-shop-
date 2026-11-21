@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.14
+## Ce que fait la version 1.15
 
 | Écran | Contenu |
 |---|---|
@@ -19,6 +19,8 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 | **Bénéfices** | Bénéfice net sur la **période de votre choix** comparé à la période d'avant, **graphiques** (bénéfice par jour, où part l'argent, seuil de rentabilité, simulateur du taux de livraison), produits classés par bénéfice **après pub** (chaque pub reliée à son produit), publicité (coût par livrée, ROAS), **dépenses et gains** sur un jour ou un intervalle, à corriger ou supprimer (administrateur) |
 | **Statistiques** | Commandes et argent par période, comparés à la période d'avant : **ce qui a changé** en phrases, parcours des commandes avec les pertes et leurs motifs, **carte des wilayas**, heures × jours, **meilleure heure pour appeler**, vitesse de confirmation, bureau ou domicile, produits, **équipe** (appels, réponses, objectif du jour, prime), publicité (**qualité des sources**), **filtre croisé** (une wilaya, un produit, une campagne, une source ou une confirmatrice), où est l'argent et versements d'Ecotrack ; tableaux triables, export pour Excel (administrateur) |
 | **Administration** | État de l'outil, connexions (Ecotrack, SMS, Shopify, Releasit), réglages en formulaires, équipe (**connexion par téléphone et mot de passe**, version Cloudflare), clients, sauvegarde **Tout exporter (Excel)**, entretien (administrateur) |
+
+Fiche Confirmation plus lisible (v1.15) : pastilles, une info par ligne avec son icône, message WhatsApp derrière un « ? », alerte quand l'adresse cite une autre wilaya.
 
 Écrans plus légers (v1.14) : les explications sont rangées derrière un petit **?** (elles s'ouvrent au toucher), les états tiennent en un point de couleur et quelques mots.
 
@@ -699,6 +701,17 @@ Rien à coller dans Apps Script pour cette version (la version Google profite au
 - **Réglages** : un titre court pour chacun des 56 réglages ; la description et le nom dans le classeur sont dans le « ? ».
 - Phrases devenues inutiles supprimées (rappel des communes dans Expédier, renvois vers le classeur, descriptions du menu Plus).
 - Mesuré sur les pages d'exemple (téléphone) : **37 % de mots en moins** à l'écran (Réglages : −63 %, Expédier : −32 %, Suivi : −25 %, Bénéfices : −23 %). Les chiffres, dates, n° de suivi et remarques du livreur ne changent pas.
+
+### v1.15 : fiche Confirmation plus lisible
+
+Rien à coller dans Apps Script pour cette version.
+
+- **En haut** (téléphone) : plus de grand titre ; les compteurs tiennent sur une ligne : « 15 à appeler · 2 rappels · 0 en attente » (un appui ouvre la liste).
+- **Le client** : le nom en gros, le n° de commande en gris, des pastilles « il y a 9 h · Jour 2/3 · 0/3 appels · Nouveau client ». Le numéro de téléphone est dans le bouton **Appeler** ; « ≡ 15 » devient **File · 15**.
+- **Une info par ligne**, avec son icône dans une pastille de couleur : lieu (commune, wilaya, nom arabe), adresse, livraison (mode · société), produit (la photo si elle existe) avec « 1 800 DA + 850 DA livraison » en petit.
+- **Message WhatsApp** : le cadre en bas de page disparaît. Le bouton WhatsApp ouvre la conversation avec le message prêt ; le **?** à côté le montre avant, avec **Envoyer sur WhatsApp**.
+- **Adresse ≠ wilaya** : si l'adresse cite une autre wilaya que celle choisie (« … oued ghir bejaia » pour Biskra), une alerte orange « Adresse : Béjaïa ? (wilaya : Biskra) » propose **Mettre Béjaïa · Oued Ghir** (la commune trouvée dans l'adresse, sinon la wilaya seule). Noms en français ou en arabe ; Adrar, Saïda et Naâma sont ignorés (mots trop courants dans une adresse).
+- Le menu reste en bas ; les 4 résultats d'appel sont au-dessus, sur une barre plus fine (« Rappeler » sans « plus tard »).
 
 ### Comment ça marche
 

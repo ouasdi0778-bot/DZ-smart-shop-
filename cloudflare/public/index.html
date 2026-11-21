@@ -948,6 +948,49 @@ summary h2 .qh { margin-left: 8px; }
 @media (max-width: 860px) {
 .qh { width: 24px; height: 24px; min-width: 24px; }
 }
+.d-id { font: 600 15px var(--font); color: var(--muted); margin-left: 10px; }
+.d-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.d-pills span { font: 600 12.5px var(--font); padding: 4px 9px; border-radius: 999px; background: #EEF0F3; color: #3D4350; white-space: nowrap; }
+.d-pills .d-new { background: #E6EEFB; color: #1E4FA8; }
+.d-call-txt { display: inline-flex; flex-direction: column; line-height: 1.1; text-align: left; }
+.d-call-txt small { font: 500 12.5px var(--font); opacity: .88; margin-top: 2px; letter-spacing: .02em; }
+.d-wa-wrap { display: inline-flex; align-items: center; gap: 6px; }
+.d-wa-wrap .qh { margin: 0; }
+.d-wa-tip { margin: -4px 0 12px; max-width: none; }
+.d-wa-tip::before { left: auto; right: 22px; }
+.d-wa-tip #d-msg { display: block; white-space: pre-wrap; }
+.d-wa-tip .wa-btn { margin-top: 10px; min-height: 40px; color: #FFFFFF; }
+.brief { gap: 9px; }
+.b-line { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: center; font-size: 15.5px; color: var(--ink); line-height: 1.35; }
+.b-ic { width: 34px; height: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.b-ic .ic { width: 18px; height: 18px; }
+.b-ic.blue { background: #E6EEFB; color: #1E4FA8; }
+.b-ic.green { background: #E3F2EC; color: #0B6B4C; }
+.b-ic.orange { background: #FFF1E2; color: #9A4A06; }
+.b-ic.grey { background: #EEF0F3; color: #5B6170; }
+.b-ic.photo img, .b-ic.photo .prod-photo { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; }
+.b-body small { display: block; font-size: 13px; color: var(--muted); margin-top: 1px; }
+.b-ar { color: var(--muted); font-size: 14px; margin-left: 4px; }
+.b-sub { display: block; margin-left: 44px; }
+.b-sub .cm-warn { margin-top: 0; }
+.addr-warn { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 10px; border-radius: 10px; background: #FFF1E2; border: 1px solid #F3C98B; color: #7A4100; font-size: 13.5px; font-weight: 600; }
+.addr-warn .ic { width: 16px; height: 16px; flex: none; }
+.addr-warn .btn { min-height: 34px; padding: 0 10px; font-size: 13px; border-color: #E8A23A; }
+@media (max-width: 860px) {
+.page-head.confirm-head > div:first-child { display: none; }
+.page-head.confirm-head { margin-bottom: 6px; }
+#cstats { gap: 2px; }
+#cstats button { border: 0; background: none; padding: 2px 6px 2px 0; font-size: 14px; color: var(--ink-2); }
+#cstats button strong { color: var(--ink); }
+#cstats .st-cb { background: none; color: #5B21B6; }
+#cstats .st-na { background: none; color: #9A4A06; }
+#cstats button + button::before { content: "·"; margin-right: 6px; color: #B5BBC4; }
+.detail-head .d-actions { grid-template-columns: auto 1fr auto; }
+.detail-head .d-actions .queue-toggle { font-weight: 600; }
+.outcomes .btn.big .opt { display: none; }
+.outcomes .btn.big { min-height: 54px; }
+.content:has(.outcomes) { padding-bottom: 160px; }
+}
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }
 </style>
@@ -1239,7 +1282,7 @@ var DZC = (function () {
   var STEP_KEY = 'dz-smart-shop:step';
   /** Pages restées dans l'application Google (étape 3) : ouvertes là-bas. */
   var EXTERNAL = ['benefices', 'stock', 'stats', 'admin'];
-  var VERSION = '1.14.0';
+  var VERSION = '1.15.0';
 
   /** Même empreinte que shortHash_ (Api.gs) : clé de la mémoire sur l'appareil, sans l'adresse. */
   function shortHash(text) {
@@ -1819,13 +1862,9 @@ function wilayaName(w) { return String(w || '').replace(/^\d+\s*-\s*/, ''); }
 function help(html) {
 return '<button type="button" class="qh" data-act="qh" aria-label="Explication" aria-expanded="false">?</button><span class="qh-tip" hidden>' + html + '</span>';
 }
-function closeHelp(except) {
-$all('.qh-tip:not([hidden])').forEach(function (t) {
-if (t === except) return;
-t.hidden = true;
-var b = t.previousElementSibling;
-if (b) { b.classList.remove('on'); b.setAttribute('aria-expanded', 'false'); }
-});
+function closeHelp() {
+$all('.qh-tip:not([hidden])').forEach(function (t) { t.hidden = true; });
+$all('.qh.on').forEach(function (b) { b.classList.remove('on'); b.setAttribute('aria-expanded', 'false'); });
 }
 function stat(ok, html) { return '<span class="st' + (ok === false ? ' warn' : '') + '"><i></i>' + html + '</span>'; }
 function icon(name, cls) {
@@ -2960,9 +2999,9 @@ function renderQueue() {
 var q = S.queue;
 q.waiting = q.waiting || [];
 $('#cstats').innerHTML =
-'<button type="button" data-act="queue-jump" data-b="due">À appeler : <strong>' + q.stats.due + '</strong></button>' +
-'<button type="button" class="st-cb" data-act="queue-jump" data-b="later">Rappels à venir : <strong>' + q.stats.later + '</strong></button>' +
-'<button type="button" class="st-na" data-act="queue-jump" data-b="waiting">En attente : <strong>' + q.waiting.length + '</strong></button>' +
+'<button type="button" data-act="queue-jump" data-b="due"><strong>' + q.stats.due + '</strong> à appeler</button>' +
+'<button type="button" class="st-cb" data-act="queue-jump" data-b="later"><strong>' + q.stats.later + '</strong> ' + (q.stats.later > 1 ? 'rappels' : 'rappel') + '</button>' +
+'<button type="button" class="st-na" data-act="queue-jump" data-b="waiting"><strong>' + q.waiting.length + '</strong> en attente</button>' +
 '<span class="st-mine">Mes confirmations aujourd’hui : <strong>' + q.stats.confirmedToday + '</strong></span>';
 var html = '<div class="q-legend" aria-hidden="true"><span><i class="q-new"></i>Nouvelle</span><span><i class="q-na"></i>Pas de réponse · Injoignable</span><span><i class="q-cb"></i>Rappel demandé</span></div>' +
 '<div class="q-top"><span class="queue-title" id="qb-due">À appeler maintenant · ' + q.due.length + '</span>' +
@@ -3080,21 +3119,26 @@ var histText = hist.orders
 : 'Première commande avec ce numéro';
 var dueCount = S.queue ? S.queue.due.length : 0;
 var callBtn = d.phoneValid
-? '<a class="btn primary d-call" href="tel:' + h(o.phone) + '" target="_top">' + icon('confirmation') + 'Appeler</a>'
-: '<span class="btn" aria-disabled="true">Numéro invalide</span>';
+? '<a class="btn primary d-call" href="tel:' + h(o.phone) + '" target="_top">' + icon('confirmation') + '<span class="d-call-txt">Appeler<small>' + h(fmtPhone(o.phone)) + '</small></span></a>'
+: '<span class="btn" aria-disabled="true">Numéro invalide · ' + h(o.phone || '—') + '</span>';
 var waBtn = d.intlPhone
-? '<a class="btn" id="d-wa" href="#" target="_blank" rel="noopener" title="WhatsApp">' + icon('whatsapp') + '<span class="lbl">WhatsApp</span></a>'
+? '<span class="d-wa-wrap"><a class="btn" id="d-wa" href="#" target="_blank" rel="noopener" title="WhatsApp">' + icon('whatsapp') + '<span class="lbl">WhatsApp</span></a>' +
+'<button type="button" class="qh" data-act="qh" data-tip="d-wa-tip" aria-label="Voir le message WhatsApp" aria-expanded="false">?</button></span>'
 : '';
+var pills = [ago(o.date), 'Jour ' + Math.min(o.callDay, S.boot.callDays) + '/' + S.boot.callDays, o.callsToday + '/' + S.boot.callsPerDay + ' appels'];
+if (o.attempts) pills.push(plural(o.attempts, 'appel en tout', 'appels en tout'));
 var mustEdit = !d.phoneValid || !String(o.wilaya || '').trim() || !String(o.product || '').trim();
 S.editOpen = mustEdit;
 var important = o.alertLevel && o.alertLevel !== 'new';
 $('#detail').innerHTML =
 '<div class="card">' +
-'<div class="detail-head"><div><h2><span dir="auto">' + h(o.client || 'Client sans nom') + '</span> · ' + h(o.id) + '</h2>' +
-'<p class="muted">' + h(fmtPhone(o.phone)) + ' · reçue ' + h(ago(o.date)) + (o.attempts ? ' · ' + plural(o.attempts, 'appel', 'appels') : '') +
-' · jour ' + Math.min(o.callDay, S.boot.callDays) + '/' + S.boot.callDays + ' · ' + o.callsToday + '/' + S.boot.callsPerDay + ' appels aujourd’hui</p></div>' +
-'<div class="quick d-actions"><button type="button" class="btn queue-toggle" data-act="toggle-queue" title="File d’appels">' + icon('menu') + dueCount + '</button>' + callBtn + waBtn + '</div>' +
+'<div class="detail-head"><div><h2><span dir="auto">' + h(o.client || 'Client sans nom') + '</span><span class="d-id">' + h(o.id) + '</span></h2>' +
+'<div class="d-pills">' + pills.map(function (t) { return '<span>' + h(t) + '</span>'; }).join('') +
+(o.alertLevel === 'new' && o.alert ? '<span class="d-new">' + h(o.alert) + '</span>' : '') + '</div></div>' +
+'<div class="quick d-actions"><button type="button" class="btn queue-toggle" data-act="toggle-queue" title="File d’appels">File · ' + dueCount + '</button>' + callBtn + waBtn + '</div>' +
 '</div>' +
+(d.intlPhone ? '<span class="qh-tip d-wa-tip" id="d-wa-tip" hidden><span id="d-msg"></span>' +
+'<a class="btn wa-btn" id="d-wa2" href="#" target="_blank" rel="noopener">' + icon('whatsapp') + 'Envoyer sur WhatsApp</a></span>' : '') +
 (important ? '<div class="history" style="background:' + a.bg + '"><span class="strong" style="color:' + a.fg + '">' + h(o.alert) + '</span><span>' + h(histText) + '</span></div>' : '') +
 stockNote(d.stock, true) +
 '<div class="brief" id="d-brief"></div>' +
@@ -3126,8 +3170,7 @@ field('Notes', '<textarea name="notes" dir="auto">' + h(o.notes) + '</textarea>'
 '<button type="button" class="btn warn big" data-act="show-callback">' + icon('calendar') + 'Rappeler<span class="opt"> plus tard</span><kbd>R</kbd></button>' +
 '<button type="button" class="btn danger big" data-act="show-cancel">' + icon('x') + 'Annuler<kbd>A</kbd></button>' +
 '</div><div id="d-panel"></div>' +
-'</div>' +
-'<div class="card"><h3>Message WhatsApp' + help('Modèle modifiable dans Administration › Réglages (MESSAGE_WHATSAPP).') + '</h3><p class="message" id="d-msg"></p></div>';
+'</div>';
 updateSummary();
 prefetchNext();
 }
@@ -3202,18 +3245,18 @@ var cs = communeState(f.wilaya, f.commune, f.carrier);
 if (brief) {
 var unknown = (S.current.stock || []).filter(function (it) { return !it.matched; });
 brief.innerHTML =
-'<div class="brief-line"><span class="lab">Livraison</span><span>' +
-(cs && cs.c ? '<strong>' + h(cs.c.n) + '</strong>' + (cs.c.a ? ' <span class="muted">· ' + h(cs.c.a) + '</span>' : '')
-: f.commune ? '<span dir="auto">' + h(f.commune) + '</span>' : '') + (f.commune && f.address ? ', ' : '') + (f.address ? '<span dir="auto">' + h(f.address) + '</span>' : '') +
-(f.commune || f.address ? '<br>' : '') + '<strong>' + h(wilayaName(f.wilaya) || 'Wilaya à choisir') + '</strong> · ' + h(f.mode) + ' · ' + h(a.carrier) +
-(cs && cs.c && o.communeRaw && o.communeRaw !== cs.c.n && f.commune === o.commune ? '<span class="cm-recog">' + icon('check') + 'Commune reconnue (le client a écrit « <span dir="auto">' + h(o.communeRaw) + '</span> »)</span>' : '') +
-(cs && !cs.c ? communeWarn(cs.w, f.commune, f.address) : '') + '</span></div>' +
-'<div class="brief-line"><span class="lab">Produit</span><span class="brief-prod">' + productPhoto(S.current.stock) + '<span><strong dir="auto">' + h(f.product || 'Produit à indiquer') + '</strong> × ' + a.qty +
-' <span class="muted">· ' + money(a.price) + ' + livraison ' + money(a.shipping) + '</span></span></span></div>' +
-(String(f.notes || '').trim() ? '<div class="brief-line"><span class="lab">Note</span><span dir="auto">' + h(f.notes) + '</span></div>' : '') +
+bLine('pin', 'blue', (cs && cs.c ? '<strong>' + h(cs.c.n) + ', ' + h(wilayaName(f.wilaya)) + '</strong>' + (cs.c.a ? ' <span class="b-ar">' + h(cs.c.a) + '</span>' : '')
+: (f.commune ? '<span dir="auto">' + h(f.commune) + '</span>, ' : '') + '<strong>' + h(wilayaName(f.wilaya) || 'Wilaya à choisir') + '</strong>')) +
+(cs && cs.c && o.communeRaw && o.communeRaw !== cs.c.n && f.commune === o.commune ? '<span class="b-sub cm-recog">' + icon('check') + 'Commune reconnue (le client a écrit « <span dir="auto">' + h(o.communeRaw) + '</span> »)</span>' : '') +
+(cs && !cs.c ? '<span class="b-sub">' + communeWarn(cs.w, f.commune, f.address) + '</span>' : '') +
+(f.address ? bLine('home', 'blue', '<span dir="auto">' + h(f.address) + '</span>') : '') +
+addrWarn(f) +
+bLine('suivi', 'green', h(f.mode) + ' · ' + h(a.carrier)) +
+bLine('expeditions', 'orange', '<strong dir="auto">' + h(f.product || 'Produit à indiquer') + '</strong> × ' + a.qty +
+'<small>' + money(a.price) + ' + ' + money(a.shipping) + ' livraison</small>', productPhoto(S.current.stock)) +
+(String(f.notes || '').trim() ? bLine('edit', 'grey', '<span dir="auto">' + h(f.notes) + '</span>') : '') +
 '<div class="brief-total"><span>Total à encaisser</span><b>' + money(a.total) + '</b></div>' +
 '<div class="brief-foot">' +
-(o.alertLevel === 'new' && o.alert ? '<span class="pill" style="background:#E6EEFB;color:#1E4FA8">' + h(o.alert) + '</span>' : '') +
 (unknown.length && S.boot.user.admin ? '<span class="pill" style="background:#EEF0F3;color:#3D4350" title="Produit absent de l’onglet Produits : stock et bénéfice non suivis">Produit hors catalogue</span>' : '') +
 '<button type="button" class="btn d-edit-btn" data-act="toggle-edit" aria-expanded="' + (!!S.editOpen) + '">' + icon('edit') + (S.editOpen ? 'Masquer le détail' : 'Modifier la commande') + '</button>' +
 '</div>';
@@ -3225,9 +3268,59 @@ $('#d-sum').innerHTML =
 var msg = fillTemplate(S.boot.waTemplate, {
 client: f.client, id: o.id, product: f.product || o.product, qty: a.qty, total: a.total, commune: f.commune, wilaya: f.wilaya
 });
-$('#d-msg').textContent = msg;
-var wa = $('#d-wa');
-if (wa) wa.href = 'https://wa.me/' + S.current.intlPhone + '?text=' + encodeURIComponent(msg);
+var mbox = $('#d-msg');
+if (mbox) mbox.textContent = msg;
+var waUrl = 'https://wa.me/' + S.current.intlPhone + '?text=' + encodeURIComponent(msg);
+['#d-wa', '#d-wa2'].forEach(function (sel) { var wa = $(sel); if (wa) wa.href = waUrl; });
+}
+function bLine(ic, color, body, photo) {
+return '<div class="b-line">' + (photo ? '<span class="b-ic photo">' + photo + '</span>' : '<span class="b-ic ' + color + '">' + icon(ic) + '</span>') +
+'<span class="b-body">' + body + '</span></div>';
+}
+var WILAYA_AR = { 1: 'أدرار', 2: 'الشلف', 3: 'الأغواط', 4: 'أم البواقي', 5: 'باتنة', 6: 'بجاية', 7: 'بسكرة', 8: 'بشار', 9: 'البليدة', 10: 'البويرة', 11: 'تمنراست',
+12: 'تبسة', 13: 'تلمسان', 14: 'تيارت', 15: 'تيزي وزو', 16: 'الجزائر', 17: 'الجلفة', 18: 'جيجل', 19: 'سطيف', 20: 'سعيدة', 21: 'سكيكدة', 22: 'سيدي بلعباس',
+23: 'عنابة', 24: 'قالمة', 25: 'قسنطينة', 26: 'المدية', 27: 'مستغانم', 28: 'المسيلة', 29: 'معسكر', 30: 'ورقلة', 31: 'وهران', 32: 'البيض', 33: 'إليزي',
+34: 'برج بوعريريج', 35: 'بومرداس', 36: 'الطارف', 37: 'تندوف', 38: 'تيسمسيلت', 39: 'الوادي', 40: 'خنشلة', 41: 'سوق أهراس', 42: 'تيبازة', 43: 'ميلة',
+44: 'عين الدفلى', 45: 'النعامة', 46: 'عين تموشنت', 47: 'غرداية', 48: 'غليزان', 49: 'تيميمون', 50: 'برج باجي مختار', 51: 'أولاد جلال', 52: 'بني عباس',
+53: 'عين صالح', 54: 'عين قزام', 55: 'تقرت', 56: 'جانت', 57: 'المغير', 58: 'المنيعة' };
+var WILAYA_ALIAS = { 6: ['bgayet', 'bougie', 'vgayet'], 16: ['algiers', 'dzayer'], 19: ['stif'], 31: ['wahran'], 25: ['qacentina'], 15: ['tizi'] };
+var WILAYA_SKIP = { 1: true, 20: true, 45: true };
+function wordsOf(s) {
+return ' ' + String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+.replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+.replace(/[^a-z\u0621-\u064A]+/g, ' ').trim() + ' ';
+}
+function addressWilaya(f) {
+var cur = wCode(f.wilaya);
+var text = wordsOf(f.address + ' ' + f.commune);
+if (!cur || text.length < 5) return null;
+var hits = [];
+(S.boot.wilayas || []).forEach(function (label) {
+var code = wCode(label);
+if (!code || WILAYA_SKIP[code]) return;
+var keys = [wilayaName(label)].concat(WILAYA_ALIAS[code] || []).concat(WILAYA_AR[code] ? [WILAYA_AR[code]] : []);
+if (keys.some(function (k) { var w = wordsOf(k); return w.length > 3 && text.indexOf(w) >= 0; })) hits.push({ code: code, label: label });
+});
+if (!hits.length || hits.some(function (x) { return x.code === cur; })) return null;
+var hit = hits[0];
+var found = [];
+if (CM()) {
+var addr = wordsOf(f.address);
+var wname = wordsOf(wilayaName(hit.label));
+CM().list(hit.code).forEach(function (c) {
+var w = wordsOf(c.n);
+var wa = c.a ? wordsOf(c.a) : '';
+if ((w.length > 5 && addr.indexOf(w) >= 0) || (wa.length > 4 && addr.indexOf(wa) >= 0)) found.push({ n: c.n, chief: w === wname, len: w.length });
+});
+}
+found.sort(function (x, y) { return (x.chief - y.chief) || (y.len - x.len); });
+return { label: hit.label, commune: found.length ? found[0].n : '' };
+}
+function addrWarn(f) {
+var x = addressWilaya(f);
+if (!x) return '';
+return '<span class="b-sub addr-warn">' + icon('alert') + '<span>Adresse : <strong>' + h(wilayaName(x.label)) + '</strong> ? (wilaya : ' + h(wilayaName(f.wilaya)) + ')</span>' +
+'<button type="button" class="btn" data-act="addr-wilaya" data-w="' + h(x.label) + '" data-c="' + h(x.commune) + '">Mettre ' + h(wilayaName(x.label)) + (x.commune ? ' · ' + h(x.commune) : '') + '</button></span>';
 }
 function communeWarn(w, commune, address) {
 var near = CM().suggest(w, commune, address).slice(0, 2);
@@ -4330,7 +4423,7 @@ refreshCount();
 'trash-restore-sel': restoreTrashSel,
 'new-order': openNewOrder,
 'qh': function (el) {
-var tip = el.nextElementSibling;
+var tip = el.getAttribute('data-tip') ? document.getElementById(el.getAttribute('data-tip')) : el.nextElementSibling;
 if (!tip || !tip.classList.contains('qh-tip')) return;
 var open = tip.hidden;
 closeHelp();
@@ -4352,6 +4445,16 @@ if (form.closest('#d-edit')) { /* le formulaire peut rester replié : la commune
 communeSheet(form.querySelector('[name="wilaya"]').value, form.querySelector('[name="commune"]').value, function (name) { setCommune(form, name); });
 },
 'commune-set': function (el) { setCommune($('#d-form'), el.getAttribute('data-name')); },
+'addr-wilaya': function (el) {
+var form = $('#d-form');
+var sel = form && form.querySelector('[name="wilaya"]');
+if (!sel) return;
+sel.value = el.getAttribute('data-w');
+sel.dispatchEvent(new Event('change', { bubbles: true })); // la commune est à choisir de nouveau, frais recalculés
+var c = el.getAttribute('data-c');
+if (c) setCommune(form, c); else updateSummary();
+toast('Wilaya : ' + wilayaName(el.getAttribute('data-w')) + (c ? ' · ' + c : ' (choisissez la commune)'));
+},
 'cm-choose': function (el) {
 var p = S.cmPick;
 var name = el.getAttribute('data-name');

@@ -978,6 +978,51 @@ summary h2 .qh { margin-left: 8px; }
   .qh { width: 24px; height: 24px; min-width: 24px; }
 }
 
+/* v1.15 : fiche Confirmation plus lisible (pastilles, icônes en pastille de couleur, WhatsApp dans un « ? »). */
+.d-id { font: 600 15px var(--font); color: var(--muted); margin-left: 10px; }
+.d-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.d-pills span { font: 600 12.5px var(--font); padding: 4px 9px; border-radius: 999px; background: #EEF0F3; color: #3D4350; white-space: nowrap; }
+.d-pills .d-new { background: #E6EEFB; color: #1E4FA8; }
+.d-call-txt { display: inline-flex; flex-direction: column; line-height: 1.1; text-align: left; }
+.d-call-txt small { font: 500 12.5px var(--font); opacity: .88; margin-top: 2px; letter-spacing: .02em; }
+.d-wa-wrap { display: inline-flex; align-items: center; gap: 6px; }
+.d-wa-wrap .qh { margin: 0; }
+.d-wa-tip { margin: -4px 0 12px; max-width: none; }
+.d-wa-tip::before { left: auto; right: 22px; }
+.d-wa-tip #d-msg { display: block; white-space: pre-wrap; }
+.d-wa-tip .wa-btn { margin-top: 10px; min-height: 40px; color: #FFFFFF; }
+.brief { gap: 9px; }
+.b-line { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: center; font-size: 15.5px; color: var(--ink); line-height: 1.35; }
+.b-ic { width: 34px; height: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.b-ic .ic { width: 18px; height: 18px; }
+.b-ic.blue { background: #E6EEFB; color: #1E4FA8; }
+.b-ic.green { background: #E3F2EC; color: #0B6B4C; }
+.b-ic.orange { background: #FFF1E2; color: #9A4A06; }
+.b-ic.grey { background: #EEF0F3; color: #5B6170; }
+.b-ic.photo img, .b-ic.photo .prod-photo { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; }
+.b-body small { display: block; font-size: 13px; color: var(--muted); margin-top: 1px; }
+.b-ar { color: var(--muted); font-size: 14px; margin-left: 4px; }
+.b-sub { display: block; margin-left: 44px; }
+.b-sub .cm-warn { margin-top: 0; }
+.addr-warn { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 10px; border-radius: 10px; background: #FFF1E2; border: 1px solid #F3C98B; color: #7A4100; font-size: 13.5px; font-weight: 600; }
+.addr-warn .ic { width: 16px; height: 16px; flex: none; }
+.addr-warn .btn { min-height: 34px; padding: 0 10px; font-size: 13px; border-color: #E8A23A; }
+@media (max-width: 860px) {
+  .page-head.confirm-head > div:first-child { display: none; }
+  .page-head.confirm-head { margin-bottom: 6px; }
+  #cstats { gap: 2px; }
+  #cstats button { border: 0; background: none; padding: 2px 6px 2px 0; font-size: 14px; color: var(--ink-2); }
+  #cstats button strong { color: var(--ink); }
+  #cstats .st-cb { background: none; color: #5B21B6; }
+  #cstats .st-na { background: none; color: #9A4A06; }
+  #cstats button + button::before { content: "·"; margin-right: 6px; color: #B5BBC4; }
+  .detail-head .d-actions { grid-template-columns: auto 1fr auto; }
+  .detail-head .d-actions .queue-toggle { font-weight: 600; }
+  .outcomes .btn.big .opt { display: none; }
+  .outcomes .btn.big { min-height: 54px; }
+  .content:has(.outcomes) { padding-bottom: 160px; }
+}
+
 /* Application Google après le basculement : les pages des commandes sont dans la version Cloudflare. */
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }
