@@ -107,6 +107,8 @@ function everyMinute() {
   // Après le basculement, les statuts Ecotrack sont lus par la version Cloudflare (qui les recopie ici).
   if (!live && ecotrackConfig_().configured && due('ecotrack')) runClaimed_(h, 'ecotrack', function () { return syncEcotrackStatuses(); }, ECO.PROP_LAST_ERROR);
   if (live) runClaimed_(h, 'cloud', function () { return cloudSync_(); }, CLOUD.PROP_ERROR);
+  // v1.20 : partage des commandes à appeler (après le basculement : fait par la version Cloudflare).
+  if (!live) { try { shareQueue_(); } catch (e) { /* nouvel essai à la prochaine minute */ } }
 
   h.minute = new Date().toISOString();
   h.ms += Date.now() - t0;

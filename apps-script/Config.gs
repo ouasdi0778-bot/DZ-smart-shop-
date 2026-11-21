@@ -7,7 +7,7 @@
  */
 
 var APP_NAME = 'DZ Smart Shop';
-var APP_VERSION = '1.19.0';
+var APP_VERSION = '1.20.0';
 
 /** Noms des onglets du classeur. */
 var SHEET = {
@@ -132,6 +132,9 @@ var DEFAULT_SETTINGS = [
   ['ORDRE_FILE', 'récentes', 'Ordre des nouvelles commandes dans la file d’appels : « récentes » (les plus récentes d’abord) ou « anciennes »'],
   ['DELAI_RAPPEL_MINUTES', 120, "Délai avant de rappeler un client qui n'a pas répondu"],
   ['ATTENTE_MAX_HEURES', 24, 'Une commande ni confirmée ni annulée qui attend depuis ce nombre d’heures est marquée « en retard » dans Confirmation'],
+  ['PARTAGE', 'OUI', 'OUI : les commandes à appeler sont partagées à tour de rôle entre les confirmatrices présentes, et chacune ne voit que les siennes (l’administrateur voit tout). NON : une seule file pour toute l’équipe'],
+  ['PARTAGE_ABSENCE_HEURES', 2, 'Une confirmatrice sans activité (ou en pause) depuis ce nombre d’heures est absente : ses commandes à appeler repartent chez les présentes'],
+  ['PARTAGE_AVANCE', 15, 'Commandes à appeler au plus par confirmatrice (× sa part) : les autres attendent « à partager » et arrivent au fur et à mesure, pour que personne n’ait tout le matin. 0 = sans limite'],
   ['DOUBLON_HEURES', 48, 'Deux commandes du même numéro dans ce délai = alerte « Doublon »'],
   ['SOCIETE_PAR_DEFAUT', 'Yalidine', "Société utilisée pour calculer les frais quand aucune n'est choisie"],
   ['MOTIFS_ANNULATION', "Faux numéro; Client a changé d'avis; Trop cher; Doublon; Commande test; Délai trop long; Autre", "Motifs proposés à l'annulation, séparés par des points-virgules"],

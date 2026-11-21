@@ -188,6 +188,10 @@ function readSettings_() {
   s.HEURE_DEBUT_APPELS = between(s.HEURE_DEBUT_APPELS, 9, 0, 23);
   s.ANNULATION_AUTO = !/^(non|no|false|faux|0)$/i.test(String(s.ANNULATION_AUTO == null ? 'OUI' : s.ANNULATION_AUTO).trim());
   s.ORDRE_FILE = /anc/i.test(String(s.ORDRE_FILE || '')) ? 'anciennes' : 'récentes';
+  // v1.20 : partage des commandes entre les confirmatrices.
+  s.PARTAGE = !/^(non|no|false|faux|0)$/i.test(String(s.PARTAGE == null ? 'OUI' : s.PARTAGE).trim());
+  s.PARTAGE_ABSENCE_HEURES = Math.min(24, Math.max(0.5, toNumber_(s.PARTAGE_ABSENCE_HEURES) || 2));
+  s.PARTAGE_AVANCE = Math.max(0, Math.round(toNumber_(s.PARTAGE_AVANCE)));
   s.MAX_TENTATIVES = s.APPELS_PAR_JOUR * s.JOURS_D_APPELS; // total des appels possibles
   s.OBJECTIF_JOUR = Math.max(0, Math.round(toNumber_(s.OBJECTIF_JOUR)) || 0);
   s.DELAI_RAPPEL_MINUTES = Math.max(5, toNumber_(s.DELAI_RAPPEL_MINUTES) || 120);
@@ -254,16 +258,21 @@ function currentUser_() {
   try { email = String(Session.getActiveUser().getEmail() || ''); } catch (e) { email = ''; }
   var name = '';
   var role = '';
+  var row = null;
   var rows = email ? readTeam_() : [];
   for (var i = 0; i < rows.length; i++) {
     if (rows[i][0] === email.toLowerCase()) {
+      row = rows[i];
       name = rows[i][1];
       role = rows[i][2];
       break;
     }
   }
   if (!name) name = email ? email.split('@')[0] : 'Utilisateur';
-  return { email: email, name: name, role: role };
+  // v1.20 : part du partage, pages Expédier et Suivi ouvertes (confirmatrices).
+  var person = row ? teamPerson_(row) : null;
+  return { email: email, key: email.toLowerCase(), name: name, role: role, inTeam: !!row,
+    part: person ? person.part : 1, ship: person ? person.ship : false, track: person ? person.track : false };
 }
 
 /* ------------------------------------------------------------------ */
@@ -274,7 +283,8 @@ function currentUser_() {
 var LOG_BATCH_ = null;
 
 /**
- * Lignes de l'onglet Équipe : [clé, nom, rôle, téléphone] (gardées en mémoire). La clé est l'adresse
+ * Lignes de l'onglet Équipe : [clé, nom, rôle, téléphone, part, Expédier, Suivi] (gardées en mémoire).
+ * Part, Expédier et Suivi (v1.20) : partage des commandes et pages ouvertes aux confirmatrices. La clé est l'adresse
  * Gmail en minuscules, ou « tel:0661223344 » pour une personne sans Gmail (connexion par mot de passe,
  * version Cloudflare). Téléphone : l'identifiant de connexion, au format 0661223344.
  */
@@ -282,9 +292,9 @@ function readTeam_() {
   return cached_('cfg:team', function () {
     var sh = ss_().getSheetByName(SHEET.TEAM);
     if (!sh || sh.getLastRow() < 2) return [];
-    return sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().map(function (r) {
+    return sh.getRange(2, 1, sh.getLastRow() - 1, 7).getValues().map(function (r) {
       var phone = teamPhone_(r[3]);
-      return [teamKey_(r[0], phone), String(r[1]).trim(), String(r[2]).trim(), phone];
+      return [teamKey_(r[0], phone), String(r[1]).trim(), String(r[2]).trim(), phone, r[4] === '' || r[4] == null ? '' : r[4], String(r[5] == null ? '' : r[5]).trim(), String(r[6] == null ? '' : r[6]).trim()];
     }).filter(function (r) { return r[0]; });
   });
 }

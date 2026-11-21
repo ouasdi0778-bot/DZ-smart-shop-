@@ -1219,6 +1219,59 @@ test('v1.12 · Application installable ; notifications chiffrées (RFC 8291) et 
 });
 
 /** Onglet Équipe tel que gardé dans la base (étape 3). */
+test('v1.20 · Partage des commandes : file et compteurs par confirmatrice, tâche de chaque minute, Expédier fermé, liste et loupe', async () => {
+  await fresh(true, true);
+  const as = async (email, fn, ...args) => { const r = await apiRaw(email, fn, args); if (!r.body.ok) throw new Error(fn + ' : ' + r.body.error); return r.body.data; };
+  // À partager : commandes à appeler sans confirmatrice (vides, ou au nom d'une autre personne avant la v1.20).
+  const pool = async () => (await env.DB.prepare("SELECT COUNT(*) AS n FROM orders WHERE archived = 0 AND stage = 'todo' AND agent NOT IN ('Imane', 'Sonia') AND status IN ('À confirmer', 'Pas de réponse', 'Rappeler')").first()).n;
+  const before = await pool();
+  assert.ok(before > 0, 'commandes du jeu d’exemple à partager');
+  await api('api_settingsSave', { PARTAGE_AVANCE: 5 }); // 5 d'avance chacune : il en reste pour la suivante
+  const dueOf = async (name) => (await env.DB.prepare("SELECT COUNT(*) AS n FROM orders WHERE archived = 0 AND stage = 'todo' AND agent = ? AND status IN ('À confirmer', 'Pas de réponse', 'Rappeler') AND (callback = '' OR callback <= ?)").bind(name, new Date().toISOString()).first()).n;
+  const had = await dueOf('Imane'); // ses appels du jeu d'exemple (pas de réponse…) lui restent
+  // Imane ouvre sa file : elle est présente, ses commandes arrivent tout de suite (au plus 15 d'avance).
+  const q = await as('imane@example.com', 'api_queue', {});
+  assert.ok(q.due.length > 0 && q.due.every((x) => x.agent === 'Imane'), 'elle ne voit que ses commandes');
+  assert.deepStrictEqual([q.share.on, q.share.confirm, q.share.me.present], [true, true, true]);
+  const mine = await dueOf('Imane');
+  assert.strictEqual(q.due.length, mine);
+  assert.ok(mine > had, 'ses commandes arrivent : ' + had + ' → ' + mine);
+  assert.strictEqual((await as('imane@example.com', 'api_counts')).queue, mine, 'compteur du menu : ses commandes');
+  assert.ok((await env.DB.prepare("SELECT value FROM kv WHERE key = 'PRES_imane@example.com'").first()), 'présence notée');
+
+  // Une nouvelle commande arrive (relais RELEASIT) pendant que Sonia est là : la tâche de chaque minute
+  // et l'arrivée la donnent à une présente ; il ne reste rien « à partager » tant qu'il y a de la place.
+  await as('sonia@example.com', 'api_counts');
+  await api('api_settingsSave', { PARTAGE_AVANCE: 0 }); // sans limite
+  const out = await cron(env);
+  assert.ok(out.share && !out.share.error, JSON.stringify(out.share));
+  assert.strictEqual(await pool(), 0, 'tout est partagé entre les présentes');
+  assert.ok((await dueOf('Sonia')) > 0, 'Sonia a reçu sa part');
+
+  // L'administrateur voit tout, avec l'équipe et « à partager ».
+  const qa = await api('api_queue', {});
+  assert.ok(qa.due.length >= q.due.length + 1);
+  assert.deepStrictEqual(qa.share.team.map((m) => m.name + ':' + m.present), ['Imane:true', 'Sonia:true']);
+  const list = await api('api_listOrders', { status: 'all', period: 'all', agent: 'Sonia', limit: 500 });
+  assert.ok(list.rows.length && list.rows.every((o) => o.agent === 'Sonia'), 'filtre par confirmatrice');
+
+  // Imane : liste limitée à ses commandes, la loupe cherche partout ; Expédier fermé par défaut.
+  const li = await as('imane@example.com', 'api_listOrders', { status: 'all', period: 'all', limit: 500 });
+  assert.ok(li.rows.every((o) => o.agent === 'Imane'));
+  const all = await as('imane@example.com', 'api_listOrders', { status: 'all', period: 'all', limit: 500, scope: 'all' });
+  assert.ok(all.total > li.total, 'la loupe trouve aussi les commandes des autres');
+  const refused = await apiRaw('imane@example.com', 'api_shippingList', []);
+  assert.ok(!refused.body.ok && /Page Expédier non ouverte/.test(refused.body.error), refused.body.error);
+  // Ouvert par l'administrateur : ses commandes seulement.
+  await api('api_teamAccess', 'imane@example.com', { ship: true });
+  const ship = await as('imane@example.com', 'api_shippingList');
+  const shipAll = await api('api_shippingList');
+  assert.ok(ship.toShip.length < shipAll.toShip.length, 'Expédier : ses commandes seulement');
+  assert.strictEqual((await as('imane@example.com', 'api_counts')).toShip, ship.toShip.length);
+  const team = await api('api_teamList');
+  assert.deepStrictEqual(team.members.filter((m) => m.name === 'Imane').map((m) => [m.ship, m.track, m.presence.present]), [[true, false, true]]);
+});
+
 async function teamTabCf() {
   const r = await env.DB.prepare("SELECT rows FROM tabs WHERE name = 'Équipe' ORDER BY part").all();
   return (r.results || []).reduce((a, x) => a.concat(JSON.parse(x.rows)), []);

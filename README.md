@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.19
+## Ce que fait la version 1.20
 
 | Écran | Contenu |
 |---|---|
@@ -19,6 +19,8 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 | **Bénéfices** | Bénéfice net sur la **période de votre choix** comparé à la période d'avant, **graphiques** (bénéfice par jour, où part l'argent, seuil de rentabilité, simulateur du taux de livraison), produits classés par bénéfice **après pub** (chaque pub reliée à son produit), publicité (coût par livrée, ROAS), **dépenses et gains** sur un jour ou un intervalle, à corriger ou supprimer (administrateur) |
 | **Statistiques** | Commandes et argent par période, comparés à la période d'avant : **ce qui a changé** en phrases, parcours des commandes avec les pertes et leurs motifs, **carte des wilayas**, heures × jours, **meilleure heure pour appeler**, vitesse de confirmation, bureau ou domicile, produits, **équipe** (appels, réponses, objectif du jour, prime), publicité (**qualité des sources**), **filtre croisé** (une wilaya, un produit, une campagne, une source ou une confirmatrice), où est l'argent et versements d'Ecotrack ; tableaux triables, export pour Excel (administrateur) |
 | **Administration** | État de l'outil, connexions (Ecotrack, SMS, Shopify, Releasit), réglages en formulaires, équipe (**connexion par téléphone et mot de passe**, version Cloudflare), clients, sauvegarde **Tout exporter (Excel)**, entretien (administrateur) |
+
+Commandes partagées entre les confirmatrices (v1.20) : **à tour de rôle** entre celles qui sont présentes, chacune ne voit que les siennes, l'administrateur voit tout ; **Expédier** et **Suivi** cachés aux confirmatrices sauf si l'administrateur les ouvre (leurs commandes seulement).
 
 Suivi en cartes (v1.19) : onglets **À traiter** / **En cours** / **Terminées**, alertes rangées en **À appeler** et **À vérifier**, barre d'étapes de chaque colis.
 
@@ -763,6 +765,21 @@ Rien à coller dans Apps Script pour cette version.
 - **En cours** : filtres en pastilles (Tous, En route, En livraison, Suspendus, Retours), total en route, et pour chaque colis une **barre d'étapes** Créé → Ramassage → En route → Chez le livreur → Livré (orange s'il est suspendu ou sans mouvement, rouge pour un retour), le statut Ecotrack et « depuis … », la pastille « À traiter » s'il est aussi dans les alertes, le message du livreur, et le bouton **Chronologie**.
 - **Terminées** : période 7 / 30 / 90 j, filtres, et pour chaque commande « ✓ Livrée · date » ou « Retour · date », **Argent à recevoir** ou **Argent reçu** (avec le n° de versement), « Abîmé ? » pour un retour reçu.
 - Sur ordinateur, une carte = une ligne. Les règles des alertes et du suivi ne changent pas.
+
+### v1.20 : partage des commandes entre les confirmatrices
+
+Rien à coller dans Apps Script, rien à faire dans la base pour cette version. Réglages : **Administration › Réglages › Partage entre les confirmatrices** ; personnes : **Administration › Équipe › Confirmatrices**.
+
+- **À tour de rôle** (réglage `PARTAGE`, OUI par défaut) : chaque commande à appeler a une **responsable** (colonne « Confirmatrice »). Une nouvelle commande (Releasit, Shopify, à la main) va tout de suite à la confirmatrice **présente** suivante ; une commande saisie par une confirmatrice reste à elle.
+- **Présente** : elle a utilisé l'application depuis moins de `PARTAGE_ABSENCE_HEURES` heures (2 h) et n'est pas en pause. Bouton **En pause / Je suis là** en haut de sa file ; un appel enregistré la remet présente. **Absente ou en pause depuis ce délai** : ses commandes à appeler repartent chez les présentes ; ses **rappels prévus plus tard lui restent**.
+- **La nuit** (personne de présent) : les commandes attendent « à partager », et partent dès que quelqu'un arrive. **Au plus `PARTAGE_AVANCE` commandes d'avance** par confirmatrice (15, × sa **part** : normale, ×2, ×3) : les autres arrivent au fur et à mesure. **Une confirmatrice qui arrive reçoit sa part** des nouvelles commandes jamais appelées de ses collègues (prises en fin de file, jamais celle que l'autre a sous les yeux).
+- **Même client, même confirmatrice** : une nouvelle commande d'un client va chez la confirmatrice de sa commande précédente, si elle est présente.
+- **Chacune ne voit que ses commandes** (file Appeler, Liste, compteurs). La **loupe « le client rappelle »** cherche partout : une commande d'une collègue affiche « Suivie par Sonia » et **Prendre la commande**.
+- **L'administrateur voit et reçoit tout** : filtres **Toutes · Imane · Sonia · À partager** en haut de sa file, la responsable sur chaque commande, filtre **Confirmatrice** dans la Liste, et **Attribuer à…** (commandes cochées) pour donner des commandes à une confirmatrice ou les remettre à partager. Une commande **confirmée ou annulée par l'administrateur devient la sienne** et disparaît chez la confirmatrice ; « pas de réponse » ou « rappeler » la lui laissent.
+- **Expédier et Suivi** : cachés aux confirmatrices par défaut (menu, barre du bas, et refusés par le serveur). L'administrateur les ouvre à une personne (interrupteurs **Expédier** et **Suivi** dans Administration › Équipe) : elle n'y voit et n'y traite **que ses commandes** (envoi à Ecotrack, bordereaux, résultat de l'appel, chronologie). Valider l'expédition reste à l'administrateur et au magasinier ; « Récupérer les tarifs » à l'administrateur.
+- **Administration › Équipe › Confirmatrices** : présence (présente, en pause, absente · vue il y a…), commandes à appeler, part, Expédier, Suivi, et ⋯ (**Mettre en pause / Remettre présente**, **Reprendre ses commandes** vers les autres présentes). Nouvelles colonnes **Part**, **Expédier**, **Suivi** dans l'onglet Équipe.
+- **Notifications « nouvelle commande »** : à l'administrateur et à la confirmatrice qui la reçoit. **Statistiques › Équipe** : reçues → confirmées → livrées par confirmatrice.
+- `PARTAGE = NON` : une seule file pour toute l'équipe, comme avant (les droits Expédier / Suivi restent).
 
 ### Comment ça marche
 

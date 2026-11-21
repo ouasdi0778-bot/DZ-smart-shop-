@@ -141,6 +141,7 @@ function bootstrapApi_(preload) {
     return { name: r.product + (r.model ? ' — ' + r.model : ''), price: r.price || 0 };
   });
   var me = currentUser_();
+  touchPresence_(me);
   var first = null;
   var counts = null;
   try {
@@ -170,7 +171,10 @@ function bootstrapApi_(preload) {
     counts: counts,
     app: { name: APP_NAME, version: APP_VERSION },
     shop: s.NOM_BOUTIQUE,
-    user: { email: me.email, name: me.name, role: me.role, admin: isAdmin_(me), stock: canSeeStock_(me) },
+    user: { email: me.email, name: me.name, role: me.role, admin: isAdmin_(me), stock: canSeeStock_(me),
+      confirm: isConfirmatrice_(me), ship: pageAccess_(me).ship, track: pageAccess_(me).track, share: shareOn_(s) },
+    // v1.20 : confirmatrices (filtre « par confirmatrice » et « Attribuer à » de l'administrateur).
+    team: isAdmin_(me) ? teamConfirmatrices_().map(function (m) { return m.name; }) : [],
     health: isAdmin_(me) ? healthSummary_() : null,
     statuses: STATUS_LIST,
     queueStatuses: QUEUE_STATUSES,
@@ -343,8 +347,17 @@ function listData_(ctx, filter) {
   var q = normalizeText_(filter.q || '');
   var qDigits = String(filter.q || '').replace(/\D/g, '');
   var wcode = filter.wilaya ? wilayaCode_(filter.wilaya) : null;
+  // v1.20 : une confirmatrice voit ses commandes (la loupe « le client rappelle » cherche partout) ;
+  // l'administrateur peut filtrer par confirmatrice (« __pool » : à partager).
+  var scope = filter.scope === 'all' ? null : queueScope_(currentUser_());
+  var agentFilter = filter.agent === undefined || filter.agent === null || filter.agent === '' ? null : String(filter.agent);
 
   var base = ctx.orders.filter(function (o) {
+    if (!isMine_(o, scope)) return false;
+    if (agentFilter !== null) {
+      var a = String(o.agent == null ? '' : o.agent).trim();
+      if (agentFilter === '__pool' ? a !== '' : a !== agentFilter) return false;
+    }
     if (since) {
       var d = toDate_(o.date);
       if (!d || d < since) return false;
@@ -414,7 +427,8 @@ function queueItem_(o, now, settings) {
     waitHours: waitHours,
     calls: calls.slice(-6).map(function (c) { return { when: c.when, text: c.text }; }),
     callable: isCallable_(o),
-    reason: waitingReason_(o)
+    reason: waitingReason_(o),
+    agent: String(o.agent == null ? '' : o.agent).trim()
   };
 }
 
@@ -435,8 +449,10 @@ function api_queue() {
 function queueApi_(opts) {
   opts = opts || {};
   var arrived = opts.sync ? releasitQuickSync_() : 0;
-  var ctx = readOrders_();
   var user = currentUser_();
+  touchPresence_(user);
+  if (queueScope_(user)) shareQueue_(); // v1.20 : ses commandes arrivent dès qu'elle ouvre sa file
+  var ctx = readOrders_();
   var q = queueData_(ctx, user);
   q.arrived = arrived;
   if (arrived) q.menuCounts = countsData_(ctx, null);
@@ -457,11 +473,14 @@ function queueData_(ctx, user) {
   var later = [];
   var waiting = [];
   var rank = {};
+  // v1.20 : une confirmatrice ne voit que ses commandes (partage) ; l'administrateur voit tout.
+  var scope = queueScope_(user, settings);
   rank[STATUS.CALLBACK] = 0;
   rank[STATUS.TO_CONFIRM] = 1;
   rank[STATUS.NO_ANSWER] = 2;
 
   ctx.orders.forEach(function (o) {
+    if (!isMine_(o, scope)) return;
     if (QUEUE_STATUSES.indexOf(o.status) < 0) {
       // Ni confirmée ni annulée, mais hors de la file : elle reste visible avec son motif.
       if (waitingReason_(o)) waiting.push({ o: o, d: toDate_(o.date) });
@@ -500,7 +519,9 @@ function queueData_(ctx, user) {
     later: later.map(item),
     waiting: waiting.map(item),
     lateHours: settings.ATTENTE_MAX_HEURES,
-    stats: { due: due.length, later: later.length, waiting: waiting.length, pending: pendingCount_(ctx), handledToday: mine.handled, confirmedToday: mine.confirmed },
+    stats: { due: due.length, later: later.length, waiting: waiting.length, pending: scope === null ? pendingCount_(ctx) : due.length + later.length + waiting.length,
+      handledToday: mine.handled, confirmedToday: mine.confirmed },
+    share: shareInfo_(ctx, user, settings),
     now: now.toISOString()
   };
 }
@@ -606,10 +627,13 @@ function api_recordCall(id, outcome, payload, opts) {
       merged.phone = f.phone;
       f.alert = computeAlert_(merged, env);
     }
-    f.agent = user.name;
+    var agent = agentAfterCall_(o, user, outcome, env.settings);
+    if (agent !== null) f.agent = agent;
     f.updated = env.now;
     writeFields_(ctx, o, f);
     log_(user, o.id, 'Appel', detail);
+    // Elle appelle : elle est là (fin de la pause).
+    if (isConfirmatrice_(user)) { var pres = presenceOf_(user.key); if (pres.pause || !pres.seen || env.now - pres.seen > PRESENCE_TOUCH_MS_) writePresence_(user.key, { seen: env.now, pause: null }); }
     // En un seul aller-retour : la commande suivante, la file à jour et les compteurs.
     var res = serializeOrder_(o);
     if (opts.next) {
@@ -690,6 +714,11 @@ function api_updateOrder(id, input) {
       f.status = input.status;
       if (QUEUE_STATUSES.indexOf(input.status) < 0) f.callback = '';
       changes.push('Statut : ' + (o.status || '—') + ' → ' + input.status);
+      // v1.20 : confirmée ou annulée à la main, comme depuis la fiche d'appel.
+      if (shareOn_(env.settings) && isCallable_(o) && (input.status === STATUS.CONFIRMED || input.status === STATUS.CANCELLED)) {
+        var ag = agentAfterCall_(o, user, input.status === STATUS.CONFIRMED ? 'confirm' : 'cancel', env.settings);
+        if (ag !== null && ag !== String(o.agent || '').trim()) f.agent = ag;
+      }
     }
     var finalStatus = f.status || o.status;
     if (finalStatus === STATUS.CANCELLED) {
@@ -744,8 +773,10 @@ function api_createOrder(input) {
     o.source = 'Manuel';
     o.updated = env.now;
     o.alert = computeAlert_(o, env);
+    if (queueScope_(user, env.settings)) o.agent = user.name;
     appendOrder_(ctx, o);
     log_(user, o.id, 'Nouvelle commande', 'Saisie à la main · ' + o.alert);
+    if (!o.agent) shareOrders_(ctx, { ids: [o.id] });
     var res = serializeOrder_(o);
     res.counts = countsData_(ctx, env.settings);
     return res;

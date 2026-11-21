@@ -511,33 +511,52 @@ function smsQueueStatement(db, R, value) {
   ).bind('[' + added.join(',') + ']', '[' + removed.join(',') + ']');
 }
 
-/** Compteurs du menu (à appeler / en attente / à expédier) : trois comptes lus sur l'index. */
-async function fastCounts(env) {
+/**
+ * Compteurs du menu (à appeler / en attente / à expédier) : trois comptes lus sur l'index.
+ * v1.20 : une confirmatrice compte ses commandes (file avec le partage ; Expédier et Suivi toujours).
+ */
+function countScopes(R) {
+  if (!R || !R.user || !R.user.email) return { queue: null, own: null };
+  return run(R, () => { const u = F.currentUser_(); return { queue: F.queueScope_(u), own: F.ownScope_(u) }; });
+}
+async function fastCounts(env, R) {
   const now = new Date().toISOString();
+  const sc = countScopes(R);
+  const qa = sc.queue !== null ? ' AND agent = ?' : '';
+  const oa = sc.own !== null ? ' AND agent = ?' : '';
+  const binds = [...QUEUE, now].concat(sc.queue !== null ? [sc.queue] : []).concat(sc.queue !== null ? [sc.queue] : []).concat(sc.own !== null ? [sc.own] : []);
   const r = await env.DB.prepare(
     'SELECT ' +
-    "SUM(CASE WHEN stage = 'todo' AND status IN (" + placeholders(QUEUE.length) + ") AND (callback = '' OR callback <= ?) THEN 1 ELSE 0 END) AS queue, " +
-    "SUM(CASE WHEN stage = 'todo' THEN 1 ELSE 0 END) AS pending, " +
-    "SUM(CASE WHEN stage = 'confirmed' AND tracking = '' THEN 1 ELSE 0 END) AS toShip, " +
-    "(SELECT value FROM kv WHERE key = 'cf:alerts') AS alerts " +
+    "SUM(CASE WHEN stage = 'todo' AND status IN (" + placeholders(QUEUE.length) + ") AND (callback = '' OR callback <= ?)" + qa + ' THEN 1 ELSE 0 END) AS queue, ' +
+    "SUM(CASE WHEN stage = 'todo'" + qa + ' THEN 1 ELSE 0 END) AS pending, ' +
+    "SUM(CASE WHEN stage = 'confirmed' AND tracking = ''" + oa + ' THEN 1 ELSE 0 END) AS toShip, ' +
+    "(SELECT value FROM kv WHERE key = 'cf:alerts') AS alerts, (SELECT value FROM kv WHERE key = 'cf:alertsBy') AS alertsBy " +
     "FROM orders WHERE archived = 0 AND stage IN ('todo', 'confirmed')"
-  ).bind(...QUEUE, now).first();
-  return { queue: (r && r.queue) || 0, pending: (r && r.pending) || 0, toShip: (r && r.toShip) || 0, alerts: Number(r && r.alerts) || 0 };
+  ).bind(...binds).first();
+  let alerts = Number(r && r.alerts) || 0;
+  if (sc.own !== null) { let by = {}; try { by = JSON.parse((r && r.alertsBy) || '{}') || {}; } catch (e) { by = {}; } alerts = Number(by[sc.own]) || 0; }
+  return { queue: (r && r.queue) || 0, pending: (r && r.pending) || 0, toShip: (r && r.toShip) || 0, alerts: alerts };
 }
 
 /** Alertes de suivi (urgentes ou à surveiller) : comptées sur les colis suivis, gardées pour le menu. */
 function alertStatement(env, R) {
   const list = R.orders.filter((o) => tracked(o));
-  const n = run(R, () => F.trackingAlerts_(list, F.getSettings_(), new Date()).filter((a) => a.level !== 'info').length);
-  return env.DB.prepare("INSERT INTO kv (key, value) VALUES ('cf:alerts', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(n));
+  const alerts = run(R, () => F.trackingAlerts_(list, F.getSettings_(), new Date()).filter((a) => a.level !== 'info'));
+  // v1.20 : aussi par confirmatrice (pastille Suivi d'une confirmatrice : ses colis).
+  const agentOf = {};
+  list.forEach((o) => { agentOf[String(o.id)] = String(o.agent || '').trim(); });
+  const by = {};
+  alerts.forEach((a) => { const k = agentOf[a.id] || ''; if (k) by[k] = (by[k] || 0) + 1; });
+  return env.DB.prepare("INSERT INTO kv (key, value) VALUES ('cf:alerts', ?1), ('cf:alertsBy', ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .bind(String(alerts.length), JSON.stringify(by));
 }
 
 /** Remplace les compteurs marqués par l'outil (countsData_) par ceux de D1, après l'enregistrement. */
-async function withCounts(env, res) {
+async function withCounts(env, res, R) {
   if (!res || typeof res !== 'object') return res;
   const need = ['counts', 'menuCounts'].filter((k) => res[k] && res[k].__fast);
   if (!need.length) return res;
-  const c = await fastCounts(env);
+  const c = await fastCounts(env, R);
   need.forEach((k) => { res[k] = c; });
   return res;
 }
@@ -566,7 +585,7 @@ const PAGES = {
     const preload = args[0] || null;
     if (R.full) R.healthSummary = workerHealth(R).summary;
     const boot = run(R, () => F.bootstrapApi_(null));
-    boot.counts = await fastCounts(env);
+    boot.counts = await fastCounts(env, R);
     boot.cloud = { version: K.APP_VERSION, step: R.full ? 3 : isLive(R) ? 2 : 1, google: R.cfInfo.google,
       auth: { via: R.user.sid ? 'password' : 'google', phone: R.user.phone || '', pwdOnly: !!R.base.secret['cf:pwdOnly'], relay: !!R.base.secret['cf:relay'] },
       lastExport: R.base.secret['cf:lastExport'] || '', communesAt: R.base.secret['cf:ecoCommunesOk'] || '' };
@@ -586,11 +605,24 @@ const PAGES = {
     return boot;
   },
 
-  async api_counts(env) { return fastCounts(env); },
+  async api_counts(env, R) { return fastCounts(env, R); },
 
   async api_queue(env, R, args) {
     const opts = args[0] || {};
     await loadQueueSet(env, R);
+    // v1.20 : partage avant la lecture (commandes à partager, collègues absentes) ; en cas de conflit
+    // avec la tâche de chaque minute, la file est relue telle quelle.
+    if (run(R, () => F.queueScope_(F.currentUser_())) !== null) {
+      try {
+        const sh = await exec(env, R, () => F.shareOrders_(F.readOrders_()));
+        if (sh && sh.n) await flush(env, R);
+      } catch (e) {
+        const R2 = newReq(R.base, R.user);
+        R2.userName = R.userName;
+        R = R2;
+        await loadQueueSet(env, R);
+      }
+    }
     let q = run(R, () => F.queueData_(F.readOrders_(), F.currentUser_()));
     if (opts.first && q.due.length) {
       const first = R.byId[q.due[0].id];
@@ -627,7 +659,7 @@ const PAGES = {
     if (pq) await loadWhere(env, R, pq[0], pq[1]);
     const res = await exec(env, R, () => F.api_recordCall.apply(null, args));
     await flush(env, R);
-    return withCounts(env, res);
+    return withCounts(env, res, R);
   },
 
   async api_updateOrder(env, R, args) {
@@ -640,7 +672,7 @@ const PAGES = {
     if (pq) await loadWhere(env, R, pq[0], pq[1]);
     const res = await exec(env, R, () => F.api_updateOrder.apply(null, args));
     await flush(env, R);
-    return withCounts(env, res);
+    return withCounts(env, res, R);
   },
 
   async api_createOrder(env, R, args) {
@@ -650,7 +682,7 @@ const PAGES = {
     R.manualMax = await manualMax(env);
     const res = await exec(env, R, () => F.api_createOrder.apply(null, args));
     await flush(env, R);
-    return withCounts(env, res);
+    return withCounts(env, res, R);
   },
 
   async api_setBlacklist(env, R, args) {
@@ -759,7 +791,7 @@ const PAGES = {
     await flush(env, R);
     let msg = F.plural_(out.deleted.length, 'commande mise', 'commandes mises') + ' à la corbeille';
     if (out.skipped.length) msg += ' · ' + F.plural_(out.skipped.length, 'ignorée', 'ignorées') + ' (' + out.skipped.slice(0, 5).map((x) => x.id + ' : ' + x.why).join(', ') + (out.skipped.length > 5 ? '…' : '') + ')';
-    return { deleted: out.deleted, skipped: out.skipped, counts: await fastCounts(env), message: msg + '.' };
+    return { deleted: out.deleted, skipped: out.skipped, counts: await fastCounts(env, R), message: msg + '.' };
   },
 
   async api_restoreOrder(env, R, args) {
@@ -859,7 +891,7 @@ async function external(env, R, fn, opts) {
   const res = await exec(env, R, fn);
   if (opts && opts.alerts) R.extra.push(alertStatement(env, R));
   await flush(env, R);
-  return withCounts(env, res);
+  return withCounts(env, res, R);
 }
 
 Object.assign(PAGES, {
@@ -1039,6 +1071,9 @@ async function cron(env) {
   if (base.full) out.alerts = await alertCheck(env, await loadBase(env)).catch((e) => ({ error: String(e && e.message ? e.message : e) }));
   // 7. Notifications : rappels arrivés à leur heure.
   if (base.full) out.callbacks = await notifyCallbacks(env, base).catch((e) => ({ error: String(e && e.message ? e.message : e) }));
+  // 9. Partage des commandes à appeler (v1.20) : chaque minute s'il y en a « à partager », sinon toutes
+  //    les 5 minutes (confirmatrice partie : ses commandes repartent chez les présentes).
+  if (base.full && settings.PARTAGE !== false) out.share = await shareTask(env, base).catch((e) => ({ error: String(e && e.message ? e.message : e) }));
   // 8. Communes d'Ecotrack : la liste officielle, relue une fois par semaine (une heure après un échec).
   if (base.props.ECOTRACK_TOKEN && due(base, 'cf:ecoCommunesAt', base.secret['cf:ecoCommunesOk'] && base.secret['cf:ecoCommunesV'] === COMMUNES_V ? 7 * 1440 : 60)) {
     await kvSet(env, 'cf:ecoCommunesAt', new Date().toISOString()).run();
@@ -1049,6 +1084,19 @@ async function cron(env) {
   runs.n++;
   await env.DB.batch([kvSet(env, 'cf:cronAt', new Date().toISOString()), kvSet(env, 'cf:runs', JSON.stringify(runs))]);
   return out;
+}
+
+/** Partage des commandes à appeler (tâche de chaque minute). */
+async function shareTask(env, base) {
+  const pool = await env.DB.prepare("SELECT COUNT(*) AS n FROM orders WHERE archived = 0 AND stage = 'todo' AND agent = '' AND status IN (" + placeholders(QUEUE.length) + ')')
+    .bind(...QUEUE).first();
+  if (!(pool && pool.n) && !due(base, 'cf:shareAt', 5)) return { skipped: true };
+  await kvSet(env, 'cf:shareAt', new Date().toISOString()).run();
+  const R = newReq(base, { email: '' });
+  await loadTodo(env, R);
+  const r = await exec(env, R, () => F.shareOrders_(F.readOrders_()));
+  if (r && r.n) await flush(env, R);
+  return r;
 }
 
 /**
@@ -1238,11 +1286,14 @@ const FN_TABS = {
   api_addExpense: ['Dépenses', 'Produits'], api_updateExpense: ['Dépenses', 'Produits'], api_deleteExpenses: ['Dépenses'], api_linkCampaign: ['Dépenses', 'Produits'],
   api_profit: ['Dépenses', 'Produits'], api_stats: ['Dépenses'],
   api_settingsGet: ['Paramètres'], api_settingsSave: ['Paramètres'], api_setPrime: ['Paramètres'], api_setGoal: ['Paramètres'],
-  api_teamList: ['Équipe'], api_teamSave: ['Équipe'], api_teamRemove: ['Équipe'], api_authMine: ['Équipe'], api_clientsAdmin: ['Clients'], api_clearFlag: ['Clients'], api_setBlacklist: ['Clients']
+  api_teamList: ['Équipe'], api_teamAccess: ['Équipe'], api_teamSave: ['Équipe'], api_teamRemove: ['Équipe'], api_authMine: ['Équipe'], api_clientsAdmin: ['Clients'], api_clearFlag: ['Clients'], api_setBlacklist: ['Clients']
 };
 async function preloadTabs(env, R, fn) {
   if (R.full && FN_TABS[fn] && FN_TABS[fn].length) await loadTabs(env, R, FN_TABS[fn]);
 }
+
+/** Commandes à appeler (partage des commandes, v1.20). */
+async function loadTodo(env, R) { await loadWhere(env, R, "archived = 0 AND stage = 'todo'", []); }
 
 /** Une fonction de l'outil, telle quelle (onglets lus à la demande), puis enregistrement. */
 function gasPage(fnName, before) {
@@ -1252,7 +1303,7 @@ function gasPage(fnName, before) {
     if (before) await before(env, R, args);
     const res = await exec(env, R, () => F[fnName].apply(null, args));
     await flush(env, R);
-    return withCounts(env, res);
+    return withCounts(env, res, R);
   };
 }
 
@@ -1629,7 +1680,7 @@ async function shopifyImport(env, R) {
     if (f.summary.imported) F.processNewRowsNow_();
   });
   await flush(env, R);
-  if (f.summary.imported) await notifyNewOrders(env, R.base, R.inserts.map((o) => ({ id: String(o.id), client: o.client, wilaya: o.wilaya, product: o.product, total: o.total }))).catch(() => null);
+  if (f.summary.imported) await notifyNewOrders(env, R.base, R.inserts.map((o) => ({ id: String(o.id), client: o.client, wilaya: o.wilaya, product: o.product, total: o.total, agent: o.agent }))).catch(() => null);
   return f.summary;
 }
 
@@ -1695,7 +1746,7 @@ async function releasitIngest(env, base, body) {
   if (fresh.length) R.extra.push(kvSet(env, 'cf:lastIngest', new Date().toISOString()));
   await flush(env, R);
   return { next: from + use, col: col.id + 1, added: fresh.map((o) => String(o.id)), skipped: found.candidates.length - fresh.length, ignored: found.ignored, missing: missing,
-    orders: fresh.map((o) => ({ id: String(o.id), client: o.client, wilaya: o.wilaya, product: o.product, total: o.total })) };
+    orders: fresh.map((o) => ({ id: String(o.id), client: o.client, wilaya: o.wilaya, product: o.product, total: o.total, agent: o.agent })) };
 }
 
 /**
@@ -1844,6 +1895,13 @@ async function listOrders(env, R, filter) {
     parts.push('search LIKE ?'); binds.push('%' + qText.toLowerCase() + '%');
     if (digits.length >= 4) { parts.push('search LIKE ?'); binds.push('%' + digits + '%'); }
     conds.push('(' + parts.join(' OR ') + ')');
+  }
+  // v1.20 : partage des commandes.
+  const scope = filter.scope === 'all' ? null : run(R, () => F.queueScope_(F.currentUser_()));
+  if (scope !== null) { conds.push('agent = ?'); binds.push(scope); }
+  if (filter.agent) {
+    if (String(filter.agent) === '__pool') conds.push("agent = ''");
+    else { conds.push('agent = ?'); binds.push(String(filter.agent)); }
   }
   const base = conds.join(' AND ');
   const status = String(filter.status || 'all');
@@ -2340,8 +2398,20 @@ async function notifyNewOrders(env, base, orders) {
   const has = await env.DB.prepare('SELECT COUNT(*) AS n FROM push_subs').first();
   if (!has || !has.n) return { sent: 0 };
   const team = await teamRows(env, base);
+  // v1.20 : avec le partage, l'administrateur et la confirmatrice qui reçoit la commande.
+  let settings = {};
+  try { settings = JSON.parse(base.config['cfg:settings'] || '{}') || {}; } catch (e) { settings = {}; }
+  const share = settings.PARTAGE !== false;
+  const admins = team.filter((t) => /^admin/i.test(F.normalizeText_(t[2]))).map((t) => t[0]);
+  const membersFor = (agents) => {
+    if (!share) return undefined;
+    const keys = admins.slice();
+    agents.forEach((a) => team.forEach((t) => { if (a && t[1] === a && keys.indexOf(t[0]) < 0) keys.push(t[0]); }));
+    return keys.length ? keys : undefined;
+  };
   if (list.length > 3) {
-    return pushTo(env, base, 'orders', { title: list.length + ' nouvelles commandes', body: list.slice(0, 6).map((o) => o.id).join(', ') + (list.length > 6 ? '…' : ''), tag: 'new-batch', url: '/#/confirmation' }, { team: team });
+    return pushTo(env, base, 'orders', { title: list.length + ' nouvelles commandes', body: list.slice(0, 6).map((o) => o.id).join(', ') + (list.length > 6 ? '…' : ''), tag: 'new-batch', url: '/#/confirmation' },
+      { team: team, members: membersFor(list.map((o) => String(o.agent || '').trim())) });
   }
   let sent = 0;
   for (const o of list) {
@@ -2350,7 +2420,7 @@ async function notifyNewOrders(env, base, orders) {
       title: 'Nouvelle commande ' + o.id,
       body: [String(o.client || '').trim(), wilayaShort(o.wilaya), String(o.product || '').trim(), total ? F.fmtAmount_(total) + ' DA' : ''].filter(Boolean).join(' · '),
       tag: 'new-' + o.id, url: orderLink(o.id)
-    }, { team: team });
+    }, { team: team, members: membersFor([String(o.agent || '').trim()]) });
     sent += r.sent;
   }
   return { sent: sent };
@@ -2704,7 +2774,29 @@ async function enrichTeam(env, R, team) {
 Object.assign(PAGES, {
   async api_teamList(env, R, args) {
     needFull(R);
-    return enrichTeam(env, R, await gasPage('api_teamList')(env, R, args));
+    return enrichTeam(env, R, await gasPage('api_teamList', loadTodo)(env, R, args));
+  },
+  /** v1.20 : part, pages Expédier et Suivi d'une confirmatrice. */
+  async api_teamAccess(env, R, args) {
+    needFull(R);
+    const res = await gasPage('api_teamAccess', loadTodo)(env, R, args);
+    res.team = await enrichTeam(env, R, res.team);
+    return res;
+  },
+  async api_teamPresence(env, R, args) { return gasPage('api_teamPresence', loadTodo)(env, R, args); },
+  async api_teamReclaim(env, R, args) { return gasPage('api_teamReclaim', loadTodo)(env, R, args); },
+  async api_presence(env, R, args) { return gasPage('api_presence', loadTodo)(env, R, args); },
+  async api_assignOrders(env, R, args) {
+    await loadIds(env, R, idsOf(args[0]));
+    const res = await exec(env, R, () => F.api_assignOrders(args[0], args[1]));
+    await flush(env, R);
+    return withCounts(env, res, R);
+  },
+  async api_takeOrder(env, R, args) {
+    await loadIds(env, R, idsOf([args[0]]));
+    const res = await exec(env, R, () => F.api_takeOrder(args[0]));
+    await flush(env, R);
+    return res;
   },
   async api_teamSave(env, R, args) {
     needFull(R);
@@ -2951,6 +3043,7 @@ async function api(request, env, fn) {
   }
   R.user = user;
   R.userName = userName(R);
+  await touchPresence(env, R, team);
   const handler = PAGES[fn];
   if (!handler) throw new HttpError(404, 'Cette page n’est pas encore dans la version Cloudflare (étape 2).', 'later');
   if (fn !== 'api_stockPage') await preloadTabs(env, R, fn);
@@ -2958,6 +3051,21 @@ async function api(request, env, fn) {
   try { args = await request.json(); } catch (e) { args = []; }
   if (!Array.isArray(args)) args = [];
   return handler(env, R, args);
+}
+
+/** v1.20 : dernière activité d'une personne de l'équipe (présence pour le partage des commandes). */
+async function touchPresence(env, R, team) {
+  const key = String(R.user.email || '').toLowerCase();
+  if (!key || !team.some((t) => t[0] === key)) return;
+  const k = 'PRES_' + key;
+  let p = {};
+  try { p = JSON.parse(R.props[k] || '{}') || {}; } catch (e) { p = {}; }
+  const now = Date.now();
+  if (p.seen && now - Date.parse(p.seen) < 5 * 60000) return;
+  p = { seen: new Date(now).toISOString(), pause: p.pause || '' };
+  R.props[k] = JSON.stringify(p);
+  R.base.props[k] = R.props[k];
+  await kvSet(env, k, R.props[k]).run();
 }
 
 /** Application installable (v1.12) : nom de la boutique, ouverture en plein écran sur Confirmation. */

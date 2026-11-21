@@ -1270,6 +1270,49 @@ button.mode-tab.on { background: var(--surface); }
   .tk-chips .chip { flex: none; }
 }
 
+/* v1.20 : partage des commandes entre les confirmatrices. */
+.share-me { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin: 0 0 10px; border-radius: 12px; background: #E9F6EF; color: #14532D; font-size: 14px; }
+.share-me > span:nth-child(2) { flex: 1; min-width: 0; }
+.share-me .btn { min-height: 38px; padding: 0 12px; white-space: nowrap; }
+.share-me.pause { background: #FFF3DC; color: #6B4100; }
+.sm-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #1F9D55; flex: none; }
+.share-me.pause .sm-dot, .sm-dot.pause { background: #E8A23A; }
+.sm-dot.off { background: #B6BDC7; }
+.share-chips { margin: 0 0 10px; }
+.share-chips .chip { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; font-size: 13.5px; }
+.ag-pill { display: inline-flex; align-items: center; gap: 4px; font: 600 12px var(--font); padding: 2px 8px; border-radius: 999px; background: #EEF0F3; color: #3D4350; white-space: nowrap; }
+.ag-pill .ic { width: 12px; height: 12px; margin: 0; }
+.ag-pill.pool { background: #FFF3DC; color: #8A5200; }
+.assign-list { margin-top: 12px; }
+.assign-list button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface); color: var(--ink); font: 600 15px var(--font); text-align: left; cursor: pointer; }
+.assign-list button:hover { border-color: var(--brand); }
+.assign-list button .ic { width: 18px; height: 18px; color: var(--brand); margin: 0; }
+.assign-list button[data-agent=""] { color: #8A5200; }
+.assign-list button[data-agent=""] .ic { color: #8A5200; }
+.sh-list { display: grid; gap: 8px; margin-top: 10px; }
+.sh-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.sh-who { flex: 1 1 220px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+.sh-who strong { font-size: 15px; }
+.sh-st { display: inline-flex; align-items: center; gap: 5px; font: 600 12.5px var(--font); }
+.sh-st i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.sh-st.on { color: #146C2E; } .sh-st.pause { color: #9A4A06; } .sh-st.off { color: #6B7280; }
+.sh-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.sh-part { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--muted); }
+.sh-part select { min-height: 34px; padding: 0 8px; }
+.sh-sw { display: inline-flex; align-items: center; gap: 7px; font: 600 13.5px var(--font); cursor: pointer; user-select: none; }
+.sh-sw input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.sh-knob { position: relative; width: 36px; height: 22px; border-radius: 999px; background: #CFD4DB; transition: background .15s; flex: none; }
+.sh-knob::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s; }
+.sh-sw input:checked + .sh-knob { background: var(--brand); }
+.sh-sw input:checked + .sh-knob::after { transform: translateX(14px); }
+.sh-sw input:focus-visible + .sh-knob { outline: 2px solid var(--brand); outline-offset: 2px; }
+@media (max-width: 860px) {
+  .share-me { font-size: 13.5px; }
+  .sh-ctl { width: 100%; }
+  .sh-ctl .more-menu { margin-left: auto; }
+}
+
 /* Application Google après le basculement : les pages des commandes sont dans la version Cloudflare. */
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }

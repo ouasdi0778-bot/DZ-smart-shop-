@@ -408,6 +408,7 @@ function shipToEcotrack_(rawIds, user) {
     ids.forEach(function (id) {
       var o = findOrder_(ctx, id);
       if (!o) { fail(id, '', 'Commande introuvable.'); return; }
+      if (!isMine_(o, ownScope_(user))) { fail(id, o.client, 'Commande suivie par ' + (String(o.agent || '').trim() || 'une autre personne') + '.'); return; }
       var problems = ecotrackProblems_(o, catalog);
       if (problems.length) { fail(id, o.client, problems.join(' · ')); return; }
       if (cache.get('ship:' + id)) { fail(id, o.client, 'Un envoi est déjà en cours pour cette commande.'); return; }
@@ -826,11 +827,13 @@ function syncEcotrackStatuses() {
 /* ------------------------------------------------------------------ */
 
 function api_ecotrackTest() {
+  requirePage_(currentUser_(), 'ship');
   var r = ecotrackTest_();
   return { ok: true, message: 'Connexion réussie : jeton valide, ' + r.wilayas + ' wilayas desservies.' };
 }
 
 function api_ecotrackSyncFees() {
+  requireAdmin_(); // remplace les tarifs Ecotrack de l'onglet Tarifs
   var s = syncEcotrackFees_();
   return {
     stats: s,
@@ -841,6 +844,8 @@ function api_ecotrackSyncFees() {
 
 function api_ecotrackSyncStatuses() {
   cloudGuard_();
+  var who = pageAccess_(currentUser_());
+  if (!who.ship && !who.track) requirePage_(currentUser_(), 'track');
   var s = syncEcotrackStatuses_();
   var message = s.checked + ' colis vérifié(s), ' + s.updated + ' mis à jour' +
     (s.unknown ? ', ' + s.unknown + ' statut(s) inconnu(s) (voir l’onglet Journal)' : '') +
@@ -856,6 +861,10 @@ function api_shippingList() {
 }
 
 function shippingListApi_() {
+  // v1.20 : page ouverte par l'administrateur ; une confirmatrice n'y voit que ses commandes.
+  var user = currentUser_();
+  requirePage_(user, 'ship');
+  var own = ownScope_(user);
   var cfg = ecotrackConfig_();
   var settings = getSettings_();
   var ctx = readOrders_();
@@ -868,6 +877,7 @@ function shippingListApi_() {
   var toShip = [];
   var created = [];
   ctx.orders.forEach(function (o) {
+    if (!isMine_(o, own)) return;
     var base = {
       id: String(o.id), client: String(o.client), wilaya: String(o.wilaya), commune: String(o.commune),
       mode: String(o.mode), total: toNumber_(o.total), product: String(o.product), date: iso_(o.date)
@@ -902,7 +912,8 @@ function shippingListApi_() {
     alertHours: settings.SUIVI_ALERTE_HEURES,
     labelFormat: settings.FORMAT_BORDEREAU,
     pickup: settings.RAMASSAGE,
-    canValidate: canSeeStock_(currentUser_()),
+    canValidate: canSeeStock_(user),
+    canFees: isAdmin_(user),
     labelsPerCall: LABEL.PER_CALL,
     toShip: items(toShip),
     created: items(created)
@@ -912,7 +923,9 @@ function shippingListApi_() {
 /** Crée les colis chez Ecotrack (la validation se fait ensuite : bouton « Valider l'expédition » ou interface d'Ecotrack). */
 function api_shipEcotrack(ids) {
   cloudGuard_();
-  return shipToEcotrack_(ids, currentUser_());
+  var user = currentUser_();
+  requirePage_(user, 'ship');
+  return shipToEcotrack_(ids, user);
 }
 
 /* ------------------------------------------------------------------ */

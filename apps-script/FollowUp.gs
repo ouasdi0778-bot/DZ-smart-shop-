@@ -230,6 +230,8 @@ function api_followUpResult(id, result, data) {
   var settings = getSettings_();
   var o0 = findOrder_(readOrders_(), id);
   if (!o0) throw new Error('Commande ' + id + ' introuvable.');
+  requirePage_(user, 'track');
+  requireOwn_(o0, user);
   if (!hasEcotrackParcel_(o0)) throw new Error('Cette commande n’a pas de colis Ecotrack.');
   if ([STATUS.SHIPPED, STATUS.IN_DELIVERY, STATUS.RETURNED].indexOf(o0.status) < 0) throw new Error('Ce colis n’est plus en cours de livraison.');
   var tracking = String(o0.tracking).trim();

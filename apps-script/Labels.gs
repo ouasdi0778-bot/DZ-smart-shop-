@@ -163,7 +163,9 @@ function ecotrackRequest_(method, path, query) {
  * plusieurs fois). Renvoie [{ id, tracking, client, ok, pdf (base64), message }].
  */
 function api_labelFiles(rawIds) {
-  currentUser_();
+  var user = currentUser_();
+  requirePage_(user, 'ship');
+  var own = ownScope_(user);
   var ids = uniqueIds_(rawIds);
   if (!ids.length) throw new Error('Aucun colis sélectionné.');
   if (ids.length > LABEL.PER_CALL) throw new Error('Trop de bordereaux demandés à la fois (' + LABEL.PER_CALL + ' au plus).');
@@ -177,6 +179,7 @@ function api_labelFiles(rawIds) {
     var r = { id: id, tracking: o ? String(o.tracking).trim() : '', client: o ? String(o.client) : '', ok: false, pdf: '', message: '' };
     results.push(r);
     if (!o) r.message = 'Commande introuvable.';
+    else if (!isMine_(o, own)) r.message = 'Commande suivie par ' + (String(o.agent || '').trim() || 'une autre personne') + '.';
     else if (!canPrintLabel_(o)) r.message = hasEcotrackParcel_(o) ? 'Colis terminé : plus de bordereau à imprimer.' : 'Pas encore de colis chez Ecotrack : envoyez d’abord la commande à Ecotrack.';
     else asked.push(r);
   });
@@ -230,7 +233,7 @@ function api_markLabelsPrinted(items) {
     list.forEach(function (it) {
       var o = findOrder_(ctx, String(it.id));
       var tracking = String(it.tracking || '').trim();
-      if (!o || !tracking || String(o.tracking).trim() !== tracking) return;
+      if (!o || !tracking || String(o.tracking).trim() !== tracking || !isMine_(o, ownScope_(user))) return;
       var before = labelState_(o);
       writeFields_(ctx, o, { label: labelMark_(now, user, tracking) });
       log_(user, o.id, before.printed ? 'Bordereau réimprimé' : 'Bordereau imprimé', 'Suivi ' + tracking);
@@ -371,6 +374,7 @@ function api_validateParcels(rawIds, pickup) {
 /** À l'ouverture de « Créés, à valider » : relit chez Ecotrack les colis pas encore validés. */
 function api_refreshCreated() {
   cloudGuard_();
+  requirePage_(currentUser_(), 'ship');
   var s = syncEcotrackStatuses_({ onlyCreated: true });
   var parts = [];
   if (s.updated) parts.push(plural_(s.updated, 'colis validé chez Ecotrack est passé', 'colis validés chez Ecotrack sont passés') + ' dans Suivi');

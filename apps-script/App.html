@@ -10,7 +10,8 @@
     boot: null,
     route: '',
     dashP: null,      // période du tableau de bord { period, from, to } (retenue sur l'appareil)
-    filter: { status: 'todo', q: '', wilaya: '', period: '30', limit: 100 },
+    filter: { status: 'todo', q: '', wilaya: '', period: '30', limit: 100, agent: '' },
+    qAgent: '', // v1.20 : file de l'administrateur filtrée par confirmatrice
     queue: null,
     currentId: null,
     current: null,
@@ -377,13 +378,22 @@
     if (cloudMoved(r)) { /* page déplacée */ }
     else if (r === 'tableau') pageDashboard();
     else if (r === 'commandes') pageOrders();
-    else if (r === 'expeditions') pageShipping();
-    else if (r === 'suivi') pageTracking();
+    else if (r === 'expeditions') { if (S.boot.user.ship === false) { denyRoute(r); return; } pageShipping(); }
+    else if (r === 'suivi') { if (S.boot.user.track === false) { denyRoute(r); return; } pageTracking(); }
     else if (r === 'benefices' || r === 'stats' || r === 'admin') { if (S.boot.user.admin) openModule(r); else { location.hash = '#/tableau'; return; } }
     else if (r === 'stock') { if (S.boot.user.stock) openModule(r); else { location.hash = '#/tableau'; return; } }
     else pageConfirm();
     view.focus({ preventScroll: true });
     window.scrollTo(0, 0);
+  }
+
+  /**
+   * v1.20 : page fermée à cette confirmatrice. Droits encore lus sur l'appareil : la page demandée
+   * s'ouvrira si le serveur dit que l'administrateur vient de l'ouvrir.
+   */
+  function denyRoute(r) {
+    if (S.fromMemory) S.wantRoute = r;
+    location.hash = '#/commandes';
   }
 
   /** Titre de la page dans l'en-tête du téléphone. */
@@ -601,6 +611,7 @@
         field('Période', '<select id="f-period">' + periods.map(function (p) {
           return '<option value="' + p[0] + '"' + (f.period === p[0] ? ' selected' : '') + '>' + p[1] + '</option>';
         }).join('') + '</select>') +
+        agentSelect('f-agent', f.agent) +
       '</div>' +
       '<div id="shop-status"></div>' +
       '<div id="orders-list"><p class="loading">Chargement…</p></div></div>' +
@@ -613,9 +624,19 @@
     loadOrders(true);
   }
 
+  /** v1.20 (administrateur) : filtre « Confirmatrice » de la liste. */
+  function agentSelect(id, value, name) {
+    var team = S.boot.user.admin ? S.boot.team || [] : [];
+    if (!team.length) return '';
+    var opts = [['', 'Toutes']].concat(team.map(function (n) { return [n, n]; })).concat([['__pool', 'À partager']]);
+    return field('Confirmatrice', '<select ' + (id ? 'id="' + id + '"' : 'name="' + name + '"') + '>' + opts.map(function (o) {
+      return '<option value="' + h(o[0]) + '"' + (value === o[0] ? ' selected' : '') + '>' + h(o[1]) + '</option>';
+    }).join('') + '</select>', name ? 'full' : '');
+  }
+
   /** Nombre de filtres actifs (wilaya, période autre que 30 jours) : pastille du bouton « Filtres ». */
   function filterBadge() {
-    var n = (S.filter.wilaya ? 1 : 0) + (S.filter.period && S.filter.period !== '30' ? 1 : 0);
+    var n = (S.filter.wilaya ? 1 : 0) + (S.filter.period && S.filter.period !== '30' ? 1 : 0) + (S.filter.agent ? 1 : 0);
     return n ? '<span class="chip-badge">' + n + '</span>' : '';
   }
 
@@ -625,7 +646,8 @@
     var periods = [['today', 'Aujourd’hui'], ['7', '7 jours'], ['30', '30 jours'], ['all', 'Tout']];
     S.sheetFilter = { wilaya: f.wilaya, period: f.period };
     showModal(modalHead('Filtres') +
-      '<div class="form-grid" id="sheet-filters">' + field('Wilaya', '<select name="wilaya">' + options(S.boot.wilayas, f.wilaya, 'Toutes les wilayas') + '</select>', 'full') + '</div>' +
+      '<div class="form-grid" id="sheet-filters">' + field('Wilaya', '<select name="wilaya">' + options(S.boot.wilayas, f.wilaya, 'Toutes les wilayas') + '</select>', 'full') +
+        agentSelect('', f.agent, 'agent') + '</div>' +
       '<p class="small" style="margin:12px 0 6px;font-weight:600">Période</p><div class="chips">' + periods.map(function (p) {
         return '<button type="button" class="chip" data-act="sheet-period" data-p="' + p[0] + '" aria-pressed="' + (f.period === p[0]) + '">' + p[1] + '</button>';
       }).join('') + '</div>' +
@@ -639,6 +661,9 @@
   function applySheet(close) {
     var sel = $('#sheet-filters [name="wilaya"]');
     S.filter.wilaya = sel ? sel.value : S.filter.wilaya;
+    var ag = $('#sheet-filters [name="agent"]');
+    if (ag) S.filter.agent = ag.value;
+    var fa = $('#f-agent'); if (fa) fa.value = S.filter.agent;
     S.filter.period = S.sheetFilter.period;
     S.filter.limit = 100;
     if (close) closeModal();
@@ -800,7 +825,8 @@
           '<span class="l2">' + stPill + '<span>' + h(wilayaName(o.wilaya)) + '</span><span>· ' + h(o.id) + '</span>' +
           (o.locked ? '<span class="lock-icon">' + icon('lock') + '</span>' : '') +
           (o.alertLevel === 'bad' || o.alertLevel === 'warn' ? alertPill(o.alert, o.alertLevel) : '') +
-          (o.status === 'Annulée' && o.cancelReason ? '<span style="color:#A12626">Motif : ' + h(o.cancelReason) + '</span>' : '') + '</span>' +
+          (o.status === 'Annulée' && o.cancelReason ? '<span style="color:#A12626">Motif : ' + h(o.cancelReason) + '</span>' : '') +
+          (o.agent || TODO_STATUSES.indexOf(o.status) >= 0 ? agentPill(o.agent) : '') + '</span>' +
           (qk ? '<span class="l-dots">' + dots + cbWhen + '</span>' : '') +
           '<span class="l3"><span>' + h(o.product || '') + (o.qty > 1 ? ' ×' + o.qty : '') + '</span>' + (o.date ? '<span class="ago">' + h(ago(o.date)) + '</span>' : '') + '</span></td>' +
         '<td data-label="N°" class="multi"><button type="button" class="link-btn" data-act="' + rowAct + '" data-id="' + h(o.id) + '">' + h(o.id) + '</button>' +
@@ -811,7 +837,8 @@
         '<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
         '<td data-label="Statut">' + stPill + (qk ? '<div class="l-dots">' + dots + cbWhen + '</div>' : '') +
           (o.status === 'Annulée' && o.cancelReason ? '<div class="small strong" style="color:#A12626">Motif : ' + h(o.cancelReason) + '</div>' : '') +
-          (PAGE_LABELS[o.page] && S.filter.status !== 'Annulée' ? '<div class="small">→ ' + PAGE_LABELS[o.page] + '</div>' : '') + '</td>' +
+          (PAGE_LABELS[o.page] && S.filter.status !== 'Annulée' ? '<div class="small">→ ' + PAGE_LABELS[o.page] + '</div>' : '') +
+          (o.agent || TODO_STATUSES.indexOf(o.status) >= 0 ? '<div>' + agentPill(o.agent) + '</div>' : '') + '</td>' +
         '<td data-label="Alerte">' + alertPill(o.alert, o.alertLevel) + '</td>' +
         '<td data-label="Livraison" class="multi">' + h(o.mode) + '<div class="small">' + h([o.carrier, o.tracking].filter(Boolean).join(' · ')) + '</div></td>' +
       '</tr>';
@@ -824,7 +851,8 @@
   }
 
   BULK.orders = function (n) {
-    return '<button type="button" class="btn danger" data-act="orders-trash-ask"' + (n ? '' : ' disabled') + '>' + icon('trash') + 'Mettre à la corbeille (' + n + ')</button>';
+    return ((S.boot.team || []).length ? '<button type="button" class="btn" data-act="assign-ask"' + (n ? '' : ' disabled') + '>' + icon('users') + 'Attribuer à…</button>' : '') +
+      '<button type="button" class="btn danger" data-act="orders-trash-ask"' + (n ? '' : ' disabled') + '>' + icon('trash') + 'Mettre à la corbeille (' + n + ')</button>';
   };
   BULK.trash = function (n) {
     return '<button type="button" class="btn" data-act="trash-restore-sel"' + (n ? '' : ' disabled') + '>' + icon('return') + 'Restaurer (' + n + ')</button>' +
@@ -1585,17 +1613,96 @@
       '<button type="button" class="st-cb" data-act="queue-jump" data-b="later"><strong>' + q.stats.later + '</strong> ' + (q.stats.later > 1 ? 'rappels' : 'rappel') + '</button>' +
       '<button type="button" class="st-na" data-act="queue-jump" data-b="waiting"><strong>' + q.waiting.length + '</strong> en attente</button>' +
       '<span class="st-mine">Mes confirmations aujourd’hui : <strong>' + q.stats.confirmedToday + '</strong></span>';
-    var html = '<div class="q-legend" aria-hidden="true"><span><i class="q-new"></i>Nouvelle</span><span><i class="q-na"></i>Pas de réponse · Injoignable</span><span><i class="q-cb"></i>Rappel demandé</span></div>' +
+    var html = shareBar(q) + '<div class="q-legend" aria-hidden="true"><span><i class="q-new"></i>Nouvelle</span><span><i class="q-na"></i>Pas de réponse · Injoignable</span><span><i class="q-cb"></i>Rappel demandé</span></div>' +
       '<div class="q-top"><span class="queue-title" id="qb-due">À appeler maintenant · ' + q.due.length + '</span>' +
       '<button type="button" class="btn" style="min-height:36px;padding:0 10px" data-act="refresh-queue">' + icon('refresh') + 'Actualiser</button></div>';
-    html += q.due.length ? q.due.map(function (x) { return queueCard(x, 'due'); }).join('') : '<p class="small">Personne à appeler pour le moment.</p>';
-    html += '<span class="queue-title" id="qb-later">Rappels à venir · ' + q.later.length + '</span>' +
-      (q.later.length ? q.later.map(function (x) { return queueCard(x, 'later'); }).join('') : '<p class="small">Aucun rappel programmé.</p>');
-    if (q.waiting.length) {
-      html += '<span class="queue-title" id="qb-waiting">En attente · ' + q.waiting.length + help('Ni confirmées ni annulées : elles restent ici jusqu’à une décision.') + '</span>' +
-        q.waiting.map(function (x) { return queueCard(x, 'waiting'); }).join('');
+    var due = q.due.filter(qAgentShown);
+    var later = q.later.filter(qAgentShown);
+    var waiting = q.waiting.filter(qAgentShown);
+    html += due.length ? due.map(function (x) { return queueCard(x, 'due'); }).join('') : '<p class="small">Personne à appeler pour le moment.</p>';
+    html += '<span class="queue-title" id="qb-later">Rappels à venir · ' + later.length + '</span>' +
+      (later.length ? later.map(function (x) { return queueCard(x, 'later'); }).join('') : '<p class="small">Aucun rappel programmé.</p>');
+    if (waiting.length) {
+      html += '<span class="queue-title" id="qb-waiting">En attente · ' + waiting.length + help('Ni confirmées ni annulées : elles restent ici jusqu’à une décision.') + '</span>' +
+        waiting.map(function (x) { return queueCard(x, 'waiting'); }).join('');
     }
     $('#queue').innerHTML = html;
+  }
+
+  /* ---------------- v1.20 : partage des commandes ---------------- */
+
+  /** Confirmatrice : présente / en pause. Administrateur : l'équipe et « à partager », en filtres. */
+  function shareBar(q) {
+    var sh = q.share;
+    if (!sh || !sh.on) return '';
+    if (sh.confirm) {
+      var me = sh.me || {};
+      return me.pause
+        ? '<div class="share-me pause"><span class="sm-dot"></span><span><b>En pause</b> · vous ne recevez plus de nouvelles commandes</span>' +
+          '<button type="button" class="btn primary" data-act="presence" data-pause="0">Je suis là</button></div>'
+        : '<div class="share-me"><span class="sm-dot"></span><span><b>Présente</b> · vos commandes arrivent à tour de rôle' +
+          help('Les nouvelles commandes sont partagées entre les confirmatrices présentes. Vous ne voyez que les vôtres ; vos rappels restent à vous. En pause (ou sans activité depuis un moment), vos commandes à appeler repartent chez les autres.') + '</span>' +
+          '<button type="button" class="btn" data-act="presence" data-pause="1">En pause</button></div>';
+    }
+    var chip = function (key, label, n, dot) {
+      return '<button type="button" class="chip" data-act="q-agent" data-agent="' + h(key) + '" aria-pressed="' + (S.qAgent === key) + '">' +
+        (dot ? '<span class="sm-dot ' + dot + '"></span>' : '') + h(label) + (n !== null ? ' · ' + n : '') + '</button>';
+    };
+    var total = (sh.team || []).reduce(function (t, m) { return t + m.due; }, 0) + (sh.pool || 0);
+    return '<div class="chips share-chips" role="group" aria-label="File de chaque confirmatrice">' + chip('', 'Toutes', total, '') +
+      (sh.team || []).map(function (m) { return chip(m.name, m.name, m.due, m.present ? 'on' : m.pause ? 'pause' : 'off'); }).join('') +
+      chip('__pool', 'À partager', sh.pool || 0, '') + '</div>';
+  }
+  function qAgentShown(x) {
+    if (!S.qAgent) return true;
+    return S.qAgent === '__pool' ? !teamHas(x.agent) : x.agent === S.qAgent;
+  }
+  function teamHas(name) { return !!name && (S.boot.team || []).indexOf(name) >= 0; }
+  /** Pastille de la responsable (administrateur, avec le partage). */
+  function agentPill(name) {
+    if (!S.boot.user.admin || !S.boot.user.share) return '';
+    return teamHas(name) ? '<span class="ag-pill">' + icon('users') + h(name) + '</span>' : '<span class="ag-pill pool">à partager</span>';
+  }
+  function setPresence(el) {
+    var pause = el.getAttribute('data-pause') === '1';
+    el.disabled = true;
+    call('api_presence', pause).then(function (r) {
+      toast(r.message);
+      loadQueue(false, false);
+    }).catch(function (e) { el.disabled = false; toast(errText(e), true); });
+  }
+  /** Loupe : une confirmatrice prend la commande d'une collègue (le client rappelle), puis l'ouvre. */
+  function takeOrder(el) {
+    var id = el.getAttribute('data-id');
+    el.disabled = true;
+    call('api_takeOrder', id).then(function (r) {
+      toast(r.message);
+      if (S.queue) loadQueue(false, false);
+      openInDetail(id);
+    }).catch(function (e) { el.disabled = false; toast(errText(e), true); });
+  }
+  /** Liste (administrateur) : attribuer les commandes cochées à une confirmatrice, ou les remettre à partager. */
+  function askAssign() {
+    var ids = selIds('orders');
+    if (!ids.length) return;
+    var team = S.boot.team || [];
+    showModal(modalHead('Attribuer à…', '<p class="small">' + plural(ids.length, 'commande cochée', 'commandes cochées') + '</p>') +
+      '<div class="more-list assign-list">' + team.map(function (n) {
+        return '<button type="button" data-act="assign-go" data-agent="' + h(n) + '">' + icon('users') + h(n) + '</button>';
+      }).join('') + '<button type="button" data-act="assign-go" data-agent="">' + icon('refresh') + 'À partager (tour de rôle)</button></div>' +
+      (team.length ? '' : '<p class="small">Aucune confirmatrice dans l’équipe (Administration › Équipe).</p>'));
+  }
+  function assignGo(el) {
+    var ids = selIds('orders');
+    $all('#modal-root button').forEach(function (b) { b.disabled = true; });
+    call('api_assignOrders', ids, el.getAttribute('data-agent')).then(function (r) {
+      closeModal();
+      toast(r.message);
+      if (r.counts) applyCounts(r.counts);
+      S.sel.orders = {};
+      S.list = null;
+      loadOrders();
+    }).catch(function (e) { $all('#modal-root button').forEach(function (b) { b.disabled = false; }); toast(errText(e), true); });
   }
 
   /** Les derniers appels : « 10:05 pas de réponse → 14:30 pas de réponse ». */
@@ -1645,7 +1752,7 @@
       (x.reason ? '<span class="q-motif">' + icon('alert') + h(x.reason) + '</span>' : '') +
       '<span class="q-tags">' + status + alert +
         (x.late && block !== 'later' ? '<span class="pill q-latepill">' + icon('clock') + 'en retard · ' + h(hoursText(x.waitHours)) + '</span>' : '') +
-        callDots(x, kind) +
+        callDots(x, kind) + agentPill(x.agent) +
       '</span>' + callsLine(x.calls) + '</button>';
   }  function markCurrent() {
     $all('#queue .q-item').forEach(function (b) {
@@ -1715,15 +1822,18 @@
     if (String(q).trim().length < 2) { box.innerHTML = ''; return; }
     csTimer = setTimeout(function () {
       box.innerHTML = '<p class="loading">Recherche…</p>';
-      call('api_listOrders', { status: 'all', q: q, wilaya: '', period: 'all', limit: 20 }).then(function (res) {
+      call('api_listOrders', { status: 'all', q: q, wilaya: '', period: 'all', limit: 20, scope: 'all' }).then(function (res) {
         if (!$('#cs-res') || ($('#cs-q') || {}).value !== q) return;
         var rows = res.rows || [];
         $('#cs-res').innerHTML = rows.length ? rows.map(function (o) {
           var st = (S.boot.styles[o.status] || {}).fg || '#CFD4DB';
           var todo = TODO_STATUSES.indexOf(o.status) >= 0 || !o.status;
+          var other = S.boot.user.confirm && S.boot.user.share && o.agent && o.agent !== S.boot.user.name;
           return '<div class="cs-row" style="--st:' + st + '"><span class="cs-l1"><strong dir="auto">' + h(o.client || '—') + '</strong><span>' + money(o.total) + '</span></span>' +
-            '<span class="cs-l2">' + pill(o.status) + '<span>' + h(wilayaName(o.wilaya)) + ' · ' + h(o.id) + ' · ' + h(fmtPhone(o.phone)) + '</span></span>' +
-            (todo ? '<button type="button" class="btn primary" data-act="q-open" data-id="' + h(o.id) + '">' + icon('check') + 'Ouvrir et confirmer</button>'
+            '<span class="cs-l2">' + pill(o.status) + '<span>' + h(wilayaName(o.wilaya)) + ' · ' + h(o.id) + ' · ' + h(fmtPhone(o.phone)) + '</span>' +
+              (other ? '<span class="ag-pill">' + icon('users') + 'Suivie par ' + h(o.agent) + '</span>' : agentPill(o.agent)) + '</span>' +
+            (todo && other ? '<button type="button" class="btn primary" data-act="cs-take" data-id="' + h(o.id) + '">' + icon('check') + 'Prendre la commande</button>'
+              : todo ? '<button type="button" class="btn primary" data-act="q-open" data-id="' + h(o.id) + '">' + icon('check') + 'Ouvrir et confirmer</button>'
               : '<button type="button" class="btn" data-act="open-order" data-id="' + h(o.id) + '">Voir la commande</button>') + '</div>';
         }).join('') : '<p class="empty">Aucune commande trouvée.</p>';
       }).catch(function (e) { if ($('#cs-res')) $('#cs-res').innerHTML = errorBox(e); });
@@ -2393,7 +2503,7 @@
         '<button type="button" data-act="ship-reload">' + icon('refresh') + 'Actualiser la page</button>' +
         (d.configured ? '<button type="button" data-act="eco-status">' + icon('suivi') + 'Mettre à jour les statuts</button>' +
           '<button type="button" data-act="eco-test">' + icon('ok') + 'Tester la connexion</button>' +
-          '<button type="button" data-act="eco-fees-ask">' + icon('benefices') + 'Récupérer les tarifs</button>' : '') +
+          (d.canFees !== false ? '<button type="button" data-act="eco-fees-ask">' + icon('benefices') + 'Récupérer les tarifs</button>' : '') : '') +
       '</div></details></div>';
     if (!d.configured) {
       html += '<section class="card"><p>Pour envoyer vos colis, enregistrez l’adresse de votre plateforme Ecotrack et votre jeton API : ' +
@@ -3477,6 +3587,11 @@
     'sel-mode': function () { S.selMode = !S.selMode; if (!S.selMode) S.sel.orders = {}; if (S.list) renderOrderList(S.list); },
     'sel-clear': function (el) { clearSel(el.getAttribute('data-group')); },
     'orders-trash-ask': askTrashOrders,
+    'assign-ask': askAssign,
+    'assign-go': assignGo,
+    'presence': setPresence,
+    'cs-take': takeOrder,
+    'q-agent': function (el) { S.qAgent = el.getAttribute('data-agent') || ''; renderQueue(); },
     'orders-trash': trashOrdersSel,
     'trash-purge-ask': askPurgeTrash,
     'trash-purge': purgeTrash,
@@ -3540,7 +3655,7 @@
       $all('[data-act="sheet-period"]').forEach(function (b) { b.setAttribute('aria-pressed', b === el ? 'true' : 'false'); });
     },
     'sheet-apply': function () { applySheet(true); },
-    'sheet-clear': function () { var sel = $('#sheet-filters [name="wilaya"]'); if (sel) sel.value = ''; S.sheetFilter.period = '30'; applySheet(true); },
+    'sheet-clear': function () { var sel = $('#sheet-filters [name="wilaya"]'); if (sel) sel.value = ''; var ag = $('#sheet-filters [name="agent"]'); if (ag) ag.value = ''; S.sheetFilter.period = '30'; applySheet(true); },
     'sheet-trash': function () { closeModal(); S.filter.status = 'trash'; S.filter.limit = 100; loadOrders(); },
     'sheet-select': function () { closeModal(); S.selMode = !S.selMode; if (S.list) renderOrderList(S.list); },
     'releasit-transfer': function () {
@@ -3787,6 +3902,7 @@
     }
     if (e.target.id === 'f-wilaya') { S.filter.wilaya = e.target.value; S.filter.limit = 100; loadOrders(); }
     else if (e.target.id === 'f-period') { S.filter.period = e.target.value; S.filter.limit = 100; loadOrders(); }
+    else if (e.target.id === 'f-agent') { S.filter.agent = e.target.value; S.filter.limit = 100; loadOrders(); }
     else if (e.target.getAttribute('data-role') === 'status') toggleCancelField();
     else if (moduleChange(e)) return;
     else if (e.target.closest('#order-form') && !$('#order-form').getAttribute('data-id') && (e.target.name === 'product' || e.target.name === 'qty')) fillNewOrderPrice();
@@ -3865,6 +3981,9 @@
     $all('[data-admin]').forEach(function (el) { el.hidden = !b.user.admin; });
     $all('[data-stockrole]').forEach(function (el) { el.hidden = !b.user.stock; });
     $all('[data-more]').forEach(function (el) { el.hidden = !(b.user.admin || b.user.stock); });
+    // v1.20 : Expédier et Suivi cachés à une confirmatrice, sauf si l'administrateur les lui ouvre.
+    $all('[data-route="expeditions"]').forEach(function (el) { el.hidden = b.user.ship === false; });
+    $all('[data-route="suivi"]').forEach(function (el) { el.hidden = b.user.track === false; });
     document.documentElement.classList.toggle('cf-live', !!(b.cloud && b.cloud.live));
     document.documentElement.classList.toggle('cf-full', !!(b.cloud && b.cloud.full));
     showHealth(b.health);
@@ -4155,8 +4274,11 @@
       S.boot = b;
       S.fromMemory = false;
       applyBoot(b);
-      // Rôle changé entre-temps (administrateur, magasinier) : la page est redessinée avec les bons droits.
-      if (old.admin !== b.user.admin || old.stock !== b.user.stock || old.name !== b.user.name) go();
+      // Rôle ou pages changés entre-temps (administrateur, magasinier, Expédier, Suivi) : la page est redessinée avec les bons droits.
+      var want = S.wantRoute;
+      S.wantRoute = null;
+      if (want && ((want === 'expeditions' && b.user.ship !== false) || (want === 'suivi' && b.user.track !== false))) location.hash = '#/' + want;
+      else if (old.admin !== b.user.admin || old.stock !== b.user.stock || old.name !== b.user.name || old.ship !== b.user.ship || old.track !== b.user.track) go();
       memSave();
       started();
     }).catch(function (e) {

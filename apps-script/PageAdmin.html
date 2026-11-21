@@ -367,7 +367,8 @@
         '<label class="check-line" style="margin-top:14px"><input type="checkbox" data-auth-only' + (t.auth.pwdOnly ? ' checked' : '') + (ready || t.auth.pwdOnly ? '' : ' disabled') + '> ' +
         '<span><strong>Connexion par mot de passe seulement</strong>' + help('Plus de connexion par Google. ' + (ready ? 'Cochez quand tout le monde a son mot de passe (colonne Connexion).' : 'Créez d’abord votre propre mot de passe.')) + '</span></label></section>';
     }
-    html += '<section class="card"><h2>Équipe · ' + t.members.length + help('Administrateur : tout (bénéfices, statistiques, administration). Confirmatrice : commandes, confirmation, expéditions, suivi. Magasinier : en plus, la page Stock.') + '</h2>' +
+    html += shareSection(t);
+    html += '<section class="card"><h2>Équipe · ' + t.members.length + help('Administrateur : tout (bénéfices, statistiques, administration). Confirmatrice : ses commandes à appeler ; Expédier et Suivi si vous les lui ouvrez (ci-dessus). Magasinier : expéditions, suivi et la page Stock.') + '</h2>' +
       '<div class="table-wrap" style="border:0"><table class="data cards"><thead><tr><th>Personne</th><th>Rôle</th><th>' + (cloud ? 'Connexion' : 'Accès au classeur') + '</th><th></th></tr></thead><tbody>' +
       t.members.map(function (m) {
         var sub = [m.phone ? DZ.phoneText ? DZ.phoneText(m.phone) : m.phone : '', m.email].filter(Boolean).join(' · ');
@@ -384,6 +385,48 @@
       '<p class="small" style="margin-top:8px">' + (cloud ? 'Un mot de passe provisoire est créé : envoyez-le-lui (bouton WhatsApp). Elle choisira le sien à la première connexion.'
         : 'Google lui envoie un e-mail d’invitation. Elle ouvre ensuite le lien de l’application avec cette adresse.') + '</p></section>';
     return html;
+  }
+
+  /**
+   * v1.20 : partage des commandes entre les confirmatrices. Présence, commandes à appeler, part,
+   * pages Expédier et Suivi (ses commandes seulement), pause et « reprendre ses commandes ».
+   */
+  function shareSection(t) {
+    var conf = (t.members || []).filter(function (m) { return m.confirm; });
+    if (!conf.length) return '';
+    var sh = t.share || {};
+    var state = function (m) {
+      var p = m.presence || {};
+      if (p.present) return '<span class="sh-st on"><i></i>présente</span>';
+      if (p.pause) return '<span class="sh-st pause"><i></i>en pause · ' + h(ago(p.pause).replace(/^il y a /, '')) + '</span>';
+      return '<span class="sh-st off"><i></i>absente' + (p.seen ? ' · vue ' + h(ago(p.seen)) : ' · jamais connectée') + '</span>';
+    };
+    var sw = function (attr, key, on, label) {
+      return '<label class="sh-sw"><input type="checkbox" ' + attr + '="' + h(key) + '"' + (on ? ' checked' : '') + '><span class="sh-knob" aria-hidden="true"></span>' + label + '</label>';
+    };
+    var row = function (m) {
+      var p = m.presence || {};
+      return '<div class="sh-row">' +
+        '<div class="sh-who"><strong>' + h(m.name) + '</strong>' + state(m) + (sh.on ? '<span class="small">' + plural(m.due, 'commande à appeler', 'commandes à appeler') + '</span>' : '') + '</div>' +
+        '<div class="sh-ctl">' +
+          (sh.on ? '<label class="sh-part">Part <select data-team-part="' + h(m.key) + '">' + [1, 2, 3].map(function (n) {
+            return '<option value="' + n + '"' + (m.part === n ? ' selected' : '') + '>' + (n === 1 ? 'normale' : '×' + n) + '</option>';
+          }).join('') + '</select></label>' : '') +
+          sw('data-team-ship', m.key, m.ship, 'Expédier') + sw('data-team-track', m.key, m.track, 'Suivi') +
+          (sh.on ? '<details class="more-menu"><summary class="btn icon-only" aria-label="Plus d’actions">⋯</summary><div class="menu">' +
+            (p.pause ? '<button type="button" data-act="admin-team-pause" data-key="' + h(m.key) + '" data-pause="0">' + icon('ok') + 'Remettre présente</button>'
+              : '<button type="button" data-act="admin-team-pause" data-key="' + h(m.key) + '" data-pause="1">' + icon('clock') + 'Mettre en pause</button>') +
+            '<button type="button" data-act="admin-team-reclaim" data-key="' + h(m.key) + '"' + (m.due ? '' : ' disabled') + '>' + icon('refresh') + 'Reprendre ses commandes</button>' +
+          '</div></details>' : '') +
+        '</div></div>';
+    };
+    return '<section class="card"><h2>Confirmatrices' + help('<strong>Partage à tour de rôle</strong> : chaque nouvelle commande va à la confirmatrice présente suivante ; chacune ne voit que les siennes, vous voyez tout. ' +
+        'Absente ou en pause depuis ' + h(sh.absence || 2) + ' h : ses commandes à appeler repartent chez les autres. Au plus ' + (sh.ahead ? h(sh.ahead) + ' commandes d’avance chacune (× sa part)' : 'sans limite') + '. ' +
+        '<strong>Expédier</strong> et <strong>Suivi</strong> : cachés aux confirmatrices, sauf si vous les ouvrez ici ; elles n’y voient que leurs commandes.') + '</h2>' +
+      '<p class="sub">' + (sh.on ? 'Partage à tour de rôle : <strong>actif</strong>' + (sh.pool ? ' · <strong>' + sh.pool + '</strong> à partager' : '')
+        : 'Partage à tour de rôle : <strong>coupé</strong> (une seule file pour toute l’équipe)') +
+        ' · <button type="button" class="link-btn" data-act="admin-tab" data-tab="reglages">Réglages</button></p>' +
+      '<div class="sh-list">' + conf.map(row).join('') + '</div></section>';
   }
 
   function memberByKey(key) { return ((AD.team && AD.team.members) || []).filter(function (m) { return m.key === key; })[0] || null; }
@@ -686,6 +729,16 @@
       AD.removing = m.key;
     },
     'admin-team-remove-go': function () { DZ.closeModal(); teamCall('api_teamRemove', [AD.removing], null); },
+    'admin-team-pause': function (el) {
+      busy(el, true);
+      call('api_teamPresence', el.getAttribute('data-key'), el.getAttribute('data-pause') === '1').then(function (r) { toast(r.message); return call('api_teamList'); })
+        .then(function (team) { AD.team = team; renderTab(); }).catch(function (e) { busy(el, false); toast(errText(e), true); });
+    },
+    'admin-team-reclaim': function (el) {
+      busy(el, true);
+      call('api_teamReclaim', el.getAttribute('data-key')).then(function (r) { toast(r.message); return call('api_teamList'); })
+        .then(function (team) { AD.team = team; renderTab(); }).catch(function (e) { busy(el, false); toast(errText(e), true); });
+    },
     'admin-black-on': function (el) {
       var f = formData('f-black');
       busy(el, true);
@@ -713,6 +766,15 @@
     if (e.target.hasAttribute('data-team-role')) {
       var m = memberByKey(e.target.getAttribute('data-team-role'));
       if (m) teamCall('api_teamSave', [{ key: m.key, email: m.email, phone: m.phone, name: m.name, role: e.target.value }], e.target);
+      return true;
+    }
+    // v1.20 : part, Expédier et Suivi d'une confirmatrice.
+    var accessKeys = { 'data-team-part': 'part', 'data-team-ship': 'ship', 'data-team-track': 'track' };
+    for (var attr in accessKeys) {
+      if (!e.target.hasAttribute(attr)) continue;
+      var ch = {};
+      ch[accessKeys[attr]] = attr === 'data-team-part' ? Number(e.target.value) : e.target.checked;
+      teamCall('api_teamAccess', [e.target.getAttribute(attr), ch], e.target);
       return true;
     }
     if (e.target.hasAttribute('data-auth-only')) {

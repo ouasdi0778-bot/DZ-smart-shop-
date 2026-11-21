@@ -540,14 +540,15 @@
       var today = new Date();
       var iso = today.getFullYear() + '-' + ('0' + (today.getMonth() + 1)).slice(-2) + '-' + ('0' + today.getDate()).slice(-2);
       var people = d.agents.filter(function (a) { return a.name !== '(sans confirmatrice)'; });
-      var html = '<section class="card"><h2>Par confirmatrice' + help('Appels et réponses : historique des appels (noté depuis la version 1.2). La prime compte les commandes de la période qui sont livrées : le total se complète au fil des livraisons.') + '</h2>' +
+      var html = '<section class="card"><h2>Par confirmatrice' + help('Reçues : commandes dont elle est responsable (partage à tour de rôle). Une commande confirmée par l’administrateur compte pour lui. Appels et réponses : historique des appels (noté depuis la version 1.2). La prime compte les commandes de la période qui sont livrées : le total se complète au fil des livraisons.') + '</h2>' +
         dataTable('equipe', [
           ['Confirmatrice', function (r) { return r.name; }],
-          ['Commandes', function (r) { return num(r.orders); }, true, function (r) { return r.orders; }],
+          ['Reçues', function (r) { return num(r.orders); }, true, function (r) { return r.orders; }],
           ['Appels', function (r) { return num(r.calls); }, true, function (r) { return r.calls; }],
           ['Taux de réponse', function (r) { return rate(r.answerRate); }, true, function (r) { return r.answerRate; }, function (r) { return ratePill(r.answerRate, 0.65, 0.5); }],
           ['Appels par confirmation', function (r) { return r.callsPerConfirmation === null ? '—' : String(r.callsPerConfirmation).replace('.', ','); }, true, function (r) { return r.callsPerConfirmation; }],
           ['Confirmées', function (r) { return num(r.confirmed) + ' (' + rate(r.confirmRate) + ')'; }, true, function (r) { return r.confirmed; }],
+          ['Livrées', function (r) { return num(r.delivered); }, true, function (r) { return r.delivered; }],
           ['Livraison', function (r) { return rate(r.deliveryRate); }, true, function (r) { return r.deliveryRate; }, function (r) { return ratePill(r.deliveryRate); }],
           ['Délai avant confirmation', function (r) { return dur(r.avgConfirmHours); }, true, function (r) { return r.avgConfirmHours; }],
           ['1er motif d’annulation', function (r) { return r.topCancel ? r.topCancel.name + ' (' + r.topCancel.count + ')' : '—'; }],
@@ -555,7 +556,7 @@
         ], d.agents, {
           filter: 'a',
           card: function (r) {
-            return { color: rateColor(r.deliveryRate), html: '<span class="t"><b>' + h(r.name) + '</b>' + ratePill(r.deliveryRate) + '</span><span class="s">' + num(r.confirmed) + ' confirmées · ' + num(r.calls) + ' appels · réponse ' + rate(r.answerRate) +
+            return { color: rateColor(r.deliveryRate), html: '<span class="t"><b>' + h(r.name) + '</b>' + ratePill(r.deliveryRate) + '</span><span class="s">' + num(r.orders) + ' reçues → ' + num(r.confirmed) + ' confirmées → ' + num(r.delivered) + ' livrées · ' + num(r.calls) + ' appels · réponse ' + rate(r.answerRate) +
               (r.topCancel ? ' · annulations : « ' + h(r.topCancel.name) + ' »' : '') + ' · prime ' + money(r.prime) + '</span>' };
           }
         }) + '</section>';

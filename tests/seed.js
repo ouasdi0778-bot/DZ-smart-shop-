@@ -252,6 +252,8 @@ function seedDemo_() {
       // Une commande peut déjà avoir été traitée : on l'ignore.
     }
   });
+  // Expédier et Suivi : ouverts à l'administrateur (v1.20 : cachés aux confirmatrices par défaut).
+  __mock.setUser('admin@example.com');
   if (viaEcotrack.length) seedEcotrack_(viaEcotrack);
   __mock.setUser('imane@example.com');
   api_setBlacklist('0555001199', true, 'Refus répétés');

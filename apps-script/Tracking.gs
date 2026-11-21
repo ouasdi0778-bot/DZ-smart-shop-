@@ -267,6 +267,7 @@ function parseTrackingInfo_(json) {
 function api_parcelHistory(id) {
   var o = findOrder_(readOrders_(), id);
   if (!o) throw new Error('Commande introuvable.');
+  requireOwn_(o, currentUser_()); // v1.20 : une confirmatrice voit la chronologie de ses colis
   var tracking = String(o.tracking).trim();
   if (!tracking) throw new Error('Cette commande n’a pas de n° de suivi.');
   if (!ecotrackConfig_().configured) throw new Error(ECO_NOT_CONFIGURED_);
@@ -325,9 +326,14 @@ function api_trackingOverview() {
 
 function trackingOverviewApi_(days) {
   days = [7, 30, 90].indexOf(Number(days)) >= 0 ? Number(days) : 30;
+  // v1.20 : page ouverte par l'administrateur ; une confirmatrice n'y voit que ses colis.
+  var user = currentUser_();
+  requirePage_(user, 'track');
+  var own = ownScope_(user);
   var cfg = ecotrackConfig_();
   var settings = getSettings_();
   var ctx = readOrders_();
+  if (own !== null) ctx = { orders: ctx.orders.filter(function (o) { return isMine_(o, own); }), map: ctx.map };
   var now = new Date();
   var props = PropertiesService.getScriptProperties();
   var limit = settings.SUIVI_ALERTE_HEURES * 3600000;
@@ -401,10 +407,13 @@ function trackingOverviewApi_(days) {
 /** « J'ai traité cette alerte » : elle disparaît jusqu'au prochain changement du colis. */
 function api_markFollowUp(id) {
   cloudGuard_();
+  var user = currentUser_();
+  requirePage_(user, 'track');
   return withLock_(function () {
     var ctx = readOrders_();
     var o = findOrder_(ctx, id);
     if (!o) throw new Error('Commande ' + id + ' introuvable.');
+    requireOwn_(o, user);
     if (ctx.map.followUp === undefined) {
       throw new Error('Colonne « Suivi traité le » absente du classeur. Lancez « DZ Smart Shop › Installer / réparer le classeur ».');
     }
@@ -425,14 +434,21 @@ function api_counts() {
 function countsData_(ctx, settings) {
   var now = new Date();
   var due = 0;
-  ctx.orders.forEach(function (o) {
+  settings = settings || getSettings_();
+  // v1.20 : une confirmatrice compte ses commandes (file avec le partage ; Expédier et Suivi toujours).
+  var user = currentUser_();
+  var qs = queueScope_(user, settings);
+  var own = ownScope_(user);
+  var orders = qs === null ? ctx.orders : ctx.orders.filter(function (o) { return isMine_(o, qs); });
+  orders.forEach(function (o) {
     if (QUEUE_STATUSES.indexOf(o.status) < 0) return;
     var cb = toDate_(o.callback);
     if (!cb || cb <= now) due++;
   });
-  var alerts = trackingAlerts_(ctx.orders, settings || getSettings_(), now).filter(function (a) { return a.level !== 'info'; });
-  var toShip = ctx.orders.filter(function (o) { return o.status === STATUS.CONFIRMED && isBlank_(o.tracking); }).length;
-  return { queue: due, pending: pendingCount_(ctx), alerts: alerts.length, toShip: toShip };
+  var mine = own === null ? ctx.orders : ctx.orders.filter(function (o) { return isMine_(o, own); });
+  var alerts = trackingAlerts_(mine, settings, now).filter(function (a) { return a.level !== 'info'; });
+  var toShip = mine.filter(function (o) { return o.status === STATUS.CONFIRMED && isBlank_(o.tracking); }).length;
+  return { queue: due, pending: pendingCount_({ orders: orders }), alerts: alerts.length, toShip: toShip };
 }
 
 /** Commandes ni confirmées ni annulées : à confirmer, pas de réponse, rappeler, injoignable. */

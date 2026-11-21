@@ -169,7 +169,13 @@ function cancelParcel_(id, user) {
 
 function api_cancelParcel(id) {
   cloudGuard_();
-  return cancelParcel_(String(id), currentUser_());
+  var user = currentUser_();
+  if (isConfirmatrice_(user)) {
+    var a = pageAccess_(user);
+    if (!a.ship && !a.track) requirePage_(user, 'ship');
+    requireOwn_(findOrder_(readOrders_(), String(id)), user);
+  }
+  return cancelParcel_(String(id), user);
 }
 
 /* ------------------------------------------------------------------ */

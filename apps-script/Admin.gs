@@ -17,6 +17,7 @@ var ROLES_ = ['Administrateur', 'Confirmatrice', 'Magasinier'];
 var SETTING_GROUPS_ = [
   { title: 'Boutique', keys: ['NOM_BOUTIQUE', 'SOCIETE_PAR_DEFAUT', 'MESSAGE_WHATSAPP'] },
   { title: 'Appels et confirmation', keys: ['APPELS_PAR_JOUR', 'JOURS_D_APPELS', 'ANNULATION_AUTO', 'HEURE_DEBUT_APPELS', 'ORDRE_FILE', 'DELAI_RAPPEL_MINUTES', 'ATTENTE_MAX_HEURES', 'DOUBLON_HEURES', 'MOTIFS_ANNULATION'] },
+  { title: 'Partage entre les confirmatrices', keys: ['PARTAGE', 'PARTAGE_ABSENCE_HEURES', 'PARTAGE_AVANCE'] },
   { title: 'Suivi des colis', keys: ['SUIVI_ECOTRACK_MINUTES', 'SUIVI_ALERTE_HEURES', 'SUIVI_HEURES_TRI', 'SUIVI_HEURES_ROUTE', 'SUIVI_HEURES_SUD', 'SUIVI_HEURES_LIVRAISON', 'WILAYAS_SUD', 'RETOUR_BLOQUE_JOURS', 'ARGENT_RETARD_JOURS', 'MOTS_INJOIGNABLE', 'MOTS_REFUS', 'MOTS_REPORTE', 'MOTS_ADRESSE'] },
   { title: 'Expédition', keys: ['FORMAT_BORDEREAU', 'RAMASSAGE'] },
   { title: 'SMS', keys: ['SMS_HEURES'], prefix: 'SMS_' },
@@ -83,12 +84,15 @@ var SETTING_LABELS_ = {
   LIMITE_MINUTES_JOUR: 'Limite Google par jour (minutes)',
   ARCHIVE_JOURS: 'Archiver après (jours)',
   CORBEILLE_JOURS: 'Vider la corbeille après (jours)',
-  JOURNAL_JOURS: 'Garder le Journal (jours)'
+  JOURNAL_JOURS: 'Garder le Journal (jours)',
+  PARTAGE: 'Partager les commandes à tour de rôle',
+  PARTAGE_ABSENCE_HEURES: 'Absente après (heures sans activité)',
+  PARTAGE_AVANCE: 'Commandes d’avance par confirmatrice'
 };
 
 /** Réglages à choix (fonction : CARRIERS est défini dans un autre fichier). */
 function settingChoices_(key) {
-  var map = { ORDRE_FILE: ['récentes', 'anciennes'], FORMAT_BORDEREAU: ['A4', '10x15'], SOCIETE_PAR_DEFAUT: CARRIERS, SUIVI_ECOTRACK_MINUTES: ['30', '60', '120'] };
+  var map = { PARTAGE: ['OUI', 'NON'], ORDRE_FILE: ['récentes', 'anciennes'], FORMAT_BORDEREAU: ['A4', '10x15'], SOCIETE_PAR_DEFAUT: CARRIERS, SUIVI_ECOTRACK_MINUTES: ['30', '60', '120'] };
   return map[key] || null;
 }
 var LONG_SETTINGS_ = ['MESSAGE_WHATSAPP', 'MOTIFS_ANNULATION', 'MOTS_INJOIGNABLE', 'MOTS_REFUS', 'MOTS_REPORTE', 'MOTS_ADRESSE', 'CATEGORIES_DEPENSES', 'CATEGORIES_GAINS', 'WILAYAS_SUD', 'PRIMES'];
@@ -367,12 +371,12 @@ function api_smsPreview(text) {
 /* ------------------------------------------------------------------ */
 
 /** Onglet Équipe : Email (facultatif dans la version Cloudflare) | Nom | Rôle | Téléphone (identifiant de connexion). */
-var TEAM_TITLES_ = ['Email', 'Nom', 'Rôle', 'Téléphone'];
+var TEAM_TITLES_ = ['Email', 'Nom', 'Rôle', 'Téléphone', 'Part', 'Expédier', 'Suivi'];
 
 function teamRows_() {
   var sh = sheet_(SHEET.TEAM);
   ensureHeaders_(sh, TEAM_TITLES_);
-  var rows = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues() : [];
+  var rows = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 7).getValues() : [];
   return { sh: sh, rows: rows };
 }
 
@@ -393,15 +397,34 @@ function api_teamList() {
   var ss = ss_();
   try { ss.getEditors().forEach(function (u) { editors[String(u.getEmail()).toLowerCase()] = true; }); } catch (e) { editors = null; }
   var owner = ownerEmail_();
+  var settings = getSettings_();
+  var now = new Date();
+  // v1.20 : commandes à appeler de chaque confirmatrice (partage).
+  var due = {};
+  var pool = 0;
+  var names = {};
+  teamConfirmatrices_().forEach(function (m) { names[m.name] = true; });
+  readOrders_().orders.forEach(function (o) {
+    if (!isDueNow_(o, now)) return;
+    var a = String(o.agent == null ? '' : o.agent).trim();
+    if (names[a]) due[a] = (due[a] || 0) + 1; else pool++;
+  });
   return {
     roles: ROLES_,
     owner: owner,
     relay: relayMode_(),
     me: String(currentUser_().email || '').toLowerCase(),
+    share: { on: shareOn_(settings), pool: pool, absence: settings.PARTAGE_ABSENCE_HEURES, ahead: settings.PARTAGE_AVANCE },
     members: teamRows_().rows.filter(function (r) { return teamRowKey_(r); }).map(function (r) {
       var email = String(r[0]).trim().toLowerCase();
-      return { key: teamRowKey_(r), email: email, phone: teamPhone_(r[3]), name: String(r[1] || '').trim(), role: String(r[2] || '').trim() || 'Confirmatrice',
-        access: editors && email ? !!editors[email] : null };
+      var role = String(r[2] || '').trim() || 'Confirmatrice';
+      var name = String(r[1] || '').trim();
+      var person = teamPerson_([teamRowKey_(r), name, role, '', r[4], r[5], r[6]]);
+      var confirm = isConfirmatrice_({ role: role, inTeam: true });
+      return { key: teamRowKey_(r), email: email, phone: teamPhone_(r[3]), name: name, role: role,
+        access: editors && email ? !!editors[email] : null,
+        confirm: confirm, part: person.part, ship: person.ship, track: person.track,
+        presence: confirm ? presenceState_(teamRowKey_(r), now, settings) : null, due: confirm ? (due[name] || 0) : 0 };
     })
   };
 }

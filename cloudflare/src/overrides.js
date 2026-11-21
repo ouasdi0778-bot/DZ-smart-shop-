@@ -216,6 +216,8 @@ function readAllMoveRows_() { throw new Error('Mouvements de stock : lus dans la
 /* Lien avec la version Cloudflare (Cloud.gs) : ici, on EST la version Cloudflare. */
 function cloudLive_() { return false; }
 function cloudGuard_() {}
+/** v1.20 : l'activité est notée par server.js à chaque requête (touchPresence). */
+function touchPresence_() {}
 function cloudConfigChanged_() {}
 function cloudOutboxAdd_() {}
 function cloudBootInfo_() { return null; }

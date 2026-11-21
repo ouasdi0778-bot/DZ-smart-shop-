@@ -614,6 +614,8 @@ function processNewRowsNow_() {
       writeFields_(ctx, o, f);
       log_(user, o.id, 'Nouvelle commande', 'Ajoutée à la file de confirmation · ' + f.alert);
     });
+    // v1.20 : chaque nouvelle commande va à une confirmatrice présente, à tour de rôle.
+    shareOrders_(ctx, { ids: pending.map(function (item) { return item.order.id; }) });
     cloudOutboxAdd_(pending.map(function (item) { return String(item.order.id); }));
     return pending.length;
   });

@@ -530,7 +530,8 @@ function addConfirmed(id, extra) {
   var fields = {
     'N°': id, 'Date': new Date(), 'Client': 'Client ' + id, 'Téléphone': '0550' + ('000000' + phoneSeq).slice(-6),
     'Wilaya': '16 - Alger', 'Commune': 'Kouba', 'Adresse': 'Rue des Oliviers 12', 'Produit': 'Sac à main', 'Quantité': 1,
-    'Prix': 3000, 'Livraison': 'Domicile', 'Frais livraison': 450, 'Total': 3450, 'Statut': 'Confirmée', 'Source': 'Test'
+    'Prix': 3000, 'Livraison': 'Domicile', 'Frais livraison': 450, 'Total': 3450, 'Statut': 'Confirmée', 'Source': 'Test',
+    'Confirmatrice': 'Imane' // confirmée par Imane (v1.20 : elle la retrouve dans Expédier et Suivi)
   };
   Object.keys(extra || {}).forEach(function (k) { fields[k] = extra[k]; });
   addRaw(fields);
@@ -2711,7 +2712,8 @@ var ADMIN = { name: 'Admin', role: 'Administrateur' };
 var AGENT = { name: 'Imane', role: 'Confirmatrice' };
 function asAgent() {
   __mock.setUser('imane@example.com');
-  sheet('Équipe').appendRow(['imane@example.com', 'Imane', 'Confirmatrice']);
+  // v1.20 : Expédier et Suivi ouverts par l'administrateur (colonnes Part, Expédier, Suivi).
+  sheet('Équipe').appendRow(['imane@example.com', 'Imane', 'Confirmatrice', '', 1, 'OUI', 'OUI']);
   userEdit('Équipe');
 }
 function trackingOf(id) { return order(id).tracking; }
@@ -4715,6 +4717,201 @@ test('Relais RELEASIT (dist/Relais.gs) : à jour, installation, lots, « je suis
   assert.ok(/Dernière erreur : Application Cloudflare : Onglet RELEASIT/.test(run('etatRelais()')));
   cloud.refuse = '';
   assert.strictEqual(run('relaisReleasit()').added, 1, 'repris au passage suivant');
+});
+
+/* ---------------- v1.20 : partage des commandes entre les confirmatrices ---------------- */
+
+function shareTeam() {
+  [['admin@example.com', 'Admin', 'Administrateur'], ['amina@example.com', 'Amina', 'Confirmatrice'],
+    ['sara@example.com', 'Sara', 'Confirmatrice'], ['nora@example.com', 'Nora', 'Confirmatrice']].forEach(function (r) { sheet('Équipe').appendRow(r); });
+  userEdit('Équipe');
+}
+function presentNow(key, hoursAgo) { writePresence_(key, { seen: new Date(Date.now() - (hoursAgo || 0) * 3600000), pause: null }); }
+function newShared(id, phone) {
+  addRaw({ 'N°': id, 'Date': new Date(), 'Client': 'Client ' + id, 'Téléphone': phone || '0550' + ('000000' + (++phoneSeq)).slice(-6),
+    'Wilaya': '16 - Alger', 'Produit': 'Sac à main', 'Quantité': 1, 'Prix': 3000, 'Livraison': 'Domicile' });
+}
+function agentsOf(ids) { var m = {}; ids.forEach(function (id) { var a = order(id).agent || '—'; m[a] = (m[a] || 0) + 1; }); return m; }
+
+test('Partage : à tour de rôle entre les présentes, même client, chacune ses commandes, l’administrateur voit tout', function () {
+  baseSetup();
+  shareTeam();
+  presentNow('amina@example.com');
+  presentNow('sara@example.com'); // Nora ne s'est jamais connectée : absente
+  var ids = ['#S1', '#S2', '#S3', '#S4'];
+  ids.forEach(function (id) { newShared(id); });
+  processNewRows();
+  assert.deepStrictEqual(agentsOf(ids), { Amina: 2, Sara: 2 }, 'partagées à tour de rôle, rien pour l’absente');
+  newShared('#S5', order('#S1').phone);
+  processNewRows();
+  assert.strictEqual(order('#S5').agent, order('#S1').agent, 'une 2e commande du même client va chez la même confirmatrice');
+
+  __mock.setUser('amina@example.com');
+  var q = api_queue();
+  assertSerializable(q, 'api_queue');
+  var mine = ids.concat('#S5').filter(function (id) { return order(id).agent === 'Amina'; });
+  assert.deepStrictEqual(q.due.map(function (x) { return x.id; }).sort(), mine.sort(), 'la confirmatrice ne voit que ses commandes');
+  assert.deepStrictEqual([q.share.on, q.share.confirm, q.share.me.present], [true, true, true]);
+  assert.strictEqual(api_counts().queue, mine.length, 'compteur du menu : ses commandes');
+  assert.ok(api_listOrders({ status: 'all', period: 'all' }).rows.every(function (o) { return o.agent === 'Amina'; }), 'liste : ses commandes');
+  assert.strictEqual(api_listOrders({ status: 'all', period: 'all', scope: 'all' }).total, 5, 'la loupe cherche dans toutes les commandes');
+  var boot = api_bootstrap();
+  assert.deepStrictEqual([boot.user.confirm, boot.user.ship, boot.user.track, boot.user.share], [true, false, false, true], 'Expédier et Suivi cachés par défaut');
+
+  __mock.setUser('admin@example.com');
+  var qa = api_queue();
+  assert.strictEqual(qa.due.length, 5, 'l’administrateur voit tout');
+  assert.ok(qa.due.every(function (x) { return x.agent === 'Amina' || x.agent === 'Sara'; }));
+  assert.deepStrictEqual(qa.share.team.map(function (m) { return m.name + ':' + m.due + ':' + m.present; }), ['Amina:' + mine.length + ':true', 'Sara:' + (5 - mine.length) + ':true', 'Nora:0:false']);
+  assert.deepStrictEqual(api_bootstrap().team, ['Amina', 'Sara', 'Nora']);
+  assert.strictEqual(api_listOrders({ status: 'all', period: 'all', agent: 'Sara' }).total, 5 - mine.length, 'filtre par confirmatrice');
+});
+
+test('Partage : la confirmatrice qui arrive reçoit sa part des nouvelles commandes de sa collègue', function () {
+  baseSetup();
+  shareTeam();
+  presentNow('sara@example.com');
+  var ids = ['#R1', '#R2', '#R3', '#R4', '#R5', '#R6'];
+  ids.forEach(function (id) { newShared(id); });
+  processNewRows();
+  assert.deepStrictEqual(agentsOf(ids), { Sara: 6 }, 'seule présente : tout pour Sara');
+  __mock.setUser('sara@example.com');
+  var first = api_queue().due[0].id;
+  __mock.setUser('amina@example.com');
+  presentNow('amina@example.com');
+  var q = api_queue();
+  assert.strictEqual(q.due.length, 3, 'Amina arrive : sa part tout de suite');
+  assert.deepStrictEqual(agentsOf(ids), { Sara: 3, Amina: 3 });
+  assert.strictEqual(order(first).agent, 'Sara', 'la commande que Sara a sous les yeux lui reste');
+});
+
+test('Partage : personne de présent (la nuit), plafond par confirmatrice et part double', function () {
+  baseSetup();
+  shareTeam();
+  setSetting('PARTAGE_AVANCE', 2);
+  var ids = ['#N1', '#N2', '#N3', '#N4', '#N5', '#N6', '#N7'];
+  ids.forEach(function (id) { newShared(id); });
+  processNewRows();
+  assert.deepStrictEqual(agentsOf(ids), { '—': 7 }, 'personne de présent : les commandes attendent « à partager »');
+  __mock.setUser('admin@example.com');
+  api_teamAccess('amina@example.com', { part: 2 });
+  assert.strictEqual(api_teamList().members.filter(function (m) { return m.name === 'Amina'; })[0].part, 2);
+  presentNow('amina@example.com');
+  presentNow('sara@example.com');
+  shareQueue_();
+  assert.deepStrictEqual(agentsOf(ids), { Amina: 4, Sara: 2, '—': 1 }, 'au plus 2 d’avance (×2 pour Amina) : la dernière attend');
+  __mock.setUser('sara@example.com');
+  var first = api_queue().due[0].id;
+  api_recordCall(first, 'confirm', {});
+  shareQueue_();
+  assert.deepStrictEqual(agentsOf(ids), { Amina: 4, Sara: 3 }, 'Sara a appelé : la commande en attente arrive chez elle');
+});
+
+test('Partage : absente ou en pause depuis le délai, ses commandes repartent ; « reprendre », « attribuer », « prendre »', function () {
+  baseSetup();
+  shareTeam();
+  presentNow('amina@example.com');
+  presentNow('sara@example.com');
+  var ids = ['#A1', '#A2', '#A3', '#A4'];
+  ids.forEach(function (id) { newShared(id); });
+  processNewRows();
+  var saras = ids.filter(function (id) { return order(id).agent === 'Sara'; });
+  assert.strictEqual(saras.length, 2);
+  // Un rappel prévu plus tard reste à Sara (elle connaît le client).
+  __mock.setUser('sara@example.com');
+  api_recordCall(saras[0], 'callback', { callback: new Date(Date.now() + 5 * 3600000).toISOString() });
+  presentNow('sara@example.com', 3); // plus d'activité depuis 3 h (délai : 2 h)
+  shareQueue_();
+  assert.strictEqual(order(saras[1]).agent, 'Amina', 'absente : sa commande à appeler va chez Amina');
+  assert.strictEqual(order(saras[0]).agent, 'Sara', 'son rappel prévu plus tard lui reste');
+
+  // Pause : plus de nouvelles commandes ; un appel enregistré la remet présente.
+  __mock.setUser('amina@example.com');
+  assert.ok(/En pause/.test(api_presence(true).message));
+  presentNow('sara@example.com');
+  newShared('#A5');
+  processNewRows();
+  assert.strictEqual(order('#A5').agent, 'Sara', 'Amina en pause : la nouvelle commande va chez Sara');
+  api_recordCall(order('#A1').agent === 'Amina' ? '#A1' : '#A2', 'no_answer', {});
+  assert.strictEqual(api_queue().share.me.pause, '', 'elle appelle : elle n’est plus en pause');
+
+  // Loupe : Amina prend une commande de Sara (le client rappelle).
+  assert.ok(/prise/.test(api_takeOrder('#A5').message));
+  assert.strictEqual(order('#A5').agent, 'Amina');
+
+  // Administrateur : attribuer, remettre à partager, reprendre les commandes d'une confirmatrice.
+  __mock.setUser('admin@example.com');
+  assert.throws(function () { api_assignOrders(['#A5'], 'Karim'); }, /n’est pas une confirmatrice/);
+  assert.strictEqual(api_assignOrders(['#A5'], 'Sara').assigned, 1);
+  assert.strictEqual(order('#A5').agent, 'Sara');
+  assert.strictEqual(api_assignOrders(['#A5'], '').assigned, 1);
+  assert.strictEqual(order('#A5').agent, '');
+  api_assignOrders(['#A5'], 'Sara');
+  var r = api_teamReclaim('sara@example.com');
+  assert.ok(r.moved >= 1, r.message);
+  assert.strictEqual(order('#A5').agent, 'Amina', 'ses commandes à appeler vont chez les autres présentes');
+  assert.ok(api_teamPresence('amina@example.com', true).message.indexOf('pause') > 0);
+  assert.ok(api_teamList().members.filter(function (m) { return m.name === 'Amina'; })[0].presence.pause);
+  __mock.setUser('sara@example.com');
+  assert.throws(function () { api_assignOrders(['#A5'], 'Sara'); }, /administrateur/);
+});
+
+test('Partage : l’administrateur qui confirme prend la commande ; « pas de réponse » la laisse à la confirmatrice', function () {
+  baseSetup();
+  shareTeam();
+  presentNow('amina@example.com');
+  ['#B1', '#B2'].forEach(function (id) { newShared(id); });
+  processNewRows();
+  assert.deepStrictEqual(agentsOf(['#B1', '#B2']), { Amina: 2 });
+  __mock.setUser('admin@example.com');
+  api_recordCall('#B1', 'no_answer', {});
+  assert.strictEqual(order('#B1').agent, 'Amina', 'pas de réponse : reste à Amina');
+  api_recordCall('#B2', 'confirm', {});
+  assert.strictEqual(order('#B2').agent, 'Admin', 'confirmée par l’administrateur : à lui');
+  __mock.setUser('amina@example.com');
+  var q = api_queue();
+  assert.deepStrictEqual(q.due.concat(q.later).map(function (x) { return x.id; }), ['#B1'], 'elle ne voit plus la commande confirmée par l’administrateur');
+});
+
+test('Partage : Expédier et Suivi fermés aux confirmatrices, ouverts par l’administrateur pour leurs commandes seulement', function () {
+  ecoSetup();
+  shareTeam();
+  addConfirmed('#E1', { 'Confirmatrice': 'Amina' });
+  addConfirmed('#E2', { 'Confirmatrice': 'Sara' });
+  __mock.setUser('amina@example.com');
+  assert.throws(function () { api_shippingList(); }, /Page Expédier non ouverte/);
+  assert.throws(function () { api_trackingOverview(30); }, /Page Suivi non ouverte/);
+  __mock.setUser('admin@example.com');
+  var team = api_teamAccess('amina@example.com', { ship: true, track: true }).team;
+  assert.deepStrictEqual(team.members.filter(function (m) { return m.name === 'Amina'; }).map(function (m) { return [m.ship, m.track, m.confirm]; }), [[true, true, true]]);
+  assert.strictEqual(api_shippingList().toShip.length, 2, 'l’administrateur voit tout');
+  __mock.setUser('amina@example.com');
+  var boot = api_bootstrap();
+  assert.deepStrictEqual([boot.user.ship, boot.user.track], [true, true]);
+  assert.deepStrictEqual(api_shippingList().toShip.map(function (o) { return o.id; }), ['#E1'], 'Expédier : ses commandes seulement');
+  assert.strictEqual(api_counts().toShip, 1);
+  var res = results(api_shipEcotrack(['#E1', '#E2']));
+  assert.ok(res['#E1'].ok, res['#E1'].message);
+  assert.ok(!res['#E2'].ok && /suivie par Sara/.test(res['#E2'].message), res['#E2'].message);
+  assert.throws(function () { api_cancelParcel('#E2'); }, /suivie par Sara/);
+  assert.strictEqual(api_trackingOverview(30).alerts.length + api_trackingOverview(30).parcels.length >= 0, true);
+  assert.throws(function () { api_parcelHistory('#E2'); }, /suivie par Sara/);
+  assert.throws(function () { api_ecotrackSyncFees(); }, /administrateur/);
+});
+
+test('Partage : réglage PARTAGE = NON, une seule file pour toute l’équipe (comme avant)', function () {
+  baseSetup();
+  shareTeam();
+  setSetting('PARTAGE', 'NON');
+  presentNow('amina@example.com');
+  ['#C1', '#C2'].forEach(function (id) { newShared(id); });
+  processNewRows();
+  assert.deepStrictEqual(agentsOf(['#C1', '#C2']), { '—': 2 }, 'pas de partage');
+  __mock.setUser('sara@example.com');
+  assert.strictEqual(api_queue().due.length, 2, 'chacune voit toute la file');
+  api_recordCall('#C1', 'no_answer', {});
+  assert.strictEqual(order('#C1').agent, 'Sara', 'la colonne Confirmatrice garde la dernière personne qui a appelé');
+  assert.strictEqual(api_queue().share.on, false);
 });
 
 /* ---------------- Lancement ---------------- */
