@@ -1144,9 +1144,7 @@
         stockNote(data.stock) + '</section>' +
       '<div class="brief-total of-total"><span>Total à encaisser</span><b>' + money(o.total) + '</b></div>' +
       (o.notes ? '<section class="of-card"><h3>Notes</h3><p dir="auto" style="white-space:pre-wrap">' + h(o.notes) + '</p></section>' : '') +
-      '<section class="of-card"><h3>Historique</h3>' + (calls.length
-        ? '<ul class="timeline">' + calls.map(function (c) { return '<li><span class="t-date">' + h(c.when) + '</span><span class="t-body">' + h(c.text) + '</span></li>'; }).join('') + '</ul>'
-        : '<p class="small">Aucun appel pour le moment.</p>') + '</section>' +
+      (callHistory(o) || '<section class="of-card"><h3>Historique</h3><p class="small">Aucun appel pour le moment.</p></section>') +
       lockBox(o, r, false) +
       '<div class="of-bar">' +
         (o.phone ? '<a class="btn" href="tel:' + h(o.phone) + '" target="_top">' + icon('phone') + 'Appeler</a>' : '') +
@@ -1832,13 +1830,94 @@
   }
 
   /** Historique des appels de la commande (colonne « Historique appels »). */
+  /**
+   * v1.17 : historique des appels en frise : par jour, l'heure en gras, un point de couleur par appel
+   * (orange pas de réponse, violet rappel demandé, vert confirmée, rouge annulée), « par … » en petit ;
+   * le prochain rappel à part, avec le temps qui reste (ou le retard). Plus de 3 appels : replié, avec un résumé.
+   */
+  function dzDay(d) {
+    try { return d.toLocaleDateString('fr-FR', { timeZone: TZ, day: '2-digit', month: '2-digit' }); } catch (e) { return ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2); }
+  }
+  function dzTime(d) {
+    try { return d.toLocaleTimeString('fr-FR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' }); } catch (e) { return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
+  }
+  /** « 21/11 11:30 » (heure d'Algérie, sans année) → date. */
+  function callDate(when) {
+    var m = String(when || '').match(/^(\d{2})\/(\d{2}) (\d{2}):(\d{2})$/);
+    if (!m) return null;
+    var now = new Date();
+    var y = now.getUTCFullYear();
+    var d = new Date(Date.UTC(y, +m[2] - 1, +m[1], +m[3] - 1, +m[4]));
+    if (d.getTime() > now.getTime() + 86400000) d = new Date(Date.UTC(y - 1, +m[2] - 1, +m[1], +m[3] - 1, +m[4]));
+    return d;
+  }
+  function dayWord(dd) {
+    var today = dzDay(new Date());
+    var y = dzDay(new Date(Date.now() - 86400000));
+    var t = dzDay(new Date(Date.now() + 86400000));
+    return dd === today ? 'Aujourd’hui' : dd === y ? 'Hier' : dd === t ? 'Demain' : dd;
+  }
+  function spanText(ms) {
+    var m = Math.max(1, Math.round(Math.abs(ms) / 60000));
+    return m < 60 ? m + ' min' : m < 1440 ? Math.round(m / 60) + ' h' : Math.round(m / 1440) + ' j';
+  }
+  /** Un appel noté : couleur, texte court, qui. */
+  function callEntry(c) {
+    var raw = String(c.text || '');
+    var i = raw.lastIndexOf(' · ');
+    var who = i > 0 ? raw.slice(i + 3) : '';
+    var t = i > 0 ? raw.slice(0, i) : raw;
+    var m;
+    if (/^Confirmée/.test(t)) return { k: 'g', html: '<b>Confirmée</b>', who: who };
+    if (/^Pas de réponse, annulée/.test(t)) return { k: 'r', html: '<b>Pas de réponse</b> → annulée automatiquement', who: who };
+    if (/^Pas de réponse, injoignable/.test(t)) return { k: 'o', html: '<b>Pas de réponse</b> → injoignable', who: who };
+    if (/^Pas de réponse/.test(t)) return { k: 'o', html: '<b>Pas de réponse</b>', who: who };
+    if ((m = t.match(/^A répondu, rappel demandé pour le (\d{2}\/\d{2}) (\d{2}:\d{2})/))) {
+      return { k: 'v', html: '<b>A répondu</b> → rappel ' + (m[1] === String(c.when || '').slice(0, 5) ? 'à ' + m[2] : 'le ' + m[1] + ' à ' + m[2]), who: who };
+    }
+    if ((m = t.match(/^Annulée : (.*)$/))) return { k: 'r', html: '<b>Annulée</b> · ' + h(m[1]), who: who };
+    return { k: 'n', html: h(t), who: who };
+  }
   function callHistory(o) {
-    if (!o.calls || !o.calls.length) return '';
-    return '<details class="call-log"' + (o.calls.length <= 3 ? ' open' : '') + '><summary class="small strong">' + icon('clock') + 'Historique des appels · ' + o.calls.length + '</summary><ol>' +
-      o.calls.map(function (c, i) { return '<li><span class="small mono">' + h(c.when) + '</span> Appel ' + (i + 1) + ' : ' + h(c.text) + '</li>'; }).join('') +
-      (o.callback && (o.status === 'Pas de réponse' || o.status === 'Rappeler') ? '<li class="next"><span class="small mono">' + h(fmtDate(o.callback)) + '</span> ' +
-        (new Date(o.callback).getTime() <= Date.now() ? 'Rappel prévu : c’est l’heure, appelez maintenant' : 'Prochain rappel') + '</li>' : '') +
-      '</ol></details>';
+    var calls = o.calls || [];
+    var showNext = o.callback && (o.status === 'Pas de réponse' || o.status === 'Rappeler');
+    if (!calls.length && !showNext) return '';
+    var html = '';
+    if (calls.length) {
+      var last = callDate(calls[calls.length - 1].when);
+      var many = calls.length > 3;
+      var groups = [];
+      calls.forEach(function (c) {
+        var day = String(c.when || '').slice(0, 5);
+        if (!groups.length || groups[groups.length - 1].day !== day) groups.push({ day: day, items: [] });
+        groups[groups.length - 1].items.push(c);
+      });
+      var count = { o: 0, v: 0, g: 0, r: 0 };
+      var frise = groups.map(function (g) {
+        return '<div class="hx-day">' + h(dayWord(g.day)) + '</div><ul class="hx-list">' + g.items.map(function (c) {
+          var e = callEntry(c);
+          if (count[e.k] !== undefined) count[e.k]++;
+          return '<li class="hx-it"><span class="hx-time">' + h(String(c.when || '').slice(6)) + '</span><span class="hx-dot k' + e.k + '"></span>' +
+            '<span class="hx-txt">' + e.html + (e.who ? '<small>par ' + h(e.who) + '</small>' : '') + '</span></li>';
+        }).join('') + '</ul>';
+      }).join('');
+      var sum = [['o', count.o, 'sans réponse', 'sans réponse'], ['v', count.v, 'rappel demandé', 'rappels demandés'], ['g', count.g, 'confirmée', 'confirmées'], ['r', count.r, 'annulée', 'annulées']]
+        .filter(function (x) { return x[1]; }).map(function (x) { return '<span><i class="k' + x[0] + '"></i>' + plural(x[1], x[2], x[3]) + '</span>'; }).join('');
+      html += '<details class="hx-d"' + (many ? '' : ' open') + '><summary class="hx-head">' + icon('clock') + '<span class="hx-title">Historique des appels</span>' +
+        (many ? '<span class="hx-chev">Voir</span>' : '') +
+        '<small>' + plural(calls.length, 'appel', 'appels') + (last ? ' · dernier ' + h(ago(last.toISOString())) : '') + '</small></summary>' + frise + '</details>' +
+        (many ? '<div class="hx-sum">' + sum + '</div>' : '');
+    } else {
+      html += '<div class="hx-head">' + icon('clock') + '<span class="hx-title">Historique des appels</span><small>Aucun appel noté</small></div>';
+    }
+    if (showNext) {
+      var at = new Date(o.callback);
+      var diff = at.getTime() - Date.now();
+      html += '<div class="hx-next' + (diff < 0 ? ' late' : '') + '">' + icon('calendar') +
+        '<span>Prochain rappel ' + h(dayWord(dzDay(at)).toLowerCase()) + ' ' + h(dzTime(at)) + '</span>' +
+        '<em>' + (diff < 0 ? 'en retard de ' : 'dans ') + spanText(diff) + '</em></div>';
+    }
+    return '<section class="hx">' + html + '</section>';
   }
 
   /** La commande suivante de la file (après `id`), ou null. */

@@ -1091,6 +1091,42 @@ tr.q-na .l-dots .q-when { color: #B45309; }
   .m-sum .l-dots { margin-top: 6px; }
 }
 
+/* v1.17 : historique des appels en frise (par jour, points de couleur, prochain rappel à part). */
+.hx { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; background: var(--surface); display: grid; gap: 10px; margin: 10px 0; }
+.hx-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; cursor: pointer; list-style: none; }
+.hx-head::-webkit-details-marker { display: none; }
+.hx-head .ic { width: 18px; height: 18px; color: var(--muted); flex: none; }
+.hx-title { font: 700 15px var(--font); color: var(--ink); }
+.hx-head small { flex-basis: 100%; padding-left: 28px; font-size: 13px; color: var(--muted); font-weight: 500; }
+.hx-chev { margin-left: auto; font: 600 13.5px var(--font); color: var(--brand); }
+.hx-chev::after { content: " ▾"; }
+.hx-d[open] .hx-chev::after { content: " ▴"; }
+.hx-d[open] .hx-chev { font-size: 0; }
+.hx-d[open] .hx-chev::before { content: "Masquer"; font-size: 13.5px; }
+.hx-d[open] + .hx-sum { display: none; }
+.hx-day { font: 700 11.5px var(--font); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 10px 0 2px; }
+.hx-list { list-style: none; margin: 0; padding: 0; }
+.hx-it { display: grid; grid-template-columns: 46px 18px 1fr; gap: 0 8px; align-items: start; position: relative; padding: 5px 0; }
+.hx-it::before { content: ""; position: absolute; left: 61px; top: 0; bottom: 0; width: 2px; background: #E7EAEE; }
+.hx-it:first-child::before { top: 12px; }
+.hx-it:last-child::before { bottom: calc(100% - 14px); }
+.hx-it:only-child::before { display: none; }
+.hx-time { font: 700 14px var(--font); color: var(--ink); text-align: right; padding-top: 1px; font-variant-numeric: tabular-nums; }
+.hx-dot { width: 12px; height: 12px; border-radius: 50%; margin: 4px auto 0; box-shadow: 0 0 0 3px var(--surface); position: relative; z-index: 1; background: #9AA3AF; }
+.hx-txt { font-size: 14.5px; color: var(--ink); line-height: 1.35; }
+.hx-txt b { font-weight: 600; }
+.hx-txt small { display: block; font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+.hx .ko { background: #E8730C; } .hx .kv { background: #7C4DDB; } .hx .kg { background: #1F9D55; } .hx .kr { background: #C0392B; } .hx .kn { background: #9AA3AF; }
+.hx-sum { display: flex; flex-wrap: wrap; gap: 6px; }
+.hx-sum span { display: inline-flex; align-items: center; gap: 6px; font: 600 13px var(--font); padding: 4px 10px; border-radius: 999px; background: #EEF0F3; color: #3D4350; }
+.hx-sum i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.hx-next { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 12px; border-radius: 12px; background: #F3EDFF; border: 1px solid #DCCDFB; color: #5B21B6; font: 600 14px var(--font); }
+.hx-next .ic { width: 18px; height: 18px; flex: none; }
+.hx-next span { flex: 1 1 180px; }
+.hx-next em { font-style: normal; white-space: nowrap; flex: none; margin-left: auto; font: 700 12.5px var(--font); background: #7C4DDB; color: #FFFFFF; border-radius: 999px; padding: 3px 10px; }
+.hx-next.late { background: #FBE7E7; border-color: #F3B7B7; color: #A12626; }
+.hx-next.late em { background: #C0392B; }
+
 /* Application Google après le basculement : les pages des commandes sont dans la version Cloudflare. */
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }

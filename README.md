@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.16
+## Ce que fait la version 1.17
 
 | Écran | Contenu |
 |---|---|
@@ -727,6 +727,16 @@ Rien à coller dans Apps Script pour cette version (la version Google profite au
 - Les anciens liens (notifications, favoris `#/confirmation`) ouvrent Commandes › Appeler. Les règles d'appel ne changent pas.
 - **v1.16.1 — depuis la Liste** : toucher une commande à confirmer (À confirmer, Pas de réponse, Rappeler, Injoignable) ouvre **la fiche de confirmation sur place** (plein écran sous l'en-tête sur téléphone, panneau à droite sur ordinateur), sans passer à l'onglet Appeler : Confirmer / Pas de réponse / Rappeler / Annuler, « Annuler » pendant 5 s, puis retour à la liste mise à jour. **← Liste** (ou Échap, ou un appui à côté) referme la fiche. Les autres commandes (confirmées, expédiées…) gardent leur fiche habituelle.
 - **v1.16.2 — couleurs de la file dans la Liste** : « Pas de réponse » et « Injoignable » en orange, « Rappel demandé » en violet (fond, bande et pastille), avec les appels du jour ●●○ (« 1/3 aujourd’hui », et le total s'il est plus grand) et l'heure du rappel, comme dans la file d'appels.
+
+### v1.17 : historique des appels plus lisible
+
+Rien à coller dans Apps Script pour cette version.
+
+- **Frise** : les appels sont rangés par jour (« Aujourd'hui », « Hier », date), l'heure en gras, un point de couleur par appel (orange pas de réponse, violet rappel demandé, vert confirmée, rouge annulée), un texte court (« A répondu → rappel à 12:30 ») et « par … » en petit.
+- **Titre résumé** : « 3 appels · dernier il y a 20 min ».
+- **Prochain rappel** à part, avec le temps qui reste (« dans 25 min ») ; dépassé, il passe en rouge (« en retard de 10 min »).
+- **Plus de 3 appels** : replié, avec un résumé en pastilles (« 3 sans réponse · 1 rappel demandé ») ; **Voir** ouvre la frise.
+- Même présentation dans l'onglet Appeler, dans la fiche ouverte depuis la Liste et dans la fiche résumée du téléphone.
 
 ### Comment ça marche
 
