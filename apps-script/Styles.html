@@ -1023,6 +1023,38 @@ summary h2 .qh { margin-left: 8px; }
   .content:has(.outcomes) { padding-bottom: 160px; }
 }
 
+/* v1.16 : Commandes = Appeler + Liste (une seule page), fiche aux couleurs de la file. */
+.mode-bar { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; max-width: 520px; }
+.mode-seg { flex: 1; display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: #E7EAEE; }
+.mode-tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; border-radius: 9px; color: #5B6170;
+  font: 600 15px var(--font); text-decoration: none; }
+.mode-tab .ic { width: 17px; height: 17px; }
+.mode-tab.on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.16); }
+.mode-n { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; padding: 1px 7px; border-radius: 999px; background: var(--brand); color: #FFFFFF; font: 700 12px/1.4 var(--font); }
+.mode-n[hidden] { display: none; }
+.mode-search { min-width: 48px; min-height: 48px; padding: 0; justify-content: center; }
+.mode-search .ic { width: 20px; height: 20px; }
+.d-card { border-left: 6px solid transparent; }
+.d-card.k-new { border-left-color: #3B6FD8; }
+.d-card.k-na { border-left-color: #E8730C; }
+.d-card.k-cb { border-left-color: #7C4DDB; }
+.d-pills .d-kind { color: #FFFFFF; }
+.d-pills .d-kind.k-new { background: #3B6FD8; }
+.d-pills .d-kind.k-na { background: #E8730C; }
+.d-pills .d-kind.k-cb { background: #7C4DDB; }
+.cmd-search { display: grid; gap: 10px; }
+.cs-top { display: flex; gap: 8px; align-items: center; }
+.cs-top .ord-search { flex: 1; margin: 0; }
+.cs-top .btn { min-height: 46px; }
+.cs-row { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--line); border-left: 4px solid var(--st, #CFD4DB); border-radius: 12px; background: var(--surface); }
+.cs-l1 { display: flex; justify-content: space-between; gap: 10px; font-size: 16px; }
+.cs-l2 { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; font-size: 13px; color: var(--muted); }
+.cs-row .btn { justify-self: start; min-height: 40px; }
+@media (max-width: 860px) {
+  .mode-bar { max-width: none; }
+  .orders-page .page-head { display: none; }
+}
+
 /* Application Google après le basculement : les pages des commandes sont dans la version Cloudflare. */
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }

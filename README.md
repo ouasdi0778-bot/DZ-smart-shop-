@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.15
+## Ce que fait la version 1.16
 
 | Écran | Contenu |
 |---|---|
@@ -19,6 +19,8 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 | **Bénéfices** | Bénéfice net sur la **période de votre choix** comparé à la période d'avant, **graphiques** (bénéfice par jour, où part l'argent, seuil de rentabilité, simulateur du taux de livraison), produits classés par bénéfice **après pub** (chaque pub reliée à son produit), publicité (coût par livrée, ROAS), **dépenses et gains** sur un jour ou un intervalle, à corriger ou supprimer (administrateur) |
 | **Statistiques** | Commandes et argent par période, comparés à la période d'avant : **ce qui a changé** en phrases, parcours des commandes avec les pertes et leurs motifs, **carte des wilayas**, heures × jours, **meilleure heure pour appeler**, vitesse de confirmation, bureau ou domicile, produits, **équipe** (appels, réponses, objectif du jour, prime), publicité (**qualité des sources**), **filtre croisé** (une wilaya, un produit, une campagne, une source ou une confirmatrice), où est l'argent et versements d'Ecotrack ; tableaux triables, export pour Excel (administrateur) |
 | **Administration** | État de l'outil, connexions (Ecotrack, SMS, Shopify, Releasit), réglages en formulaires, équipe (**connexion par téléphone et mot de passe**, version Cloudflare), clients, sauvegarde **Tout exporter (Excel)**, entretien (administrateur) |
+
+Commandes et Confirmation en une seule page (v1.16) : onglets **Appeler** et **Liste**, loupe « le client rappelle », menu du bas à 5 boutons.
 
 Fiche Confirmation plus lisible (v1.15) : pastilles, une info par ligne avec son icône, message WhatsApp derrière un « ? », alerte quand l'adresse cite une autre wilaya.
 
@@ -712,6 +714,17 @@ Rien à coller dans Apps Script pour cette version.
 - **Message WhatsApp** : le cadre en bas de page disparaît. Le bouton WhatsApp ouvre la conversation avec le message prêt ; le **?** à côté le montre avant, avec **Envoyer sur WhatsApp**.
 - **Adresse ≠ wilaya** : si l'adresse cite une autre wilaya que celle choisie (« … oued ghir bejaia » pour Biskra), une alerte orange « Adresse : Béjaïa ? (wilaya : Biskra) » propose **Mettre Béjaïa · Oued Ghir** (la commune trouvée dans l'adresse, sinon la wilaya seule). Noms en français ou en arabe ; Adrar, Saïda et Naâma sont ignorés (mots trop courants dans une adresse).
 - Le menu reste en bas ; les 4 résultats d'appel sont au-dessus, sur une barre plus fine (« Rappeler » sans « plus tard »).
+
+### v1.16 : Commandes et Confirmation en une seule page
+
+Rien à coller dans Apps Script pour cette version (la version Google profite aussi des changements si vous recollez `dist/Code.gs`).
+
+- **Une page « Commandes »** avec deux onglets en haut : **Appeler** (la file d'appels et la fiche, avec le nombre à appeler maintenant) et **Liste** (recherche, statuts, filtres, nouvelle commande, sélection, corbeille).
+- **Menu** : le bouton « Confirmer » / « Confirmation » disparaît ; **Commandes** porte le compteur « à appeler / en attente ». Téléphone : Tableau · Commandes · Expédier · Suivi · Plus.
+- **L'onglet est retenu sur chaque appareil** : le menu ramène au dernier onglet choisi (au départ : Appeler pour une confirmatrice, Liste pour l'administrateur).
+- **Loupe** (onglet Appeler) : « le client rappelle » ; recherche par nom, téléphone, n° de commande ou de suivi dans toutes les commandes ; **Ouvrir et confirmer** l'ouvre dans la fiche (résultat d'appel tout de suite), **Voir la commande** pour les autres ; **Fermer** revient à la fiche d'avant.
+- **Couleurs gardées** : la fiche prend la couleur de la file (bande et pastille bleu « Nouvelle », orange « Pas de réponse / Injoignable », violet « Rappel demandé ») ; la file et sa légende, les statuts de la liste et les boutons ne changent pas.
+- Les anciens liens (notifications, favoris `#/confirmation`) ouvrent Commandes › Appeler. Les règles d'appel ne changent pas.
 
 ### Comment ça marche
 

@@ -2547,12 +2547,12 @@ test('Releasit : pas de doublon, lecture rapide si rien n’a changé, nouvelles
 
 test('Releasit : la même ligne écrite deux fois par Releasit n’est pas un 2e produit', function () {
   releasitSetup();
-  releasitAdd({ id: '#1040', date: '2026-11-14 10:00:44', qty: 2, line: 3600, ship: 450, total: 4050 });
-  releasitAdd({ id: '#1040', date: '2026-11-14 10:00:44', qty: 2, line: 3600, ship: 450, total: 4050 });
+  releasitAdd({ id: '#1040', date: localStamp(yesterdayAt(10, 0, 44)), qty: 2, line: 3600, ship: 450, total: 4050 });
+  releasitAdd({ id: '#1040', date: localStamp(yesterdayAt(10, 0, 44)), qty: 2, line: 3600, ship: 450, total: 4050 });
   assert.strictEqual(transferReleasitOrders_().added, 1);
   var o = order('#1040');
   assert.deepStrictEqual([o.product, o.qty, o.price, o.total], ['cover iPhone - iphone 15 PRO MAX', 2, 3600, 4050]);
-  releasitAdd({ id: '#1040', date: '2026-11-14 10:00:44', qty: 2, line: 3600, ship: 450, total: 4050 });
+  releasitAdd({ id: '#1040', date: localStamp(yesterdayAt(10, 0, 44)), qty: 2, line: 3600, ship: 450, total: 4050 });
   assert.strictEqual(transferReleasitOrders_().added, 0, 'réécrite plus tard : déjà là');
 });
 

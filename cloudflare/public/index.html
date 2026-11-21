@@ -991,6 +991,36 @@ summary h2 .qh { margin-left: 8px; }
 .outcomes .btn.big { min-height: 54px; }
 .content:has(.outcomes) { padding-bottom: 160px; }
 }
+.mode-bar { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; max-width: 520px; }
+.mode-seg { flex: 1; display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: #E7EAEE; }
+.mode-tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; border-radius: 9px; color: #5B6170;
+font: 600 15px var(--font); text-decoration: none; }
+.mode-tab .ic { width: 17px; height: 17px; }
+.mode-tab.on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.16); }
+.mode-n { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; padding: 1px 7px; border-radius: 999px; background: var(--brand); color: #FFFFFF; font: 700 12px/1.4 var(--font); }
+.mode-n[hidden] { display: none; }
+.mode-search { min-width: 48px; min-height: 48px; padding: 0; justify-content: center; }
+.mode-search .ic { width: 20px; height: 20px; }
+.d-card { border-left: 6px solid transparent; }
+.d-card.k-new { border-left-color: #3B6FD8; }
+.d-card.k-na { border-left-color: #E8730C; }
+.d-card.k-cb { border-left-color: #7C4DDB; }
+.d-pills .d-kind { color: #FFFFFF; }
+.d-pills .d-kind.k-new { background: #3B6FD8; }
+.d-pills .d-kind.k-na { background: #E8730C; }
+.d-pills .d-kind.k-cb { background: #7C4DDB; }
+.cmd-search { display: grid; gap: 10px; }
+.cs-top { display: flex; gap: 8px; align-items: center; }
+.cs-top .ord-search { flex: 1; margin: 0; }
+.cs-top .btn { min-height: 46px; }
+.cs-row { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--line); border-left: 4px solid var(--st, #CFD4DB); border-radius: 12px; background: var(--surface); }
+.cs-l1 { display: flex; justify-content: space-between; gap: 10px; font-size: 16px; }
+.cs-l2 { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; font-size: 13px; color: var(--muted); }
+.cs-row .btn { justify-self: start; min-height: 40px; }
+@media (max-width: 860px) {
+.mode-bar { max-width: none; }
+.orders-page .page-head { display: none; }
+}
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }
 </style>
@@ -1049,8 +1079,7 @@ summary h2 .qh { margin-left: 8px; }
 </div>
 <nav class="nav">
 <a href="#/tableau" data-route="tableau"><svg class="ic" aria-hidden="true"><use href="#i-tableau"/></svg><span>Tableau de bord</span></a>
-<a href="#/commandes" data-route="commandes"><svg class="ic" aria-hidden="true"><use href="#i-commandes"/></svg><span>Commandes</span></a>
-<a href="#/confirmation" data-route="confirmation"><svg class="ic" aria-hidden="true"><use href="#i-confirmation"/></svg><span>Confirmation</span> <span class="badge" data-queue-count hidden></span></a>
+<a href="#/commandes" data-route="commandes" data-cmd-link><svg class="ic" aria-hidden="true"><use href="#i-commandes"/></svg><span>Commandes</span> <span class="badge" data-queue-count hidden></span></a>
 <a href="#/expeditions" data-route="expeditions"><svg class="ic" aria-hidden="true"><use href="#i-expeditions"/></svg><span>Expédier</span> <span class="badge" data-ship-count hidden></span></a>
 <a href="#/suivi" data-route="suivi"><svg class="ic" aria-hidden="true"><use href="#i-suivi"/></svg><span>Suivi</span> <span class="badge" data-alert-count hidden></span></a>
 <a href="#/benefices" data-route="benefices" data-admin hidden><svg class="ic" aria-hidden="true"><use href="#i-benefices"/></svg><span>Bénéfices</span></a>
@@ -1078,8 +1107,7 @@ summary h2 .qh { margin-left: 8px; }
 </div>
 <nav class="bottom-nav" aria-label="Navigation">
 <a href="#/tableau" data-route="tableau"><span class="nav-ic"><svg class="ic" aria-hidden="true"><use href="#i-tableau"/></svg></span><span>Tableau</span></a>
-<a href="#/commandes" data-route="commandes"><span class="nav-ic"><svg class="ic" aria-hidden="true"><use href="#i-commandes"/></svg></span><span>Commandes</span></a>
-<a href="#/confirmation" data-route="confirmation"><span class="nav-ic"><svg class="ic" aria-hidden="true"><use href="#i-confirmation"/></svg><span class="badge" data-queue-count hidden></span></span><span>Confirmer</span></a>
+<a href="#/commandes" data-route="commandes" data-cmd-link><span class="nav-ic"><svg class="ic" aria-hidden="true"><use href="#i-commandes"/></svg><span class="badge" data-queue-count hidden></span></span><span>Commandes</span></a>
 <a href="#/expeditions" data-route="expeditions"><span class="nav-ic"><svg class="ic" aria-hidden="true"><use href="#i-expeditions"/></svg><span class="badge" data-ship-count hidden></span></span><span>Expédier</span></a>
 <a href="#/suivi" data-route="suivi"><span class="nav-ic"><svg class="ic" aria-hidden="true"><use href="#i-suivi"/></svg><span class="badge" data-alert-count hidden></span></span><span>Suivi</span></a>
 <button type="button" class="more-btn" data-act="more-menu" data-more hidden aria-label="Plus de pages"><span class="nav-ic"><svg class="ic" aria-hidden="true"><use href="#i-menu"/></svg></span><span>Plus</span></button>
@@ -1282,7 +1310,7 @@ var DZC = (function () {
   var STEP_KEY = 'dz-smart-shop:step';
   /** Pages restées dans l'application Google (étape 3) : ouvertes là-bas. */
   var EXTERNAL = ['benefices', 'stock', 'stats', 'admin'];
-  var VERSION = '1.15.0';
+  var VERSION = '1.16.0';
 
   /** Même empreinte que shortHash_ (Api.gs) : clé de la mémoire sur l'appareil, sans l'adresse. */
   function shortHash(text) {
@@ -1945,8 +1973,10 @@ function go() {
 var r = currentRoute();
 S.route = r;
 S.nav = { route: r, t0: performance.now() };
+setCmdMode();
+var navR = r === 'confirmation' ? 'commandes' : r;
 $all('[data-route]').forEach(function (a) {
-var on = a.getAttribute('data-route') === r;
+var on = a.getAttribute('data-route') === navR;
 a.classList.toggle('active', on);
 if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
 });
@@ -1965,9 +1995,29 @@ else pageConfirm();
 view.focus({ preventScroll: true });
 window.scrollTo(0, 0);
 }
-var PAGE_TITLES = { tableau: 'Tableau de bord', commandes: 'Commandes', confirmation: 'Confirmation', expeditions: 'Expédier', suivi: 'Suivi',
+var PAGE_TITLES = { tableau: 'Tableau de bord', commandes: 'Commandes', confirmation: 'Commandes', expeditions: 'Expédier', suivi: 'Suivi',
 benefices: 'Bénéfices', stock: 'Stock', stats: 'Statistiques', admin: 'Administration' };
 function isPhone() { return !!(window.matchMedia && window.matchMedia('(max-width: 860px)').matches); }
+var CMD_KEY = 'dz-cmd-mode';
+function cmdMode() {
+var m = '';
+try { m = window.localStorage.getItem(CMD_KEY) || ''; } catch (e) { m = ''; }
+return m === 'appeler' || m === 'liste' ? m : (S.boot && S.boot.user && S.boot.user.admin ? 'liste' : 'appeler');
+}
+function setCmdMode(m) {
+if (m) { try { window.localStorage.setItem(CMD_KEY, m); } catch (e) { /* sans importance */ } }
+var href = cmdMode() === 'appeler' ? '#/confirmation' : '#/commandes';
+$all('[data-cmd-link]').forEach(function (a) { a.setAttribute('href', href); });
+}
+function modeBar(mode) {
+var n = S.queueNow || 0;
+return '<div class="mode-bar"><div class="mode-seg" role="tablist" aria-label="Commandes">' +
+'<a href="#/confirmation" role="tab" data-mode="appeler" class="mode-tab' + (mode === 'appeler' ? ' on' : '') + '" aria-selected="' + (mode === 'appeler') + '">' + icon('confirmation') + 'Appeler' +
+'<span class="mode-n" data-queue-now' + (n ? '' : ' hidden') + '>' + n + '</span></a>' +
+'<a href="#/commandes" role="tab" data-mode="liste" class="mode-tab' + (mode === 'liste' ? ' on' : '') + '" aria-selected="' + (mode === 'liste') + '">' + icon('commandes') + 'Liste</a></div>' +
+(mode === 'appeler' ? '<button type="button" class="btn mode-search" data-act="cmd-search" aria-label="Chercher une commande (le client rappelle)" title="Chercher une commande">' + icon('search') + '</button>' : '') +
+'</div>';
+}
 function navigate(route, status) {
 if (status) { S.filter.status = status; S.filter.limit = 100; }
 if (location.hash === '#/' + route) go(); else location.hash = '#/' + route;
@@ -1975,6 +2025,8 @@ if (location.hash === '#/' + route) go(); else location.hash = '#/' + route;
 function setQueueCount(n, pending) {
 if (pending !== undefined && pending !== null) S.pendingTotal = pending;
 var total = Math.max(S.pendingTotal || 0, n || 0);
+S.queueNow = n || 0;
+$all('[data-queue-now]').forEach(function (el) { el.textContent = S.queueNow; el.hidden = !S.queueNow; });
 $all('[data-queue-count]').forEach(function (el) {
 el.textContent = (n || 0) + '/' + total;
 el.title = (n || 0) + ' à appeler maintenant, ' + total + ' en attente au total';
@@ -2117,7 +2169,7 @@ function pageOrders() {
 var f = S.filter;
 var periods = [['today', 'Aujourd’hui'], ['7', '7 derniers jours'], ['30', '30 derniers jours'], ['all', 'Tout']];
 view.innerHTML =
-'<div class="orders-page"><div class="page-head"><div><h1>Commandes' + help('Commandes pas encore confirmées. Une commande confirmée passe dans <strong>Expédier</strong>, puis <strong>Suivi</strong>. La recherche trouve toutes les commandes.') + '</h1></div>' +
+modeBar('liste') + '<div class="orders-page"><div class="page-head"><div><h1>Commandes' + help('Commandes pas encore confirmées. Une commande confirmée passe dans <strong>Expédier</strong>, puis <strong>Suivi</strong>. La recherche trouve toutes les commandes.') + '</h1></div>' +
 '<button type="button" class="btn primary" data-act="new-order">' + icon('plus') + 'Nouvelle commande</button></div>' +
 '<div class="ord-search">' + icon('search') + '<input type="search" id="f-q" value="' + h(f.q) + '" placeholder="Nom, téléphone, n° de commande ou de suivi" aria-label="Rechercher"></div>' +
 '<div class="chips-line"><button type="button" class="chip filters-chip" data-act="filters-sheet">' + icon('filter') + 'Filtres' + filterBadge() + '</button>' +
@@ -2923,7 +2975,7 @@ btn.disabled = false;
 }
 function pageConfirm() {
 view.innerHTML =
-'<div class="page-head confirm-head"><div><h1>Centre de confirmation</h1><p class="sub">Connecté(e) : ' + h(S.boot.user.name) + '</p></div>' +
+modeBar('appeler') + '<div class="page-head confirm-head"><div><h1>Commandes</h1></div>' +
 '<div class="stats" id="cstats"></div></div>' +
 '<div class="confirm">' +
 '<section class="queue" id="queue" aria-label="File d’appels"><p class="loading">Chargement…</p></section>' +
@@ -3087,7 +3139,53 @@ list.classList.add('open');
 var title = $('#qb-' + el.getAttribute('data-b'));
 if (title) title.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
+function cmdSearch() {
+var box = $('#detail');
+if (!box) return;
+if (!S.csPrev) S.csPrev = S.current ? S.current : null;
+S.currentId = null;
+markCurrent();
+var list = $('#queue');
+if (list) list.classList.remove('open');
+box.classList.remove('is-empty');
+box.innerHTML = '<div class="card cmd-search"><div class="cs-top"><label class="ord-search">' + icon('search') +
+'<input type="search" id="cs-q" placeholder="Nom, téléphone, n° de commande ou de suivi" autocomplete="off" aria-label="Chercher une commande"></label>' +
+'<button type="button" class="btn" data-act="cs-close">Fermer</button></div>' +
+'<p class="small">Le client rappelle : cherchez son nom ou son numéro, dans toutes les commandes.</p><div id="cs-res"></div></div>';
+var q = $('#cs-q');
+if (q) q.focus();
+window.scrollTo(0, 0);
+}
+function closeCmdSearch() {
+var prev = S.csPrev;
+S.csPrev = null;
+if (prev && prev.order) { S.current = prev; S.currentId = prev.order.id; markCurrent(); renderDetail(); }
+else renderEmptyDetail();
+}
+var csTimer = null;
+function runCmdSearch(q) {
+clearTimeout(csTimer);
+var box = $('#cs-res');
+if (!box) return;
+if (String(q).trim().length < 2) { box.innerHTML = ''; return; }
+csTimer = setTimeout(function () {
+box.innerHTML = '<p class="loading">Recherche…</p>';
+call('api_listOrders', { status: 'all', q: q, wilaya: '', period: 'all', limit: 20 }).then(function (res) {
+if (!$('#cs-res') || ($('#cs-q') || {}).value !== q) return;
+var rows = res.rows || [];
+$('#cs-res').innerHTML = rows.length ? rows.map(function (o) {
+var st = (S.boot.styles[o.status] || {}).fg || '#CFD4DB';
+var todo = TODO_STATUSES.indexOf(o.status) >= 0 || !o.status;
+return '<div class="cs-row" style="--st:' + st + '"><span class="cs-l1"><strong dir="auto">' + h(o.client || '—') + '</strong><span>' + money(o.total) + '</span></span>' +
+'<span class="cs-l2">' + pill(o.status) + '<span>' + h(wilayaName(o.wilaya)) + ' · ' + h(o.id) + ' · ' + h(fmtPhone(o.phone)) + '</span></span>' +
+(todo ? '<button type="button" class="btn primary" data-act="q-open" data-id="' + h(o.id) + '">' + icon('check') + 'Ouvrir et confirmer</button>'
+: '<button type="button" class="btn" data-act="open-order" data-id="' + h(o.id) + '">Voir la commande</button>') + '</div>';
+}).join('') : '<p class="empty">Aucune commande trouvée.</p>';
+}).catch(function (e) { if ($('#cs-res')) $('#cs-res').innerHTML = errorBox(e); });
+}, 300);
+}
 function openInDetail(id) {
+S.csPrev = null;
 S.currentId = id;
 markCurrent();
 $('#queue').classList.remove('open');
@@ -3130,10 +3228,13 @@ if (o.attempts) pills.push(plural(o.attempts, 'appel en tout', 'appels en tout')
 var mustEdit = !d.phoneValid || !String(o.wilaya || '').trim() || !String(o.product || '').trim();
 S.editOpen = mustEdit;
 var important = o.alertLevel && o.alertLevel !== 'new';
+var kind = queueKind(o);
+var kindPill = kind === 'new' ? '<span class="d-kind k-new">Nouvelle</span>' : kind === 'cb' ? '<span class="d-kind k-cb">Rappel demandé</span>'
+: kind === 'na' ? '<span class="d-kind k-na">' + h(o.status) + '</span>' : '';
 $('#detail').innerHTML =
-'<div class="card">' +
+'<div class="card d-card k-' + kind + '">' +
 '<div class="detail-head"><div><h2><span dir="auto">' + h(o.client || 'Client sans nom') + '</span><span class="d-id">' + h(o.id) + '</span></h2>' +
-'<div class="d-pills">' + pills.map(function (t) { return '<span>' + h(t) + '</span>'; }).join('') +
+'<div class="d-pills">' + kindPill + pills.map(function (t) { return '<span>' + h(t) + '</span>'; }).join('') +
 (o.alertLevel === 'new' && o.alert ? '<span class="d-new">' + h(o.alert) + '</span>' : '') + '</div></div>' +
 '<div class="quick d-actions"><button type="button" class="btn queue-toggle" data-act="toggle-queue" title="File d’appels">File · ' + dueCount + '</button>' + callBtn + waBtn + '</div>' +
 '</div>' +
@@ -4422,6 +4523,8 @@ refreshCount();
 'trash-purge': purgeTrash,
 'trash-restore-sel': restoreTrashSel,
 'new-order': openNewOrder,
+'cmd-search': cmdSearch,
+'cs-close': closeCmdSearch,
 'qh': function (el) {
 var tip = el.getAttribute('data-tip') ? document.getElementById(el.getAttribute('data-tip')) : el.nextElementSibling;
 if (!tip || !tip.classList.contains('qh-tip')) return;
@@ -4615,6 +4718,8 @@ if (box) { box.checked = !box.checked; box.dispatchEvent(new Event('change', { b
 return;
 }
 if (!(e.target.closest && e.target.closest('.qh, .qh-tip'))) closeHelp();
+var mt = e.target.closest && e.target.closest('.mode-tab[data-mode]');
+if (mt) setCmdMode(mt.getAttribute('data-mode'));
 var el = e.target.closest('[data-act]');
 if (!el || el.disabled) return;
 var fn = ACTIONS[el.getAttribute('data-act')];
@@ -4626,6 +4731,7 @@ fn(el, e);
 var searchTimer = null;
 document.addEventListener('input', function (e) {
 if (e.target.id === 'cm-q') { renderCommuneList(e.target.value); return; }
+if (e.target.id === 'cs-q') { runCmdSearch(e.target.value); return; }
 if (e.target.id === 'f-q') {
 clearTimeout(searchTimer);
 searchTimer = setTimeout(function () { S.filter.q = e.target.value; S.filter.limit = 100; loadOrders(); }, 350);
@@ -4851,6 +4957,7 @@ view.innerHTML = '<section class="card"><h2>Cette page est dans la version Cloud
 return true;
 }
 function started() {
+setCmdMode();
 loadCommunes();
 setTimeout(preloadPages, 1500);
 setInterval(tick, 30000);
