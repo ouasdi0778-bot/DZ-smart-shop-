@@ -1037,6 +1037,22 @@ html.ld-open .fab { display: none !important; }
 .ld-panel { left: 0; width: auto; box-shadow: none; padding: calc(64px + 12px) 14px 170px; }
 .ld-panel .outcomes { z-index: 36; }
 }
+tr.compact.q-na { --st: #E8730C !important; }
+tr.compact.q-cb { --st: #7C4DDB !important; }
+table.data tbody tr.compact.q-na > td { background: #FFF6EC; }
+table.data tbody tr.compact.q-cb > td { background: #F6F1FF; }
+table.data tbody tr.compact.q-na:hover > td { background: #FFEEDB; }
+table.data tbody tr.compact.q-cb:hover > td { background: #EFE7FF; }
+tr.compact .q-st .ic { width: 13px; height: 13px; }
+.l-dots { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 5px; }
+.l-dots .q-when { font-size: 12px; font-weight: 600; color: #5B21B6; }
+tr.q-na .l-dots .q-when { color: #B45309; }
+@media (max-width: 860px) {
+table.cards tr.compact.q-na { background: #FFF6EC; }
+table.cards tr.compact.q-cb { background: #F6F1FF; }
+table.cards tr.compact.q-na > td, table.cards tr.compact.q-cb > td { background: transparent; }
+.m-sum .l-dots { margin-top: 6px; }
+}
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }
 </style>
@@ -1326,7 +1342,7 @@ var DZC = (function () {
   var STEP_KEY = 'dz-smart-shop:step';
   /** Pages restées dans l'application Google (étape 3) : ouvertes là-bas. */
   var EXTERNAL = ['benefices', 'stock', 'stats', 'admin'];
-  var VERSION = '1.16.1';
+  var VERSION = '1.16.2';
 
   /** Même empreinte que shortHash_ (Api.gs) : clé de la mémoire sur l'appareil, sans l'adresse. */
   function shortHash(text) {
@@ -2366,13 +2382,20 @@ return '<th scope="col">' + t + '</th>';
 res.rows.forEach(function (o) {
 var stc = (S.boot.styles[o.status] || {}).fg || '#CFD4DB';
 var rowAct = !o.status || TODO_STATUSES.indexOf(o.status) >= 0 ? 'list-confirm' : 'open-order';
-html += '<tr class="clickable compact' + (selOn ? ' selectable' : '') + '" style="--st:' + stc + '" data-act="' + rowAct + '" data-id="' + h(o.id) + '">' +
+var kind = queueKind(o);
+var qk = kind === 'na' || kind === 'cb';
+var stPill = kind === 'cb' ? '<span class="q-st">' + icon('calendar') + 'Rappel demandé</span>'
+: kind === 'na' ? '<span class="q-st">' + icon(o.status === 'Injoignable' ? 'alert' : 'noanswer') + h(o.status) + '</span>' : pill(o.status);
+var dots = qk ? callDots(o, kind) : '';
+var cbWhen = kind === 'cb' && o.callback ? '<span class="q-when">rappel ' + h(fmtDate(o.callback)) + '</span>' : '';
+html += '<tr class="clickable compact' + (qk ? ' q-' + kind : '') + (selOn ? ' selectable' : '') + '" style="--st:' + stc + '" data-act="' + rowAct + '" data-id="' + h(o.id) + '">' +
 (selOn ? selCell('orders', o.id) : '') +
 '<td class="m-sum" data-label=""><span class="l1"><span>' + (selOn ? '<span data-stop class="m-sel">' + selBox('orders', o.id) + '</span>' : '') + '<span dir="auto">' + h(o.client || '—') + '</span></span><span class="num">' + money(o.total) + '</span></span>' +
-'<span class="l2">' + pill(o.status) + '<span>' + h(wilayaName(o.wilaya)) + '</span><span>· ' + h(o.id) + '</span>' +
+'<span class="l2">' + stPill + '<span>' + h(wilayaName(o.wilaya)) + '</span><span>· ' + h(o.id) + '</span>' +
 (o.locked ? '<span class="lock-icon">' + icon('lock') + '</span>' : '') +
 (o.alertLevel === 'bad' || o.alertLevel === 'warn' ? alertPill(o.alert, o.alertLevel) : '') +
 (o.status === 'Annulée' && o.cancelReason ? '<span style="color:#A12626">Motif : ' + h(o.cancelReason) + '</span>' : '') + '</span>' +
+(qk ? '<span class="l-dots">' + dots + cbWhen + '</span>' : '') +
 '<span class="l3"><span>' + h(o.product || '') + (o.qty > 1 ? ' ×' + o.qty : '') + '</span>' + (o.date ? '<span class="ago">' + h(ago(o.date)) + '</span>' : '') + '</span></td>' +
 '<td data-label="N°" class="multi"><button type="button" class="link-btn" data-act="' + rowAct + '" data-id="' + h(o.id) + '">' + h(o.id) + '</button>' +
 (o.locked ? ' <span class="lock-icon" title="Verrouillée" aria-label="Verrouillée">' + icon('lock') + '</span>' : '') + '<div class="small">' + fmtDate(o.date) + '</div></td>' +
@@ -2380,7 +2403,7 @@ html += '<tr class="clickable compact' + (selOn ? ' selectable' : '') + '" style
 '<td data-label="Wilaya" class="multi">' + h(o.wilaya) + '<div class="small" dir="auto">' + h(o.commune) + '</div></td>' +
 '<td data-label="Produit">' + h(o.product) + (o.qty > 1 ? ' ×' + o.qty : '') + '</td>' +
 '<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
-'<td data-label="Statut">' + pill(o.status) +
+'<td data-label="Statut">' + stPill + (qk ? '<div class="l-dots">' + dots + cbWhen + '</div>' : '') +
 (o.status === 'Annulée' && o.cancelReason ? '<div class="small strong" style="color:#A12626">Motif : ' + h(o.cancelReason) + '</div>' : '') +
 (PAGE_LABELS[o.page] && S.filter.status !== 'Annulée' ? '<div class="small">→ ' + PAGE_LABELS[o.page] + '</div>' : '') + '</td>' +
 '<td data-label="Alerte">' + alertPill(o.alert, o.alertLevel) + '</td>' +

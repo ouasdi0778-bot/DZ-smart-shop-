@@ -1073,6 +1073,24 @@ html.ld-open .fab { display: none !important; }
   .ld-panel .outcomes { z-index: 36; }
 }
 
+/* v1.16.2 : Liste aux couleurs de la file (pas de réponse / injoignable en orange, rappel en violet, appels du jour). */
+tr.compact.q-na { --st: #E8730C !important; }
+tr.compact.q-cb { --st: #7C4DDB !important; }
+table.data tbody tr.compact.q-na > td { background: #FFF6EC; }
+table.data tbody tr.compact.q-cb > td { background: #F6F1FF; }
+table.data tbody tr.compact.q-na:hover > td { background: #FFEEDB; }
+table.data tbody tr.compact.q-cb:hover > td { background: #EFE7FF; }
+tr.compact .q-st .ic { width: 13px; height: 13px; }
+.l-dots { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 5px; }
+.l-dots .q-when { font-size: 12px; font-weight: 600; color: #5B21B6; }
+tr.q-na .l-dots .q-when { color: #B45309; }
+@media (max-width: 860px) {
+  table.cards tr.compact.q-na { background: #FFF6EC; }
+  table.cards tr.compact.q-cb { background: #F6F1FF; }
+  table.cards tr.compact.q-na > td, table.cards tr.compact.q-cb > td { background: transparent; }
+  .m-sum .l-dots { margin-top: 6px; }
+}
+
 /* Application Google après le basculement : les pages des commandes sont dans la version Cloudflare. */
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }

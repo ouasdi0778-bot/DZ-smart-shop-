@@ -787,13 +787,21 @@
     res.rows.forEach(function (o) {
       var stc = (S.boot.styles[o.status] || {}).fg || '#CFD4DB';
       var rowAct = !o.status || TODO_STATUSES.indexOf(o.status) >= 0 ? 'list-confirm' : 'open-order';
-      html += '<tr class="clickable compact' + (selOn ? ' selectable' : '') + '" style="--st:' + stc + '" data-act="' + rowAct + '" data-id="' + h(o.id) + '">' +
+      // Comme dans la file d'appels : pas de réponse / injoignable en orange, rappel en violet, avec les appels du jour ●●○.
+      var kind = queueKind(o);
+      var qk = kind === 'na' || kind === 'cb';
+      var stPill = kind === 'cb' ? '<span class="q-st">' + icon('calendar') + 'Rappel demandé</span>'
+        : kind === 'na' ? '<span class="q-st">' + icon(o.status === 'Injoignable' ? 'alert' : 'noanswer') + h(o.status) + '</span>' : pill(o.status);
+      var dots = qk ? callDots(o, kind) : '';
+      var cbWhen = kind === 'cb' && o.callback ? '<span class="q-when">rappel ' + h(fmtDate(o.callback)) + '</span>' : '';
+      html += '<tr class="clickable compact' + (qk ? ' q-' + kind : '') + (selOn ? ' selectable' : '') + '" style="--st:' + stc + '" data-act="' + rowAct + '" data-id="' + h(o.id) + '">' +
         (selOn ? selCell('orders', o.id) : '') +
         '<td class="m-sum" data-label=""><span class="l1"><span>' + (selOn ? '<span data-stop class="m-sel">' + selBox('orders', o.id) + '</span>' : '') + '<span dir="auto">' + h(o.client || '—') + '</span></span><span class="num">' + money(o.total) + '</span></span>' +
-          '<span class="l2">' + pill(o.status) + '<span>' + h(wilayaName(o.wilaya)) + '</span><span>· ' + h(o.id) + '</span>' +
+          '<span class="l2">' + stPill + '<span>' + h(wilayaName(o.wilaya)) + '</span><span>· ' + h(o.id) + '</span>' +
           (o.locked ? '<span class="lock-icon">' + icon('lock') + '</span>' : '') +
           (o.alertLevel === 'bad' || o.alertLevel === 'warn' ? alertPill(o.alert, o.alertLevel) : '') +
           (o.status === 'Annulée' && o.cancelReason ? '<span style="color:#A12626">Motif : ' + h(o.cancelReason) + '</span>' : '') + '</span>' +
+          (qk ? '<span class="l-dots">' + dots + cbWhen + '</span>' : '') +
           '<span class="l3"><span>' + h(o.product || '') + (o.qty > 1 ? ' ×' + o.qty : '') + '</span>' + (o.date ? '<span class="ago">' + h(ago(o.date)) + '</span>' : '') + '</span></td>' +
         '<td data-label="N°" class="multi"><button type="button" class="link-btn" data-act="' + rowAct + '" data-id="' + h(o.id) + '">' + h(o.id) + '</button>' +
           (o.locked ? ' <span class="lock-icon" title="Verrouillée" aria-label="Verrouillée">' + icon('lock') + '</span>' : '') + '<div class="small">' + fmtDate(o.date) + '</div></td>' +
@@ -801,7 +809,7 @@
         '<td data-label="Wilaya" class="multi">' + h(o.wilaya) + '<div class="small" dir="auto">' + h(o.commune) + '</div></td>' +
         '<td data-label="Produit">' + h(o.product) + (o.qty > 1 ? ' ×' + o.qty : '') + '</td>' +
         '<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
-        '<td data-label="Statut">' + pill(o.status) +
+        '<td data-label="Statut">' + stPill + (qk ? '<div class="l-dots">' + dots + cbWhen + '</div>' : '') +
           (o.status === 'Annulée' && o.cancelReason ? '<div class="small strong" style="color:#A12626">Motif : ' + h(o.cancelReason) + '</div>' : '') +
           (PAGE_LABELS[o.page] && S.filter.status !== 'Annulée' ? '<div class="small">→ ' + PAGE_LABELS[o.page] + '</div>' : '') + '</td>' +
         '<td data-label="Alerte">' + alertPill(o.alert, o.alertLevel) + '</td>' +
