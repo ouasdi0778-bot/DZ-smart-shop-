@@ -72,6 +72,8 @@ function trackingAlerts_(orders, settings, now) {
     var make = function (kind, level, title, detail, since, extra) {
       var a = {
         id: String(o.id), client: String(o.client), phone: String(o.phone), wilaya: String(o.wilaya),
+        commune: String(o.commune == null ? '' : o.commune), mode: String(o.mode == null ? '' : o.mode),
+        product: String(o.product == null ? '' : o.product), total: toNumber_(o.total),
         tracking: String(o.tracking), carrierStatus: String(o.carrierStatus), carrierLabel: label, status: o.status,
         kind: kind, level: level, title: title, detail: detail, since: since.toISOString(),
         courierNote: note, tag: tag, tagLabel: remarkTagLabel_(tag), calls: calls,
@@ -301,6 +303,17 @@ function api_parcelHistory(id) {
 /* ------------------------------------------------------------------ */
 
 /**
+ * Étape du colis pour la barre de la page Suivi (v1.19) :
+ * 0 créé, 1 ramassage, 2 en route, 3 chez le livreur, 4 livré, -1 retour.
+ */
+var TRACK_STEP_ = { draft: 0, transit: 2, delivery: 3, suspended: 3, delivered: 4, cashed: 4, ready: 4, paid: 4, returning: -1, returned: -1 };
+function trackStep_(raw, group) {
+  var key = normalizeText_(String(raw == null ? '' : raw).trim()).replace(/ /g, '_');
+  if (key === 'en_ramassage' || key === 'en_preparation_stock') return 1;
+  return Object.prototype.hasOwnProperty.call(TRACK_STEP_, group) ? TRACK_STEP_[group] : 2;
+}
+
+/**
  * Données de la page Suivi. days = période de l'onglet « Terminées » : 7, 30 ou 90 jours.
  * L'argent (où est l'argent, versements) est dans Statistiques › Argent.
  */
@@ -334,9 +347,11 @@ function trackingOverviewApi_(days) {
     var moved = toDate_(o.carrierMoved) || toDate_(o.updated) || toDate_(o.date) || now;
     parcels.push({
       id: String(o.id), client: String(o.client), phone: String(o.phone), wilaya: String(o.wilaya),
+      commune: String(o.commune == null ? '' : o.commune), mode: String(o.mode == null ? '' : o.mode),
+      product: String(o.product == null ? '' : o.product),
       tracking: String(o.tracking), carrierStatus: String(o.carrierStatus),
       carrierLabel: info ? info.label : (o.status === STATUS.CONFIRMED ? 'Créé, à valider chez Ecotrack' : ''),
-      group: group, status: o.status, total: toNumber_(o.total),
+      group: group, step: trackStep_(o.carrierStatus, group), status: o.status, total: toNumber_(o.total),
       since: moved.toISOString(), ageHours: Math.floor((now.getTime() - moved.getTime()) / 3600000),
       stale: !!staleIds[String(o.id)],
       courierNote: String(o.courierNote == null ? '' : o.courierNote),
@@ -356,6 +371,8 @@ function trackingOverviewApi_(days) {
     var group = info ? info.group : '';
     finished.push({
       id: String(o.id), client: String(o.client), wilaya: String(o.wilaya), status: o.status, total: toNumber_(o.total),
+      commune: String(o.commune == null ? '' : o.commune), mode: String(o.mode == null ? '' : o.mode),
+      product: String(o.product == null ? '' : o.product),
       carrier: String(o.carrier || ''), tracking: String(o.tracking || ''), paymentId: String(o.paymentId || ''),
       label: info ? info.label : o.status,
       unpaid: o.status === STATUS.DELIVERED && (group === 'delivered' || group === 'cashed' || group === 'ready'),

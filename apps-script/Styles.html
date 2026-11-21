@@ -1212,6 +1212,64 @@ button.mode-tab.on { background: var(--surface); }
   .ship-bar.two .sb-sum { flex: none; }
 }
 
+/* v1.19 : page Suivi en cartes, comme Expédier (onglets, ligne Ecotrack, À appeler / À vérifier, barre d'étapes). */
+.mode-n.bad { background: #C0392B; }
+.mode-n.muted { background: #8A93A0; }
+.tk-tabs { max-width: 620px; }
+.sc-grp.warn { color: #9A4A06; }
+.sc.tk { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "who total" "dest dest" "state state" "acts acts"; padding: 12px; }
+.sc.info { border-left-color: #3B6FD8; }
+.sc.tk .sc-state:empty { display: none; }
+.tk-acts { grid-area: acts; display: flex; align-items: center; gap: 8px; margin: 4px 0 0 !important; }
+.tk-acts .sc-more { margin-left: auto; }
+.tk-acts .btn.icon-only { min-width: 40px; justify-content: center; padding: 0 10px; }
+.sc-probs > .tk-alert { display: inline-flex; align-items: center; gap: 4px; cursor: default; }
+.sc-probs > .tk-alert .ic { width: 13px; height: 13px; margin: 0; }
+.sc-probs > .tk-alert.late { background: #FFF1E2; color: #9A4A06; }
+.sc-probs > .tk-alert.info { background: #E6EEFB; color: #1E4FA8; }
+.sc-pill.bad { background: #FBE7E7 !important; color: #A12626 !important; }
+.tk-note { flex: 1 1 100%; display: flex; align-items: flex-start; gap: 6px; padding: 7px 10px; border-radius: 10px; background: #F3EFFB; color: #4B2E91; font-size: 13.5px; line-height: 1.35; }
+.tk-note > .ic { width: 15px; height: 15px; flex: none; margin-top: 2px; }
+.tk-note > span[dir] { flex: 1 1 auto; min-width: 0; }
+.tk-note .pill { flex: none; }
+.sc.tk.fin { grid-template-areas: "who total" "dest dest" "state acts"; }
+.sc.tk.fin .tk-acts { align-self: end; margin: 0 !important; }
+.tk-note .pill { font: 600 12px var(--font); padding: 2px 8px; }
+.tk-do { flex: 1 1 100%; display: flex; align-items: center; gap: 6px; font: 600 14px var(--font); color: #9A4A06; }
+.tk-do .qh-tip { font-weight: 400; color: var(--ink); }
+.tk-ret { flex: 1 1 100%; margin: 2px 0 0; padding: 10px 12px; }
+.tk-ret p { flex: 1 1 100%; margin: 0; }
+.tk-ret .btn { min-height: 40px; }
+.tk-where { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 14px; }
+.tk-where b { font-weight: 600; }
+.tk-since { font-size: 13px; color: var(--muted); }
+.tk-since.late { color: #9A4A06; font-weight: 600; }
+.tk-flag { font: 600 12px var(--font); padding: 2px 8px; border-radius: 999px; background: #FBE7E7; color: #A12626; }
+.tk-bar { display: inline-flex; gap: 3px; flex: none; }
+.tk-bar i { width: 16px; height: 6px; border-radius: 3px; background: #E3E6EB; }
+.tk-bar i.done { background: #9ED3B5; }
+.tk-bar i.on { background: #1F9D55; }
+.tk-bar.warn i.done { background: #F4C79A; }
+.tk-bar.warn i.on { background: #E8730C; }
+.tk-bar.ret i { background: #E39A93; }
+.tk-sub { flex: 1 1 100%; font-size: 13px; color: var(--muted); }
+.tk-chips { margin: 0 0 4px; }
+.tk-chips .chip { min-height: 34px; padding: 0 12px; font-size: 13.5px; }
+.tk-period { display: flex; align-items: center; gap: 10px; margin: 0 2px 8px; font-size: 13.5px; color: var(--muted); }
+@media (min-width: 861px) {
+  .sc.tk, .sc.tk.fin { grid-template-columns: minmax(150px, 1fr) minmax(170px, 1fr) 96px minmax(260px, 2fr) auto; grid-template-areas: "who dest total state acts"; align-items: center; padding: 10px 14px 10px 12px; }
+  .sc.tk.fin .tk-acts { align-self: center; }
+  .tk-acts { margin: 0 !important; justify-content: flex-end; }
+  .tk-acts .sc-more { margin-left: 0; }
+}
+@media (max-width: 860px) {
+  .tk-tabs .mode-tab { gap: 5px; padding: 0 4px; font-size: 14px; }
+  .tk-tabs .mode-n { min-width: 20px; padding: 1px 6px; font-size: 11.5px; }
+  .tk-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -16px 4px; padding: 0 16px 2px; }
+  .tk-chips::-webkit-scrollbar { display: none; }
+  .tk-chips .chip { flex: none; }
+}
+
 /* Application Google après le basculement : les pages des commandes sont dans la version Cloudflare. */
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }

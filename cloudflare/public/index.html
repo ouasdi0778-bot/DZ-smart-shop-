@@ -1170,6 +1170,62 @@ body:has(.ship-bar) #toast { bottom: calc(150px + env(safe-area-inset-bottom)); 
 .ship-bar.two .sb-sum small { display: none; }
 .ship-bar.two .sb-sum { flex: none; }
 }
+.mode-n.bad { background: #C0392B; }
+.mode-n.muted { background: #8A93A0; }
+.tk-tabs { max-width: 620px; }
+.sc-grp.warn { color: #9A4A06; }
+.sc.tk { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "who total" "dest dest" "state state" "acts acts"; padding: 12px; }
+.sc.info { border-left-color: #3B6FD8; }
+.sc.tk .sc-state:empty { display: none; }
+.tk-acts { grid-area: acts; display: flex; align-items: center; gap: 8px; margin: 4px 0 0 !important; }
+.tk-acts .sc-more { margin-left: auto; }
+.tk-acts .btn.icon-only { min-width: 40px; justify-content: center; padding: 0 10px; }
+.sc-probs > .tk-alert { display: inline-flex; align-items: center; gap: 4px; cursor: default; }
+.sc-probs > .tk-alert .ic { width: 13px; height: 13px; margin: 0; }
+.sc-probs > .tk-alert.late { background: #FFF1E2; color: #9A4A06; }
+.sc-probs > .tk-alert.info { background: #E6EEFB; color: #1E4FA8; }
+.sc-pill.bad { background: #FBE7E7 !important; color: #A12626 !important; }
+.tk-note { flex: 1 1 100%; display: flex; align-items: flex-start; gap: 6px; padding: 7px 10px; border-radius: 10px; background: #F3EFFB; color: #4B2E91; font-size: 13.5px; line-height: 1.35; }
+.tk-note > .ic { width: 15px; height: 15px; flex: none; margin-top: 2px; }
+.tk-note > span[dir] { flex: 1 1 auto; min-width: 0; }
+.tk-note .pill { flex: none; }
+.sc.tk.fin { grid-template-areas: "who total" "dest dest" "state acts"; }
+.sc.tk.fin .tk-acts { align-self: end; margin: 0 !important; }
+.tk-note .pill { font: 600 12px var(--font); padding: 2px 8px; }
+.tk-do { flex: 1 1 100%; display: flex; align-items: center; gap: 6px; font: 600 14px var(--font); color: #9A4A06; }
+.tk-do .qh-tip { font-weight: 400; color: var(--ink); }
+.tk-ret { flex: 1 1 100%; margin: 2px 0 0; padding: 10px 12px; }
+.tk-ret p { flex: 1 1 100%; margin: 0; }
+.tk-ret .btn { min-height: 40px; }
+.tk-where { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 14px; }
+.tk-where b { font-weight: 600; }
+.tk-since { font-size: 13px; color: var(--muted); }
+.tk-since.late { color: #9A4A06; font-weight: 600; }
+.tk-flag { font: 600 12px var(--font); padding: 2px 8px; border-radius: 999px; background: #FBE7E7; color: #A12626; }
+.tk-bar { display: inline-flex; gap: 3px; flex: none; }
+.tk-bar i { width: 16px; height: 6px; border-radius: 3px; background: #E3E6EB; }
+.tk-bar i.done { background: #9ED3B5; }
+.tk-bar i.on { background: #1F9D55; }
+.tk-bar.warn i.done { background: #F4C79A; }
+.tk-bar.warn i.on { background: #E8730C; }
+.tk-bar.ret i { background: #E39A93; }
+.tk-sub { flex: 1 1 100%; font-size: 13px; color: var(--muted); }
+.tk-chips { margin: 0 0 4px; }
+.tk-chips .chip { min-height: 34px; padding: 0 12px; font-size: 13.5px; }
+.tk-period { display: flex; align-items: center; gap: 10px; margin: 0 2px 8px; font-size: 13.5px; color: var(--muted); }
+@media (min-width: 861px) {
+.sc.tk, .sc.tk.fin { grid-template-columns: minmax(150px, 1fr) minmax(170px, 1fr) 96px minmax(260px, 2fr) auto; grid-template-areas: "who dest total state acts"; align-items: center; padding: 10px 14px 10px 12px; }
+.sc.tk.fin .tk-acts { align-self: center; }
+.tk-acts { margin: 0 !important; justify-content: flex-end; }
+.tk-acts .sc-more { margin-left: 0; }
+}
+@media (max-width: 860px) {
+.tk-tabs .mode-tab { gap: 5px; padding: 0 4px; font-size: 14px; }
+.tk-tabs .mode-n { min-width: 20px; padding: 1px 6px; font-size: 11.5px; }
+.tk-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -16px 4px; padding: 0 16px 2px; }
+.tk-chips::-webkit-scrollbar { display: none; }
+.tk-chips .chip { flex: none; }
+}
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }
 </style>
@@ -1459,7 +1515,7 @@ var DZC = (function () {
   var STEP_KEY = 'dz-smart-shop:step';
   /** Pages restées dans l'application Google (étape 3) : ouvertes là-bas. */
   var EXTERNAL = ['benefices', 'stock', 'stats', 'admin'];
-  var VERSION = '1.18.0';
+  var VERSION = '1.19.0';
 
   /** Même empreinte que shortHash_ (Api.gs) : clé de la mémoire sur l'appareil, sans l'adresse. */
   function shortHash(text) {
@@ -1835,7 +1891,7 @@ vbusy: false, vresults: null,         // validation de l'expédition
 printing: false, pdf: null,           // dernier PDF de bordereaux { url, items, marked }
 refreshedAt: 0                        // dernière relecture des colis créés chez Ecotrack
 },
-track: { data: null, days: 30, filter: 'all', view: 'active', done: 'all' },
+track: { data: null, days: 30, filter: 'all', view: '', done: 'all' },
 follow: null,     // alerte en cours : { id, result } (fenêtre « Résultat de l'appel »)
 followBusy: false,
 order: null,      // dernière commande affichée dans la fenêtre (pour la réafficher)
@@ -4370,41 +4426,6 @@ var GROUPS = [
 ['all', 'Tous'], ['transit', 'En route'], ['delivery', 'En livraison'],
 ['suspended', 'Suspendus'], ['returning', 'Retours']
 ];
-function finishedSection(d) {
-var f = S.track.done;
-var tests = {
-all: function () { return true; },
-delivered: function (x) { return x.status === 'Livrée'; },
-unpaid: function (x) { return x.unpaid; },
-returned: function (x) { return x.status === 'Retour'; }
-};
-var chips = [['all', 'Toutes'], ['delivered', 'Livrées'], ['unpaid', 'Argent pas encore reçu'], ['returned', 'Retours reçus']];
-var shown = d.finished.filter(tests[f] || tests.all);
-var periods = [[7, '7 jours'], [30, '30 jours'], [90, '90 jours']];
-var html = '<section class="card"><div class="detail-head"><h2>Commandes terminées</h2>' +
-'<div class="seg" role="group" aria-label="Période">' + periods.map(function (p) {
-return '<button type="button" data-act="track-days" data-days="' + p[0] + '" aria-pressed="' + (d.days === p[0]) + '">' + p[1] + '</button>';
-}).join('') + '</div></div><div class="chips" role="group" aria-label="Filtrer" style="margin:12px 0">' +
-chips.map(function (c) {
-return '<button type="button" class="chip" data-act="track-done-filter" data-done="' + c[0] + '" aria-pressed="' + (f === c[0]) + '">' + c[1] + ' · ' + d.finished.filter(tests[c[0]]).length + '</button>';
-}).join('') + '</div>';
-if (!shown.length) return html + '<p class="empty" style="padding:18px 0">Aucune commande dans cette catégorie sur la période.</p></section>';
-html += '<div class="table-wrap" style="border:0"><table class="data cards"><thead><tr>' +
-['Commande', 'Wilaya', 'Résultat', 'Argent / colis', 'Le', 'Total'].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>' +
-shown.map(function (x) {
-return '<tr><td data-label="Commande" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(x.id) + '">' + h(x.id) + '</button><div class="small">' + h(x.client) + '</div></td>' +
-'<td data-label="Wilaya">' + h(wilayaName(x.wilaya)) + '</td>' +
-'<td data-label="Résultat">' + pill(x.status) + '</td>' +
-'<td data-label="Argent / colis">' + h(x.label) + (x.unpaid ? ' <span class="pill" style="background:#FFF3DC;color:#8A5200">à recevoir</span>' : '') +
-(x.damaged ? ' <span class="pill" style="background:#FBE7E7;color:#A12626">abîmé, retiré du stock</span>' : '') +
-(x.canDamage && S.boot.user.stock ? ' <button type="button" class="btn" style="min-height:32px;padding:0 10px" data-act="return-damaged" data-id="' + h(x.id) + '">Abîmé ?</button>' : '') +
-(x.paymentId ? '<div class="small">Versement ' + h(x.paymentId) + '</div>' : '') + '</td>' +
-'<td data-label="Le">' + h(fmtDate(x.since)) + '</td>' +
-'<td data-label="Total" class="num strong">' + money(x.total) + '</td></tr>';
-}).join('') + '</tbody></table></div>';
-if (d.finishedTotal > d.finished.length) html += '<p class="small" style="margin-top:10px">Les ' + d.finished.length + ' plus récentes sur ' + d.finishedTotal + '.</p>';
-return html + '</section>';
-}
 function everyText(min) {
 min = Number(min) || 60;
 return min === 60 ? 'toutes les heures' : min === 120 ? 'toutes les 2 heures' : 'toutes les ' + min + ' minutes';
@@ -4414,7 +4435,10 @@ var p = String(phone || '').replace(/\D/g, '');
 return /^0[567]\d{8}$/.test(p) ? 'https://wa.me/213' + p.slice(1) : '';
 }
 function pageTracking() {
-view.innerHTML = '<div id="track"><p class="loading">Chargement…</p></div>';
+view.innerHTML =
+'<div class="page-head ship-head"><div><h1>Suivi des colis' + help('Statuts relus chez Ecotrack automatiquement. L’argent (chez le livreur, à recevoir, versements d’Ecotrack) est dans Statistiques › Argent.') + '</h1></div>' +
+'<button type="button" class="btn" data-act="track-sync">' + icon('refresh') + 'Actualiser les statuts</button></div>' +
+'<div id="track"><p class="loading">Chargement…</p></div>';
 if (S.track.data && S.track.data.days === S.track.days) renderTracking();
 loadTracking();
 }
@@ -4437,81 +4461,173 @@ function renderTracking() {
 var d = S.track.data;
 var box = $('#track');
 if (!d || !box) return;
-var html = '<div class="page-head"><div><h1>Suivi des colis' + help('Statuts relus chez Ecotrack automatiquement ' + h(everyText(d.every)) + '. L’argent (chez le livreur, à recevoir, versements d’Ecotrack) est dans Statistiques › Argent.') + '</h1><p class="sub">' +
-(d.lastSync ? stat(true, 'Ecotrack · lu ' + h(ago(d.lastSync))) : stat(false, 'Statuts pas encore lus')) + '</p></div>' +
-'<button type="button" class="btn primary" data-act="track-sync">' + icon('refresh') + 'Actualiser les statuts</button></div>';
-html += '<div class="stack">';
+var tab = S.track.view || (d.alerts.length ? 'alerts' : 'active');
+var urgent = d.alerts.some(function (a) { return a.level === 'urgent'; });
+var tabBtn = function (key, label, n, cls) {
+return '<button type="button" role="tab" class="mode-tab' + (tab === key ? ' on' : '') + '" data-act="track-view" data-view="' + key + '" aria-selected="' + (tab === key) + '">' + label +
+(n ? '<span class="mode-n' + (cls ? ' ' + cls : '') + '">' + n + '</span>' : '') + '</button>';
+};
+var html = '<div class="stack">' +
+'<div class="mode-bar ship-tabs tk-tabs"><div class="mode-seg" role="tablist" aria-label="Suivi">' +
+tabBtn('alerts', 'À traiter', d.alerts.length, urgent ? 'bad' : 'warn') +
+tabBtn('active', 'En cours', d.parcels.length, '') +
+tabBtn('done', 'Terminées', d.finishedTotal, 'muted') + '</div></div>';
+html += '<div class="eco-line">' + (d.lastSync ? stat(true, 'Ecotrack · lu ' + h(ago(d.lastSync))) : stat(false, 'Statuts pas encore lus')) +
+help('Statuts relus chez Ecotrack ' + h(everyText(d.every)) + '. L’argent (chez le livreur, à recevoir, versements d’Ecotrack) est dans Statistiques › Argent.') +
+'<details class="more-menu"><summary class="btn icon-only" title="Plus d’actions" aria-label="Actions du suivi">⋯</summary><div class="menu">' +
+'<button type="button" data-act="track-sync">' + icon('refresh') + 'Actualiser les statuts</button>' +
+'</div></details></div>';
 if (!d.configured) {
-html += '<div class="card"><h2>Ecotrack n’est pas encore configuré</h2><p class="sub">Enregistrez l’adresse et le jeton dans le classeur (menu DZ Smart Shop › Ecotrack), puis créez vos premiers colis dans la page Expéditions.</p></div>';
+html += '<div class="card"><h2>Ecotrack n’est pas encore configuré</h2><p class="sub">Enregistrez l’adresse et le jeton (Administration › Connexions › Ecotrack), puis créez vos premiers colis dans la page Expédier.</p></div>';
 }
 if (d.lastError) html += errorBox(d.lastError);
-html += '<section class="card"><h2>À traiter · ' + d.alerts.length + '</h2>';
-if (!d.alerts.length) {
-html += '<p class="empty" style="padding:18px 0">Rien à traiter : vos colis avancent normalement.</p>';
-} else {
-html += d.alerts.map(function (a) {
-var lv = LEVELS[a.level] || LEVELS.info;
+html += '<div class="sc-list">' + (tab === 'alerts' ? alertsSection(d) : tab === 'done' ? finishedSection(d) : activeSection(d)) + '</div>';
+box.innerHTML = html + '</div>';
+}
+function tkHead(x) {
+return '<span class="sc-who"><strong dir="auto">' + h(x.client || '—') + '</strong><small><button type="button" class="link-btn" data-act="open-order" data-id="' + h(x.id) + '">' + h(x.id) + '</button>' +
+(x.product ? ' · <span dir="auto">' + h(x.product) + '</span>' : '') + '</small></span>' +
+'<span class="sc-dest">' + h(wilayaName(x.wilaya)) + (x.commune ? ' · <span dir="auto">' + h(x.commune) + '</span>' : '') + ' ' + modePill(x.mode) + '</span>' +
+'<span class="sc-total">' + (x.total ? money(x.total) : '') + '</span>';
+}
+function telOk(phone) { return /^0\d{8,9}$/.test(String(phone || '').replace(/\D/g, '')); }
+function tkMenu(x, items) {
+var wa = x.phone ? waLink(x.phone) : '';
+return '<details class="more-menu sc-more"><summary class="btn icon-only" aria-label="Plus d’actions">⋯</summary><div class="menu">' +
+(x.phone && telOk(x.phone) ? '<a href="tel:' + h(x.phone) + '" target="_top">' + icon('phone') + 'Appeler ' + h(fmtPhone(x.phone)) + '</a>' : '') +
+(wa ? '<a href="' + h(wa) + '" target="_blank" rel="noopener">' + icon('whatsapp') + 'WhatsApp</a>' : '') +
+(items || '') +
+'<button type="button" data-act="open-order" data-id="' + h(x.id) + '">' + icon('eye') + 'Voir la commande</button>' +
+(x.tracking ? '<button type="button" data-act="copy-text" data-text="' + h(x.tracking) + '">' + icon('suivi') + 'Copier ' + h(x.tracking) + '</button>' : '') +
+'</div></details>';
+}
+function tkNote(note, tag, tagLabel) {
+return note ? '<span class="tk-note">' + icon('courier') + (tagLabel ? tagPill(tag, tagLabel) : '') + '<span dir="auto">' + h(note) + '</span></span>' : '';
+}
+var TK_STEPS = ['Créé', 'Ramassage', 'En route', 'Chez le livreur', 'Livré'];
+function stepBar(step, warn) {
+var n = Number(step);
+var cells = '';
+for (var i = 0; i < 5; i++) cells += '<i class="' + (n < 0 ? '' : i < n ? 'done' : i === n ? 'on' : '') + '"></i>';
+return '<span class="tk-bar' + (n < 0 ? ' ret' : warn ? ' warn' : '') + '" role="img" aria-label="' + h(n < 0 ? 'Retour' : 'Étape : ' + (TK_STEPS[n] || '')) + '" title="' + h(n < 0 ? 'Retour' : TK_STEPS.join(' → ')) + '">' + cells + '</span>';
+}
+function alertCard(a) {
+var lv = a.level === 'urgent' ? 'bad' : a.level === 'info' ? 'info' : 'late';
+var since = ago(a.since).replace(/^il y a /, '');
+var showStatus = a.carrierLabel && a.kind !== 'suspended' && a.kind !== 'draft';
 var wa = waLink(a.phone);
-return '<div class="result-row track-alert lv-' + h(a.level) + '"><span class="pill" style="min-width:96px;text-align:center;background:' + lv.bg + ';color:' + lv.fg + '">' + lv.label + '</span>' +
-'<span class="grow"><strong>' + h(a.title) + '</strong> · <button type="button" class="link-btn" data-act="open-order" data-id="' + h(a.id) + '">' + h(a.id) + '</button> · <span dir="auto">' + h(a.client) + '</span> · ' + h(wilayaName(a.wilaya)) +
-(a.tagLabel ? ' ' + tagPill(a.tag, a.tagLabel) : '') +
-'<br><span class="act-short">→ ' + h(shortAction(a)) + '</span>' + help(h(a.detail)) +
-(a.courierNote ? '<br><span class="small courier-note">' + icon('courier') + 'Livreur : ' + h(a.courierNote) + '</span>' : '') +
-(a.calls && !a.proposeReturn ? '<br><span class="small strong">' + plural(a.calls, 'appel sans réponse', 'appels sans réponse') + '</span>' : '') +
-'<br><span class="small mono">' + h(a.tracking) + ' · ' + h(a.carrierLabel || 'statut pas encore lu') + ' · depuis ' + h(ago(a.since).replace(/^il y a /, '')) + '</span>' +
-(a.proposeReturn ? '<span class="lock-box warn" style="margin-top:8px"><p>' + plural(a.calls, 'appel', 'appels') + ' sans réponse : demander le retour du colis ?</p>' +
-'<button type="button" class="btn danger" style="min-height:40px" data-act="follow-return" data-id="' + h(a.id) + '">Demander le retour</button>' +
-'<button type="button" class="btn" style="min-height:40px" data-act="follow-quick" data-result="informed" data-id="' + h(a.id) + '">Laisser le livreur réessayer</button></span>' : '') +
+var main = a.callable
+? '<button type="button" class="btn primary" data-act="follow-open" data-id="' + h(a.id) + '">Résultat de l’appel</button>'
+: a.kind === 'draft'
+? '<button type="button" class="btn primary" data-act="go-validate">' + icon('check') + 'Valider</button>'
+: '<button type="button" class="btn" data-act="track-done" data-id="' + h(a.id) + '">' + icon('check') + 'Traité</button>';
+return '<div class="sc tk ' + lv + '">' + tkHead(a) +
+'<span class="sc-state">' +
+'<span class="sc-probs plain"><span class="tk-alert ' + lv + '">' + icon('alert') + h(a.title) + ' · ' + h(since) + '</span>' +
+(a.tagLabel ? tagPill(a.tag, a.tagLabel) : '') +
+(showStatus ? '<span class="sc-pill">' + h(a.carrierLabel) + '</span>' : '') +
+(a.calls && !a.proposeReturn ? '<span class="sc-pill warn">' + icon('noanswer') + plural(a.calls, 'appel sans réponse', 'appels sans réponse') + '</span>' : '') + '</span>' +
+tkNote(a.courierNote, '', '') +
+'<span class="tk-do">→ ' + h(shortAction(a)) + help(h(a.detail) + (a.tracking ? '<br>Colis ' + h(a.tracking) + (a.carrierLabel ? ' · ' + h(a.carrierLabel) : '') : '')) + '</span>' +
+(a.proposeReturn ? '<span class="lock-box warn tk-ret"><p>' + plural(a.calls, 'appel', 'appels') + ' sans réponse : demander le retour du colis ?</p>' +
+'<button type="button" class="btn danger" data-act="follow-return" data-id="' + h(a.id) + '">Demander le retour</button>' +
+'<button type="button" class="btn" data-act="follow-quick" data-result="informed" data-id="' + h(a.id) + '">Laisser le livreur réessayer</button></span>' : '') +
 '</span>' +
-'<span class="quick track-actions">' +
-(/^0\d{8,9}$/.test(String(a.phone).replace(/\D/g, '')) ? '<a class="btn icon-only" href="tel:' + h(a.phone) + '" target="_top" title="Appeler" aria-label="Appeler">' + icon('confirmation') + '</a>' : '') +
-(a.callable
-? '<button type="button" class="btn primary" style="min-height:40px" data-act="follow-open" data-id="' + h(a.id) + '">Résultat de l’appel</button>'
-: '<button type="button" class="btn" style="min-height:40px" data-act="track-done" data-id="' + h(a.id) + '">Marquer comme traité</button>') +
-'<details class="more-menu"><summary class="btn icon-only" title="Plus d’actions" aria-label="Plus d’actions">⋯</summary><div class="menu">' +
+'<span class="sc-acts tk-acts">' +
+(telOk(a.phone) ? '<a class="btn icon-only" href="tel:' + h(a.phone) + '" target="_top" title="Appeler" aria-label="Appeler ' + h(a.client) + '">' + icon('phone') + '</a>' : '') +
+main +
+tkMenu({ id: a.id, tracking: a.tracking },
 (wa ? '<a href="' + h(wa) + '" target="_blank" rel="noopener">' + icon('whatsapp') + 'WhatsApp</a>' : '') +
 '<button type="button" data-act="track-history" data-id="' + h(a.id) + '">' + icon('clock') + 'Chronologie</button>' +
-(a.callable ? '<button type="button" data-act="track-done" data-id="' + h(a.id) + '">' + icon('check') + 'Marquer comme traité</button>' : '') +
-'</div></details>' +
+(a.callable || a.kind === 'draft' ? '<button type="button" data-act="track-done" data-id="' + h(a.id) + '">' + icon('check') + 'Marquer comme traité</button>' : '')) +
 '</span></div>';
-}).join('');
 }
-html += '</section>';
-var view = S.track.view;
-html += '<div class="seg" role="group" aria-label="Colis" style="align-self:flex-start">' +
-'<button type="button" data-act="track-view" data-view="active" aria-pressed="' + (view === 'active') + '">En cours · ' + d.parcels.length + '</button>' +
-'<button type="button" data-act="track-view" data-view="done" aria-pressed="' + (view === 'done') + '">Terminées (' + d.days + ' j) · ' + d.finishedTotal + '</button></div>';
-if (view === 'done') html += finishedSection(d);
-else html += activeSection(d);
-html += '</div>';
-box.innerHTML = html;
+function alertsSection(d) {
+if (!d.alerts.length) return '<div class="card"><p class="empty" style="padding:18px 0">Rien à traiter : vos colis avancent normalement.</p></div>';
+var toCall = d.alerts.filter(function (a) { return a.callable; });
+var toCheck = d.alerts.filter(function (a) { return !a.callable; });
+var html = '';
+if (toCall.length) {
+html += '<div class="sc-grp bad">' + icon('phone') + 'À appeler · ' + toCall.length +
+help('Colis suspendu, retour en cours, ou chez le livreur sans mouvement : appelez le client, puis « Résultat de l’appel » prévient le livreur (report, nouvelle adresse, refus…).') + '</div>' +
+toCall.map(alertCard).join('');
+}
+if (toCheck.length) {
+html += '<div class="sc-grp warn">' + icon('eye') + 'À vérifier · ' + toCheck.length +
+help('À vérifier chez Ecotrack (argent en retard, colis sans mouvement…). « Traité » range l’alerte jusqu’au prochain changement du colis.') + '</div>' +
+toCheck.map(alertCard).join('');
+}
+return html;
+}
+function parcelCard(p, flagged) {
+var cls = p.stale ? 'late' : ({ transit: 'made', delivery: 'ok', suspended: 'late', returning: 'bad' })[p.group] || '';
+var note = p.courierNote && (p.group === 'suspended' || p.group === 'returning');
+return '<div class="sc tk ' + cls + '">' + tkHead(p) +
+'<span class="sc-state">' +
+'<span class="tk-where">' + stepBar(p.step, p.stale || p.group === 'suspended') + '<b>' + h(p.carrierLabel || '—') + '</b>' +
+'<span class="tk-since' + (p.stale ? ' late' : '') + '">' + (p.stale ? (p.group === 'draft' ? 'à valider · ' : 'sans mouvement · ') : '') + 'depuis ' + h(hoursText(p.ageHours)) + '</span>' +
+(flagged ? '<span class="tk-flag">À traiter</span>' : '') + '</span>' +
+(note ? tkNote(p.courierNote, '', p.tagLabel) : '') +
+'</span>' +
+'<span class="sc-acts tk-acts"><button type="button" class="btn" data-act="track-history" data-id="' + h(p.id) + '">' + icon('clock') + 'Chronologie</button>' +
+tkMenu(p, '') + '</span></div>';
 }
 function activeSection(d) {
-var html = '';
 var f = S.track.filter;
 var shown = d.parcels.filter(function (p) { return f === 'all' || p.group === f; });
-html += '<section class="card"><h2>Colis en cours · ' + d.parcels.length + '</h2><div class="chips" role="group" aria-label="Filtrer les colis" style="margin-bottom:12px">' +
+var flagged = {};
+d.alerts.forEach(function (a) { flagged[a.id] = true; });
+var html = '<div class="chips tk-chips" role="group" aria-label="Filtrer les colis">' +
 GROUPS.map(function (g) {
 var n = g[0] === 'all' ? d.parcels.length : d.parcels.filter(function (p) { return p.group === g[0]; }).length;
 return '<button type="button" class="chip" data-act="track-filter" data-group="' + g[0] + '" aria-pressed="' + (f === g[0]) + '">' + g[1] + ' · ' + n + '</button>';
 }).join('') + '</div>';
-if (!shown.length) {
-html += '<p class="empty" style="padding:18px 0">Aucun colis dans cette catégorie.</p>';
-} else {
-html += '<div class="table-wrap" style="border:0"><table class="data cards"><thead><tr>' +
-['Commande', 'Wilaya', 'N° de suivi', 'Statut Ecotrack', 'Depuis', 'Total', ''].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>' +
-shown.map(function (p) {
-return '<tr><td data-label="Commande" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(p.id) + '">' + h(p.id) + '</button><div class="small">' + h(p.client) + '</div></td>' +
-'<td data-label="Wilaya">' + h(wilayaName(p.wilaya)) + '</td>' +
-'<td data-label="N° de suivi" class="mono">' + h(p.tracking) + '</td>' +
-'<td data-label="Statut Ecotrack" class="multi">' + h(p.carrierLabel || '—') + (p.stale ? ' <span class="pill" style="background:#FFF3DC;color:#8A5200">' + (p.group === 'draft' ? 'à valider' : 'sans mouvement') + '</span>' : '') +
-(p.courierNote && (p.group === 'suspended' || p.group === 'returning') ? '<div class="small courier-note">' + (p.tagLabel ? tagPill('', p.tagLabel) + ' ' : '') + h(p.courierNote) + '</div>' : '') + '</td>' +
-'<td data-label="Depuis">' + h(hoursText(p.ageHours)) + '</td>' +
-'<td data-label="Total" class="num strong">' + money(p.total) + '</td>' +
-'<td data-label=""><button type="button" class="btn" style="min-height:36px" data-act="track-history" data-id="' + h(p.id) + '">' + icon('clock') + 'Chronologie</button></td></tr>';
-}).join('') + '</tbody></table></div>';
+if (!shown.length) return html + '<div class="card"><p class="empty" style="padding:18px 0">Aucun colis dans cette catégorie.</p></div>';
+var sum = shown.reduce(function (t, p) { return t + (Number(p.total) || 0); }, 0);
+html += '<div class="sc-grp made">' + plural(shown.length, 'colis', 'colis') + ' · ' + money(sum) + ' en route</div>';
+return html + shown.map(function (p) { return parcelCard(p, flagged[p.id]); }).join('');
 }
-return html + '</section>';
+function finishedCard(x) {
+var ok = x.status === 'Livrée';
+var paid = ok && !x.unpaid && (x.label === 'Payé' || !!x.paymentId);
+var sub = [];
+if (x.label && x.label !== x.status) sub.push(h(x.label));
+if (x.paymentId) sub.push('versement ' + h(x.paymentId));
+var eco = x.tracking && x.carrier === 'Ecotrack';
+return '<div class="sc tk fin ' + (ok ? 'ok' : 'bad') + '">' + tkHead(x) +
+'<span class="sc-state">' +
+'<span class="sc-probs plain"><span class="sc-pill ' + (ok ? 'ok' : 'bad') + '">' + icon(ok ? 'check' : 'return') + h(x.status) + ' · ' + h(fmtDate(x.since)) + '</span>' +
+(x.unpaid ? '<span class="sc-pill warn">' + icon('clock') + 'Argent à recevoir</span>' : paid ? '<span class="sc-pill ok">' + icon('benefices') + 'Argent reçu</span>' : '') +
+(x.damaged ? '<span class="sc-pill bad">Abîmé, retiré du stock</span>' : '') + '</span>' +
+(sub.length ? '<span class="tk-sub">' + sub.join(' · ') + '</span>' : '') +
+'</span>' +
+'<span class="sc-acts tk-acts">' +
+(x.canDamage && S.boot.user.stock ? '<button type="button" class="btn" data-act="return-damaged" data-id="' + h(x.id) + '">Abîmé ?</button>' : '') +
+tkMenu({ id: x.id, tracking: x.tracking }, eco ? '<button type="button" data-act="track-history" data-id="' + h(x.id) + '">' + icon('clock') + 'Chronologie</button>' : '') +
+'</span></div>';
+}
+function finishedSection(d) {
+var f = S.track.done;
+var tests = {
+all: function () { return true; },
+delivered: function (x) { return x.status === 'Livrée'; },
+unpaid: function (x) { return x.unpaid; },
+returned: function (x) { return x.status === 'Retour'; }
+};
+var chips = [['all', 'Toutes'], ['delivered', 'Livrées'], ['unpaid', 'Argent à recevoir'], ['returned', 'Retours reçus']];
+var shown = d.finished.filter(tests[f] || tests.all);
+var periods = [[7, '7 j'], [30, '30 j'], [90, '90 j']];
+var html = '<div class="tk-period"><span>Période</span><div class="seg" role="group" aria-label="Période">' + periods.map(function (p) {
+return '<button type="button" data-act="track-days" data-days="' + p[0] + '" aria-pressed="' + (d.days === p[0]) + '">' + p[1] + '</button>';
+}).join('') + '</div></div>' +
+'<div class="chips tk-chips" role="group" aria-label="Filtrer">' +
+chips.map(function (c) {
+return '<button type="button" class="chip" data-act="track-done-filter" data-done="' + c[0] + '" aria-pressed="' + (f === c[0]) + '">' + c[1] + ' · ' + d.finished.filter(tests[c[0]]).length + '</button>';
+}).join('') + '</div>';
+if (!shown.length) return html + '<div class="card"><p class="empty" style="padding:18px 0">Aucune commande dans cette catégorie sur la période.</p></div>';
+html += shown.map(finishedCard).join('');
+if (d.finishedTotal > d.finished.length) html += '<p class="small" style="margin:10px 2px">Les ' + d.finished.length + ' plus récentes sur ' + d.finishedTotal + '.</p>';
+return html;
 }
 function remarksHtml(d) {
 if (!d.remarks) return '';
@@ -4537,7 +4653,7 @@ var map = { suspended: 'Appeler le client', returning: 'Rappeler le client', ret
 money_late: 'Vérifier le paiement avec Ecotrack', missing: 'Vérifier dans Ecotrack', unknown: 'Mettre à jour à la main' };
 if (map[a.kind]) return map[a.kind];
 var t = String(a.detail || '');
-if (a.kind === 'stale') return t.split(' (')[0];
+if (a.kind === 'stale') return a.callable ? 'Appeler le client' : 'Relancer Ecotrack';
 var i = t.lastIndexOf(' : ');
 t = i >= 0 ? t.slice(i + 3) : t;
 return t.charAt(0).toUpperCase() + t.slice(1).replace(/\.$/, '');
@@ -4926,6 +5042,7 @@ refreshCount();
 'manual-ship-ask': function (el) { askManualShip(el.getAttribute('data-id')); },
 'manual-ship': manualShip,
 'track-view': function (el) { S.track.view = el.getAttribute('data-view'); renderTracking(); },
+'go-validate': function () { S.ship.tab = 'created'; location.hash = '#/expeditions'; },
 'track-done-filter': function (el) { S.track.done = el.getAttribute('data-done'); renderTracking(); },
 'order-delete-ask': function (el) { askDeleteOrder(el.getAttribute('data-id')); },
 'order-delete': deleteOrder,
