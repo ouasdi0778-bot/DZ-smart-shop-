@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.17
+## Ce que fait la version 1.18
 
 | Écran | Contenu |
 |---|---|
@@ -19,6 +19,8 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 | **Bénéfices** | Bénéfice net sur la **période de votre choix** comparé à la période d'avant, **graphiques** (bénéfice par jour, où part l'argent, seuil de rentabilité, simulateur du taux de livraison), produits classés par bénéfice **après pub** (chaque pub reliée à son produit), publicité (coût par livrée, ROAS), **dépenses et gains** sur un jour ou un intervalle, à corriger ou supprimer (administrateur) |
 | **Statistiques** | Commandes et argent par période, comparés à la période d'avant : **ce qui a changé** en phrases, parcours des commandes avec les pertes et leurs motifs, **carte des wilayas**, heures × jours, **meilleure heure pour appeler**, vitesse de confirmation, bureau ou domicile, produits, **équipe** (appels, réponses, objectif du jour, prime), publicité (**qualité des sources**), **filtre croisé** (une wilaya, un produit, une campagne, une source ou une confirmatrice), où est l'argent et versements d'Ecotrack ; tableaux triables, export pour Excel (administrateur) |
 | **Administration** | État de l'outil, connexions (Ecotrack, SMS, Shopify, Releasit), réglages en formulaires, équipe (**connexion par téléphone et mot de passe**, version Cloudflare), clients, sauvegarde **Tout exporter (Excel)**, entretien (administrateur) |
+
+Expédier plus lisible (v1.18) : onglets **À expédier** / **À valider**, cartes compactes rangées en **Prêtes** et **À corriger**, bouton d'envoi fixé en bas.
 
 Commandes et Confirmation en une seule page (v1.16) : onglets **Appeler** et **Liste**, loupe « le client rappelle », menu du bas à 5 boutons.
 
@@ -737,6 +739,17 @@ Rien à coller dans Apps Script pour cette version.
 - **Prochain rappel** à part, avec le temps qui reste (« dans 25 min ») ; dépassé, il passe en rouge (« en retard de 10 min »).
 - **Plus de 3 appels** : replié, avec un résumé en pastilles (« 3 sans réponse · 1 rappel demandé ») ; **Voir** ouvre la frise.
 - Même présentation dans l'onglet Appeler, dans la fiche ouverte depuis la Liste et dans la fiche résumée du téléphone.
+
+### v1.18 : page Expédier plus lisible
+
+Rien à coller dans Apps Script pour cette version.
+
+- **Haut de page court** : deux onglets **À expédier N** / **À valider N**, puis une seule ligne « ● Ecotrack connecté » ; Actualiser, Mettre à jour les statuts, Tester la connexion et Récupérer les tarifs sont rangés dans le menu **⋯**.
+- **Une carte compacte par commande** : client et total, n° et produit, wilaya · commune et Domicile / Stop desk, avec une bande verte (prête) ou rouge (à corriger). Sur ordinateur, une carte = une ligne.
+- **Deux groupes** : **Prêtes** (cochées d'office, « Tout cocher / décocher ») et **À corriger** (pastilles rouges courtes : Téléphone, Commune, Stop desk…). Bouton vert **« ✓ commune proposée »** pour corriger la commune en un toucher, **Corriger** ouvre la commande, le **⋯** donne Voir / modifier, Choisir la commune, Expédiée par une autre société.
+- **Bouton d'envoi fixé en bas** : « 2 colis · 8 750 DA à encaisser — **Envoyer à Ecotrack** », toujours sous le pouce sur téléphone.
+- **À valider en 2 étapes** : ① **Imprimer** → ② **Valider**, format A4 / 10×15 en pastilles ; chaque colis montre son n° de suivi, **Imprimé / Pas imprimé** et « créé il y a … » (en rouge « en retard » au-delà du délai d'alerte réglé, `SUIVI_ALERTE_HEURES`) ; le **⋯** donne Imprimer ce bordereau, Voir, Annuler le colis. La barre du bas propose **Imprimer N bordereaux** tant qu'il en reste à imprimer, puis **Valider N colis**.
+- Les règles d'envoi, d'impression et de validation ne changent pas.
 
 ### Comment ça marche
 

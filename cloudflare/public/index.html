@@ -1087,6 +1087,89 @@ table.cards tr.compact.q-na > td, table.cards tr.compact.q-cb > td { background:
 .hx-next em { font-style: normal; white-space: nowrap; flex: none; margin-left: auto; font: 700 12.5px var(--font); background: #7C4DDB; color: #FFFFFF; border-radius: 999px; padding: 3px 10px; }
 .hx-next.late { background: #FBE7E7; border-color: #F3B7B7; color: #A12626; }
 .hx-next.late em { background: #C0392B; }
+button.mode-tab { border: 0; background: none; cursor: pointer; }
+button.mode-tab.on { background: var(--surface); }
+.mode-n.warn { background: #E8A23A; }
+.ship-tabs { margin-bottom: 8px; }
+.eco-line { display: flex; align-items: center; gap: 8px; margin: 0 2px 6px; font-size: 14px; }
+.eco-line .more-menu { margin-left: auto; }
+.eco-line .more-menu .btn, .sc-more .btn { min-width: 40px; min-height: 36px; padding: 0 10px; justify-content: center; }
+.sc-grp { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 14px 2px 8px; font: 700 13px var(--font); text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.sc-grp .ic { width: 16px; height: 16px; }
+.sc-grp.ok { color: #146C2E; } .sc-grp.bad { color: #A12626; }
+.sc-grp > .link-btn { margin-left: auto; text-transform: none; letter-spacing: 0; font-size: 13.5px; }
+.sc-grp.made { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.sc-fmt { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13.5px; color: var(--muted); }
+.sc-fmt .chip { min-height: 32px; padding: 0 12px; font-size: 13px; }
+.sc { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; grid-template-areas: "chk who total" "chk dest dest" "chk state state"; gap: 4px 10px; align-items: start;
+background: var(--surface); border: 1px solid var(--line); border-left: 5px solid #CFD4DB; border-radius: 12px; padding: 12px 12px 12px 10px; margin-bottom: 8px; }
+.sc.ok { border-left-color: #1F9D55; } .sc.bad { border-left-color: #C0392B; } .sc.made { border-left-color: #3B6FD8; } .sc.late { border-left-color: #E8730C; }
+.sc-chk { grid-area: chk; padding-top: 2px; }
+.sc-chk .check { width: 22px; height: 22px; }
+.sc-nochk { display: inline-block; width: 22px; height: 22px; border-radius: 6px; border: 2px solid #E3E6EB; background: #F4F5F7; }
+.sc-who { grid-area: who; display: grid; gap: 2px; min-width: 0; }
+.sc-who strong { font-size: 16px; }
+.sc-who small { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-who small .link-btn { font-size: 13px; }
+.sc-dest { grid-area: dest; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 14px; color: var(--ink-2); }
+.sc-total { grid-area: total; font: 700 16px var(--font); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sc-state { grid-area: state; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.sc-modep { font: 600 12px var(--font); padding: 2px 8px; border-radius: 999px; background: #E6EEFB; color: #1E4FA8; white-space: nowrap; }
+.sc-modep.sd { background: #F3EDFF; color: #5B21B6; }
+.sc-ready { display: inline-flex; align-items: center; gap: 4px; font: 600 12.5px var(--font); color: #146C2E; }
+.sc-ready .ic { width: 14px; height: 14px; }
+.sc-probs { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 100%; }
+.sc-probs > span { font: 600 12.5px var(--font); padding: 3px 9px; border-radius: 999px; background: #FBE7E7; color: #A12626; cursor: help; }
+.sc-probs.plain > span { cursor: default; }
+.sc-pill { display: inline-flex; align-items: center; gap: 4px; font: 600 12px var(--font) !important; padding: 3px 9px; border-radius: 999px; background: #EEF0F3 !important; color: #3D4350 !important; }
+.sc-pill .ic { width: 13px; height: 13px; }
+.sc-pill.ok { background: #DDF0E4 !important; color: #146C2E !important; }
+.sc-pill.warn, .sc-pill.late { background: #FFF1E2 !important; color: #9A4A06 !important; }
+.sc-acts { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.sc-acts .btn { min-height: 38px; padding: 0 12px; white-space: nowrap; }
+.sc-acts .btn .ic { width: 15px; height: 15px; }
+.sc-probs + .sc-acts { margin-left: 0; flex: 1 1 100%; }
+.sc-probs + .sc-acts .sc-more { margin-left: auto; }
+.menu .danger-item { color: #A12626; }
+.ship-bar { position: sticky; bottom: 10px; z-index: 6; display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; border-radius: 14px;
+background: var(--surface); border: 1px solid var(--line); box-shadow: 0 6px 22px rgba(16,36,28,.14); }
+.sb-sum { font: 700 15px var(--font); line-height: 1.2; }
+.sb-sum small { display: block; font: 500 12.5px var(--font); color: var(--muted); }
+.ship-bar .btn { min-height: 46px; }
+.ship-bar .btn:first-of-type { margin-left: auto; }
+.ship-bar .btn.primary { font-size: 15px; }
+.ship-steps { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; margin: 4px 0 6px; }
+.ss { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--surface); border: 2px solid var(--line); color: var(--muted); }
+.ss.on { border-color: var(--brand); color: var(--ink); }
+.ss.done { border-color: #BFE0D2; }
+.ss-n { width: 28px; height: 28px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; background: #E7EAEE; color: #5B6170; font: 700 14px var(--font); }
+.ss-n .ic { width: 15px; height: 15px; }
+.ss.on .ss-n { background: var(--brand); color: #FFFFFF; }
+.ss.done .ss-n { background: #DDF0E4; color: #146C2E; }
+.ss b { display: block; font: 700 15px var(--font); }
+.ss small { font-size: 12.5px; color: var(--muted); }
+.ss-arrow { color: #9AA3AF; font-size: 18px; }
+.sc-list { display: block; }
+.sc-list > .sc-grp:first-child { margin-top: 4px; }
+.sc-fmt .qh-tip { flex-basis: 100%; }
+@media (min-width: 861px) {
+.sc { grid-template-columns: 28px minmax(170px, 1.2fr) minmax(200px, 1.3fr) 110px minmax(240px, 1.6fr); grid-template-areas: "chk who dest total state"; align-items: center; padding: 10px 14px 10px 12px; margin-bottom: 6px; }
+.sc-total { text-align: right; }
+.sc-probs { flex: 0 1 auto; }
+.sc-probs + .sc-acts { flex: 0 0 auto; margin-left: auto; }
+.ship-steps { max-width: 760px; }
+}
+@media (max-width: 860px) {
+.ship-head { display: none; }
+.ship-bar { position: fixed; left: 0; right: 0; bottom: calc(64px + env(safe-area-inset-bottom)); margin: 0; border-radius: 0; border: 0; box-shadow: 0 -6px 18px rgba(16,36,28,.12); z-index: 35; padding: 8px 10px; }
+.content:has(.ship-bar) { padding-bottom: 170px; }
+body:has(.ship-bar) #toast { bottom: calc(150px + env(safe-area-inset-bottom)); }
+.ship-steps { grid-template-columns: 1fr auto 1fr; }
+.ss { padding: 8px 10px; }
+.ship-bar .btn { padding: 0 12px; font-size: 14px; }
+.ship-bar.two .sb-sum small { display: none; }
+.ship-bar.two .sb-sum { flex: none; }
+}
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }
 </style>
@@ -1376,7 +1459,7 @@ var DZC = (function () {
   var STEP_KEY = 'dz-smart-shop:step';
   /** Pages restées dans l'application Google (étape 3) : ouvertes là-bas. */
   var EXTERNAL = ['benefices', 'stock', 'stats', 'admin'];
-  var VERSION = '1.17.0';
+  var VERSION = '1.18.0';
 
   /** Même empreinte que shortHash_ (Api.gs) : clé de la mémoire sur l'appareil, sans l'adresse. */
   function shortHash(text) {
@@ -3792,7 +3875,7 @@ document.addEventListener('visibilitychange', function () { if (document.visibil
 window.addEventListener('pagehide', flushPending);
 function pageShipping() {
 view.innerHTML =
-'<div class="page-head"><div><h1>Expéditions' + help('Envoi à Ecotrack, bordereaux et validation de l’expédition. Les colis partent avec le total affiché (livraison comprise) ; une commune inconnue d’Ecotrack est signalée avant l’envoi.') + '</h1></div>' +
+'<div class="page-head ship-head"><div><h1>Expéditions' + help('Envoi à Ecotrack, bordereaux et validation de l’expédition. Les colis partent avec le total affiché (livraison comprise) ; une commune inconnue d’Ecotrack est signalée avant l’envoi.') + '</h1></div>' +
 '<button type="button" class="btn" data-act="ship-reload">' + icon('refresh') + 'Actualiser</button></div>' +
 '<div id="ship"><p class="loading">Chargement…</p></div>';
 if (S.ship.data) renderShipping();
@@ -3814,10 +3897,12 @@ if (t !== S.token || S.route !== 'expeditions') return;
 perfDone('expeditions');
 S.ship.data = d;
 var ready = {};
-d.toShip.forEach(function (o) { if (!o.problems.length) ready[o.id] = true; });
+S.ship.off = S.ship.off || {};
+S.ship.created.off = S.ship.created.off || {};
+d.toShip.forEach(function (o) { if (!o.problems.length) { ready[o.id] = true; if (!S.ship.off[o.id]) S.ship.selected[o.id] = true; } });
 Object.keys(S.ship.selected).forEach(function (id) { if (!ready[id]) delete S.ship.selected[id]; });
 var created = {};
-d.created.forEach(function (o) { created[o.id] = true; });
+d.created.forEach(function (o) { created[o.id] = true; if (!S.ship.created.off[o.id]) S.ship.created.sel[o.id] = true; });
 Object.keys(S.ship.created.sel).forEach(function (id) { if (!created[id]) delete S.ship.created.sel[id]; });
 renderShipping();
 maybeRefreshCreated(d);
@@ -3834,22 +3919,23 @@ if (!box || !d) return;
 var ready = d.toShip.filter(function (o) { return !o.problems.length; });
 var picked = Object.keys(sh.selected).length;
 var html = '<div class="stack">';
-html += '<section class="card"><div class="detail-head"><div><h2>Ecotrack</h2><p class="muted">' +
-(d.configured ? stat(true, 'Connecté') + help('Plateforme : ' + h(d.host)) : stat(false, 'Pas encore configuré')) + '</p></div>';
-if (d.configured) {
-html += '<div class="quick">' +
-'<button type="button" class="btn" data-act="eco-test">Tester la connexion</button>' +
-'<button type="button" class="btn" data-act="eco-fees-ask">Récupérer les tarifs</button>' +
-'<button type="button" class="btn" data-act="eco-status">Mettre à jour les statuts</button></div>';
-}
-html += '</div>';
+html += '<div class="mode-bar ship-tabs"><div class="mode-seg" role="tablist" aria-label="Expédier">' +
+'<button type="button" role="tab" class="mode-tab' + (sh.tab === 'toship' ? ' on' : '') + '" data-act="ship-tab" data-tab="toship" aria-selected="' + (sh.tab === 'toship') + '">À expédier' +
+(d.toShip.length ? '<span class="mode-n">' + d.toShip.length + '</span>' : '') + '</button>' +
+'<button type="button" role="tab" class="mode-tab' + (sh.tab === 'created' ? ' on' : '') + '" data-act="ship-tab" data-tab="created" aria-selected="' + (sh.tab === 'created') + '">À valider' +
+(d.created.length ? '<span class="mode-n warn">' + d.created.length + '</span>' : '') + '</button></div></div>';
+html += '<div class="eco-line">' + (d.configured ? stat(true, 'Ecotrack connecté') + help('Plateforme : ' + h(d.host)) : stat(false, 'Ecotrack pas encore configuré')) +
+'<details class="more-menu"><summary class="btn icon-only" title="Plus d’actions" aria-label="Actions Ecotrack">⋯</summary><div class="menu">' +
+'<button type="button" data-act="ship-reload">' + icon('refresh') + 'Actualiser la page</button>' +
+(d.configured ? '<button type="button" data-act="eco-status">' + icon('suivi') + 'Mettre à jour les statuts</button>' +
+'<button type="button" data-act="eco-test">' + icon('ok') + 'Tester la connexion</button>' +
+'<button type="button" data-act="eco-fees-ask">' + icon('benefices') + 'Récupérer les tarifs</button>' : '') +
+'</div></details></div>';
 if (!d.configured) {
-html += '<p>Pour envoyer vos colis, enregistrez l’adresse de votre plateforme Ecotrack et votre jeton API. ' +
-'Dans le classeur, sur ordinateur : menu <strong>DZ Smart Shop › Ecotrack › Enregistrer l’adresse et le jeton</strong>. ' +
-'Le jeton reste dans les propriétés protégées du script, jamais dans le classeur.</p>';
+html += '<section class="card"><p>Pour envoyer vos colis, enregistrez l’adresse de votre plateforme Ecotrack et votre jeton API : ' +
+'<strong>Administration › Connexions › Ecotrack</strong>. Le jeton reste protégé, jamais dans le classeur.</p></section>';
 }
-if (d.catalogError) html += '<div style="margin-top:12px">' + errorBox(d.catalogError) + '</div>';
-html += '</section>';
+if (d.catalogError) html += errorBox(d.catalogError);
 if (sh.results) {
 var okCount = sh.results.filter(function (r) { return r.ok; }).length;
 html += '<section class="card"><div class="detail-head"><div><h2>Résultat de l’envoi</h2><p class="muted">' +
@@ -3857,7 +3943,7 @@ plural(okCount, 'colis créé', 'colis créés') + (sh.results.length - okCount 
 '</p></div><button type="button" class="btn" data-act="ship-dismiss">Fermer</button></div>';
 if (okCount) {
 html += '<p style="margin-bottom:8px">Ces colis sont <strong>créés</strong> chez Ecotrack mais <strong>pas encore expédiés</strong> : ' +
-'imprimez les bordereaux, puis validez l’expédition (onglet « Créés, à valider »).</p>' +
+'imprimez les bordereaux, puis validez l’expédition (onglet « À valider »).</p>' +
 '<div class="quick" style="margin-bottom:8px"><button type="button" class="btn primary" data-act="labels-from-results">' + icon('printer') + 'Imprimer les bordereaux de ces colis</button></div>';
 }
 html += sh.results.map(function (r) {
@@ -3882,89 +3968,116 @@ return '<div class="result-row"><span class="pill" style="background:' + (r.ok ?
 }).join('');
 html += '</section>';
 }
-html += '<div class="chips" role="group" aria-label="Vue">' +
-'<button type="button" class="chip" data-act="ship-tab" data-tab="toship" aria-pressed="' + (sh.tab === 'toship') + '">À expédier · ' + d.toShip.length + '</button>' +
-'<button type="button" class="chip" data-act="ship-tab" data-tab="created" aria-pressed="' + (sh.tab === 'created') + '">Créés, à valider · ' + d.created.length + '</button></div>';
-if (sh.tab === 'toship') html += renderToShip(d, ready, picked);
-else html += renderCreated(d);
+html += '<div class="sc-list">' + (sh.tab === 'toship' ? renderToShip(d, ready, picked) : renderCreated(d)) + '</div>';
 html += '</div>';
 box.innerHTML = html;
+}
+function shortProblem(p) {
+var t = String(p);
+return /^Téléphone/.test(t) ? 'Téléphone' : /^Commune inconnue/.test(t) ? 'Commune' : /^Commune manquante/.test(t) ? 'Commune manquante'
+: /^Stop desk/.test(t) ? 'Stop desk' : /^Adresse/.test(t) ? 'Adresse' : /^Nom/.test(t) ? 'Nom' : /^Wilaya non desservie/.test(t) ? 'Wilaya non desservie'
+: /^Wilaya/.test(t) ? 'Wilaya' : /^Montant/.test(t) ? 'Montant à 0' : /^Société/.test(t) ? 'Autre société' : /^Déjà envoyée/.test(t) ? 'Déjà envoyée'
+: /^Statut/.test(t) ? 'Statut' : t.split(' : ')[0].slice(0, 30);
+}
+function modePill(mode) {
+return mode ? '<span class="sc-modep' + (mode === 'Stop desk' ? ' sd' : '') + '">' + h(mode) + '</span>' : '';
+}
+function shipCard(o, ok) {
+var sh = S.ship;
+var menu = '<details class="more-menu sc-more"><summary class="btn icon-only" aria-label="Plus d’actions">⋯</summary><div class="menu">' +
+'<button type="button" data-act="open-order" data-id="' + h(o.id) + '">' + icon('edit') + 'Voir / modifier la commande</button>' +
+(o.communeBad && CM() ? '<button type="button" data-act="ship-commune-pick" data-id="' + h(o.id) + '" data-wilaya="' + h(o.wilaya) + '" data-commune="' + h(o.commune) + '">' + icon('pin') + 'Choisir la commune</button>' : '') +
+(manualCarriers().length ? '<button type="button" data-act="manual-ship-ask" data-id="' + h(o.id) + '">' + icon('send') + 'Expédiée (autre société)</button>' : '') +
+'</div></details>';
+return '<div class="sc ' + (ok ? 'ok' : 'bad') + '">' +
+'<span class="sc-chk">' + (ok ? '<input type="checkbox" class="check" data-ship-check="' + h(o.id) + '"' + (sh.selected[o.id] ? ' checked' : '') + ' aria-label="Envoyer la commande ' + h(o.id) + '">' : '<span class="sc-nochk"></span>') + '</span>' +
+'<span class="sc-who"><strong dir="auto">' + h(o.client || '—') + '</strong><small><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button> · <span dir="auto">' + h(o.product) + '</span></small></span>' +
+'<span class="sc-dest">' + h(wilayaName(o.wilaya)) + (o.commune ? ' · <span dir="auto">' + h(o.commune) + '</span>' : '') + ' ' + modePill(o.mode) + '</span>' +
+'<span class="sc-total">' + money(o.total) + '</span>' +
+'<span class="sc-state">' + (ok ? '<span class="sc-ready">' + icon('check') + 'Prête</span>'
+: '<span class="sc-probs">' + o.problems.map(function (p) { return '<span title="' + h(p) + '">' + h(shortProblem(p)) + '</span>'; }).join('') + '</span>' +
+'<span class="sc-acts">' +
+(o.communeBad && o.communeFix ? '<button type="button" class="btn primary" data-act="ship-commune" data-id="' + h(o.id) + '" data-name="' + h(o.communeFix) + '" title="Mettre la commune « ' + h(o.communeFix) + ' »">' + icon('check') + h(o.communeFix) + '</button>' : '') +
+'<button type="button" class="btn" data-act="open-order" data-id="' + h(o.id) + '">' + icon('edit') + 'Corriger</button>' + menu + '</span>') + '</span>' +
+'</div>';
 }
 function renderToShip(d, ready, picked) {
 var sh = S.ship;
 if (!d.toShip.length) return '<div class="card"><p class="empty">Aucune commande confirmée à expédier.</p></div>';
+var bad = d.toShip.filter(function (o) { return o.problems.length; });
 var allPicked = ready.length > 0 && picked === ready.length;
-var html = '<div class="quick" style="align-items:center;justify-content:space-between">' +
-'<label style="display:flex;align-items:center;gap:10px;min-height:44px"><input type="checkbox" class="check" data-ship-all' + (allPicked ? ' checked' : '') + (ready.length ? '' : ' disabled') + '> ' +
-'Tout sélectionner (' + ready.length + ' prêtes)</label>' +
-'<button type="button" class="btn primary" data-act="ship-ask"' + ((!picked || !d.configured || sh.busy) ? ' disabled' : '') + '>' +
-(sh.busy ? 'Création en cours…' : 'Envoyer ' + plural(picked, 'colis', 'colis') + ' à Ecotrack') + '</button></div>';
-html += '<div class="table-wrap"><table class="data cards"><thead><tr>' +
-['', 'Commande', 'Destination', 'Livraison', 'Total', 'État', ''].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>';
-d.toShip.forEach(function (o) {
-var ok = !o.problems.length;
-html += '<tr>' +
-'<td data-label="Choisir">' + (ok ? '<input type="checkbox" class="check" data-ship-check="' + h(o.id) + '"' + (sh.selected[o.id] ? ' checked' : '') + ' aria-label="Sélectionner la commande ' + h(o.id) + '">' : '') + '</td>' +
-'<td data-label="Commande" class="multi"><strong>' + h(o.id) + '</strong> · ' + h(o.client) + '<div class="small">' + h(o.product) + '</div></td>' +
-'<td data-label="Destination" class="multi">' + h(o.wilaya) + '<div class="small">' + h(o.commune) + '</div></td>' +
-'<td data-label="Livraison">' + h(o.mode) + '</td>' +
-'<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
-'<td data-label="État">' + (ok ? '<span class="pill" style="background:#DDF0E4;color:#146C2E">Prête</span>' :
-'<span class="problems">' + o.problems.map(function (p) { return '<span>' + h(p) + '</span>'; }).join('') +
-(o.communeFix ? '<span class="cm-fix">Proposée : <strong>' + h(o.communeFix) + '</strong></span>' : '') + '</span>') + '</td>' +
-'<td data-label=""><span class="quick">' +
-(o.communeBad && o.communeFix ? '<button type="button" class="btn primary" style="min-height:36px" data-act="ship-commune" data-id="' + h(o.id) + '" data-name="' + h(o.communeFix) + '">' + icon('check') + 'Mettre « ' + h(o.communeFix) + ' »</button>' : '') +
-(o.communeBad && CM() ? '<button type="button" class="btn" style="min-height:36px" data-act="ship-commune-pick" data-id="' + h(o.id) + '" data-wilaya="' + h(o.wilaya) + '" data-commune="' + h(o.commune) + '">Choisir la commune</button>' : '') +
-'<button type="button" class="btn" style="min-height:36px" data-act="open-order" data-id="' + h(o.id) + '">' + icon('edit') + 'Modifier</button>' +
-(manualCarriers().length ? '<button type="button" class="btn" style="min-height:36px" data-act="manual-ship-ask" data-id="' + h(o.id) + '">Expédiée (autre société)</button>' : '') + '</span></td></tr>';
-});
-return html + '</tbody></table></div>';
+var html = '';
+if (ready.length) {
+html += '<div class="sc-grp ok">' + icon('check') + 'Prêtes · ' + ready.length +
+'<button type="button" class="link-btn" data-act="ship-all-toggle">' + (allPicked ? 'Tout décocher' : 'Tout cocher') + '</button></div>' +
+ready.map(function (o) { return shipCard(o, true); }).join('');
+}
+if (bad.length) {
+html += '<div class="sc-grp bad">' + icon('alert') + 'À corriger · ' + bad.length + help('Ces commandes ne peuvent pas partir chez Ecotrack tant que le problème n’est pas corrigé (passez sur une pastille pour la phrase complète).') + '</div>' +
+bad.map(function (o) { return shipCard(o, false); }).join('');
+}
+if (picked) {
+var total = ready.filter(function (o) { return sh.selected[o.id]; }).reduce(function (a, o) { return a + (Number(o.total) || 0); }, 0);
+html += '<div class="ship-bar"><span class="sb-sum">' + plural(picked, 'colis', 'colis') + '<small>' + money(total) + ' à encaisser</small></span>' +
+'<button type="button" class="btn primary" data-act="ship-ask"' + ((!d.configured || sh.busy) ? ' disabled' : '') + '>' +
+(sh.busy ? 'Création en cours…' : 'Envoyer à Ecotrack ' + icon('send')) + '</button></div>';
+}
+return html;
+}
+function createdCard(o) {
+var c = S.ship.created;
+var l = o.label || {};
+var lb = l.reprint ? '<span class="sc-pill warn">À réimprimer</span>' : l.printed ? '<span class="sc-pill ok" title="' + h('Imprimé le ' + l.at + (l.by ? ' · ' + l.by : '')) + '">' + icon('printer') + 'Imprimé</span>' : '<span class="sc-pill">Pas imprimé</span>';
+var age = o.late ? '<span class="sc-pill late">' + icon('clock') + 'créé il y a ' + h(hoursText(o.ageHours)) + ' · en retard</span>' : '<span class="sc-pill">créé il y a ' + h(hoursText(o.ageHours)) + '</span>';
+return '<div class="sc ' + (o.late ? 'late' : 'made') + '">' +
+'<span class="sc-chk"><input type="checkbox" class="check" data-created-check="' + h(o.id) + '"' + (c.sel[o.id] ? ' checked' : '') + ' aria-label="Sélectionner le colis ' + h(o.id) + '"></span>' +
+'<span class="sc-who"><strong dir="auto">' + h(o.client || '—') + '</strong><small><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button> · <span class="mono">' + h(o.tracking) + '</span></small></span>' +
+'<span class="sc-dest">' + h(wilayaName(o.wilaya)) + (o.commune ? ' · <span dir="auto">' + h(o.commune) + '</span>' : '') + ' ' + modePill(o.mode) + '</span>' +
+'<span class="sc-total">' + money(o.total) + '</span>' +
+'<span class="sc-state"><span class="sc-probs plain">' + lb + age + '</span><span class="sc-acts">' +
+'<details class="more-menu sc-more"><summary class="btn icon-only" aria-label="Plus d’actions">⋯</summary><div class="menu">' +
+'<button type="button" data-act="label-one" data-id="' + h(o.id) + '">' + icon('printer') + 'Imprimer ce bordereau</button>' +
+'<button type="button" data-act="open-order" data-id="' + h(o.id) + '">' + icon('eye') + 'Voir la commande</button>' +
+'<button type="button" class="danger-item" data-act="parcel-cancel-ask" data-from="ship" data-id="' + h(o.id) + '" data-tracking="' + h(o.tracking) + '">' + icon('x') + 'Annuler le colis</button>' +
+'</div></details></span></span>' +
+'</div>';
 }
 function renderCreated(d) {
 var sh = S.ship;
 var c = sh.created;
 if (!d.created.length) return '<div class="card"><p class="empty">Aucun colis en attente de validation.</p></div>';
 var unprinted = d.created.filter(function (o) { return !o.label.printed; });
-var list = c.filter === 'unprinted' ? unprinted : d.created;
-var n = pickedCreated().length;
-var allPicked = list.length > 0 && list.every(function (o) { return c.sel[o.id]; });
+var picked = pickedCreated();
+var n = picked.length;
+var pickedUnprinted = d.created.filter(function (o) { return c.sel[o.id] && !o.label.printed; }).length;
+var allPicked = n === d.created.length;
 var fmt = labelFormat();
-var html = '<p class="small"><strong>1.</strong> Imprimer · <strong>2.</strong> Valider' +
-help('<strong>1.</strong> Imprimez les bordereaux et collez-les sur les colis. <strong>2.</strong> Validez l’expédition, ici ou sur le site d’Ecotrack : la commande passe « Expédiée » et va dans Suivi. ' +
+var printStep = unprinted.length > 0;
+var html = '<div class="ship-steps">' +
+'<div class="ss' + (printStep ? ' on' : ' done') + '"><span class="ss-n">' + (printStep ? '1' : icon('check')) + '</span><span><b>Imprimer</b><small>' +
+(printStep ? plural(unprinted.length, 'bordereau à imprimer', 'bordereaux à imprimer') : 'tous imprimés') + '</small></span></div>' +
+'<span class="ss-arrow" aria-hidden="true">→</span>' +
+'<div class="ss' + (printStep ? '' : ' on') + '"><span class="ss-n">2</span><span><b>Valider</b><small>' + (d.canValidate ? plural(d.created.length, 'colis', 'colis') + ' à valider' : 'administrateur ou magasinier') + '</small></span></div></div>';
+var stepsHelp = help('<strong>1.</strong> Imprimez les bordereaux et collez-les sur les colis. <strong>2.</strong> Validez l’expédition, ici ou sur le site d’Ecotrack : la commande passe « Expédiée » et va dans Suivi. ' +
 'Un colis pas validé depuis plus de ' + d.alertHours + ' h est signalé.' +
 (d.canValidate ? '' : ' La validation est réservée à l’administrateur et au magasinier (onglet Équipe).') +
-' Une erreur dans un colis pas encore validé ? « Annuler le colis » le supprime chez Ecotrack : la commande redevient modifiable, puis vous recréez le colis (et réimprimez son bordereau).') + '</p>';
-html += '<div class="chips" role="group" aria-label="Filtre des colis">' +
-'<button type="button" class="chip" data-act="created-filter" data-filter="all" aria-pressed="' + (c.filter !== 'unprinted') + '">Tous · ' + d.created.length + '</button>' +
-'<button type="button" class="chip" data-act="created-filter" data-filter="unprinted" aria-pressed="' + (c.filter === 'unprinted') + '">Pas encore imprimés · ' + unprinted.length + '</button></div>';
-html += '<section class="card label-bar">' +
-'<label class="check-line"><input type="checkbox" class="check" data-created-all' + (allPicked ? ' checked' : '') + (list.length ? '' : ' disabled') + '> ' +
-'Tout sélectionner (' + list.length + ')</label>' +
-'<div class="chips" role="group" aria-label="Format d’impression">' +
-'<span class="small strong">Format :</span>' +
+' Une erreur dans un colis pas encore validé ? « Annuler le colis » (menu ⋯) le supprime chez Ecotrack : la commande redevient modifiable, puis vous recréez le colis (et réimprimez son bordereau).');
+html += '<div class="sc-grp made"><span class="sc-fmt">Format : ' +
 '<button type="button" class="chip" data-act="label-format" data-format="A4" aria-pressed="' + (fmt === 'A4') + '">A4 · 4 par feuille</button>' +
-'<button type="button" class="chip" data-act="label-format" data-format="10x15" aria-pressed="' + (fmt === '10x15') + '">Étiquette 10×15</button></div>' +
-'<div class="quick">' +
-'<button type="button" class="btn primary" data-act="labels-print"' + ((!n || sh.printing) ? ' disabled' : '') + '>' + icon('printer') + 'Imprimer les bordereaux (' + n + ')</button>' +
-(d.canValidate ? '<button type="button" class="btn" data-act="validate-ask"' + ((!n || sh.vbusy) ? ' disabled' : '') + '>' +
-(sh.vbusy ? 'Validation en cours…' : '' + icon('check') + 'Valider l’expédition (' + n + ')') + '</button>' : '') +
-'</div></section>';
-if (!list.length) return html + '<div class="card"><p class="empty">Tous les bordereaux sont imprimés.</p></div>';
-html += '<div class="table-wrap"><table class="data cards"><thead><tr>' +
-['', 'Commande', 'Destination', 'N° de suivi', 'Bordereau', 'Créé depuis', 'Total', ''].map(function (t) { return '<th scope="col">' + t + '</th>'; }).join('') + '</tr></thead><tbody>';
-list.forEach(function (o) {
-html += '<tr>' +
-'<td data-label="Choisir"><input type="checkbox" class="check" data-created-check="' + h(o.id) + '"' + (c.sel[o.id] ? ' checked' : '') + ' aria-label="Sélectionner le colis ' + h(o.id) + '"></td>' +
-'<td data-label="Commande" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button> · ' + h(o.client) + '</td>' +
-'<td data-label="Destination" class="multi">' + h(o.wilaya) + '<div class="small">' + h(o.commune) + '</div></td>' +
-'<td data-label="N° de suivi" class="mono">' + h(o.tracking) + '</td>' +
-'<td data-label="Bordereau" class="multi">' + labelBadge(o.label) + '</td>' +
-'<td data-label="Créé depuis">' + h(hoursText(o.ageHours)) + (o.late ? ' <span class="pill" style="background:#FFF3DC;color:#8A5200">à valider</span>' : '') + '</td>' +
-'<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
-'<td data-label=""><button type="button" class="btn danger" style="min-height:36px" data-act="parcel-cancel-ask" data-from="ship" data-id="' + h(o.id) + '" data-tracking="' + h(o.tracking) + '">Annuler le colis</button></td></tr>';
-});
-return html + '</tbody></table></div>' +
-'';
+'<button type="button" class="chip" data-act="label-format" data-format="10x15" aria-pressed="' + (fmt === '10x15') + '">10×15</button>' + stepsHelp + '</span>' +
+'<button type="button" class="link-btn" data-act="created-all-toggle">' + (allPicked ? 'Tout décocher' : 'Tout cocher') + '</button></div>';
+html += d.created.map(createdCard).join('');
+if (n) {
+var printFirst = pickedUnprinted > 0 || !d.canValidate;
+html += '<div class="ship-bar' + (d.canValidate ? ' two' : '') + '"><span class="sb-sum">' + plural(n, 'colis', 'colis') + '<small>' + (pickedUnprinted ? pickedUnprinted + ' pas encore imprimé' + (pickedUnprinted > 1 ? 's' : '') : 'bordereaux imprimés') + '</small></span>' +
+(printFirst
+? (d.canValidate ? '<button type="button" class="btn" data-act="validate-ask"' + (sh.vbusy ? ' disabled' : '') + '>' + icon('check') + 'Valider</button>' : '') +
+'<button type="button" class="btn primary" data-act="labels-print"' + (sh.printing ? ' disabled' : '') + '>' + icon('printer') + 'Imprimer ' + plural(n, 'bordereau', 'bordereaux') + '</button>'
+: '<button type="button" class="btn" data-act="labels-print"' + (sh.printing ? ' disabled' : '') + ' title="Réimprimer">' + icon('printer') + '</button>' +
+'<button type="button" class="btn primary" data-act="validate-ask"' + (sh.vbusy ? ' disabled' : '') + '>' + icon('check') + (sh.vbusy ? 'Validation…' : 'Valider ' + plural(n, 'colis', 'colis')) + '</button>') +
+'</div>';
+}
+return html;
 }
 function pickedCreated() {
 var d = S.ship.data;
@@ -4849,6 +4962,24 @@ submit('callback', { callback: new Date(v).toISOString() });
 },
 'cancel': function () { submit('cancel', { reason: $('#cancel-reason').value }); },
 'ship-reload': function () { loadShipping(); },
+'ship-all-toggle': function () {
+var d = S.ship.data;
+if (!d) return;
+var ready = d.toShip.filter(function (o) { return !o.problems.length; });
+var all = ready.length && ready.every(function (o) { return S.ship.selected[o.id]; });
+S.ship.off = S.ship.off || {};
+ready.forEach(function (o) { if (all) { delete S.ship.selected[o.id]; S.ship.off[o.id] = true; } else { S.ship.selected[o.id] = true; delete S.ship.off[o.id]; } });
+renderShipping();
+},
+'created-all-toggle': function () {
+var d = S.ship.data;
+if (!d) return;
+var c = S.ship.created;
+c.off = c.off || {};
+var all = d.created.length && d.created.every(function (o) { return c.sel[o.id]; });
+d.created.forEach(function (o) { if (all) { delete c.sel[o.id]; c.off[o.id] = true; } else { c.sel[o.id] = true; delete c.off[o.id]; } });
+renderShipping();
+},
 'ship-tab': function (el) { S.ship.tab = el.getAttribute('data-tab'); renderShipping(); },
 'ship-dismiss': function () { S.ship.results = null; renderShipping(); },
 'ship-vdismiss': function () { S.ship.vresults = null; renderShipping(); },
@@ -4979,13 +5110,15 @@ return;
 }
 if (e.target.hasAttribute('data-ship-check')) {
 var sid = e.target.getAttribute('data-ship-check');
-if (e.target.checked) S.ship.selected[sid] = true; else delete S.ship.selected[sid];
+S.ship.off = S.ship.off || {};
+if (e.target.checked) { S.ship.selected[sid] = true; delete S.ship.off[sid]; } else { delete S.ship.selected[sid]; S.ship.off[sid] = true; }
 renderShipping();
 return;
 }
 if (e.target.hasAttribute('data-created-check')) {
 var cid = e.target.getAttribute('data-created-check');
-if (e.target.checked) S.ship.created.sel[cid] = true; else delete S.ship.created.sel[cid];
+S.ship.created.off = S.ship.created.off || {};
+if (e.target.checked) { S.ship.created.sel[cid] = true; delete S.ship.created.off[cid]; } else { delete S.ship.created.sel[cid]; S.ship.created.off[cid] = true; }
 renderShipping();
 return;
 }
