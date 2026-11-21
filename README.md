@@ -725,6 +725,7 @@ Rien à coller dans Apps Script pour cette version (la version Google profite au
 - **Loupe** (onglet Appeler) : « le client rappelle » ; recherche par nom, téléphone, n° de commande ou de suivi dans toutes les commandes ; **Ouvrir et confirmer** l'ouvre dans la fiche (résultat d'appel tout de suite), **Voir la commande** pour les autres ; **Fermer** revient à la fiche d'avant.
 - **Couleurs gardées** : la fiche prend la couleur de la file (bande et pastille bleu « Nouvelle », orange « Pas de réponse / Injoignable », violet « Rappel demandé ») ; la file et sa légende, les statuts de la liste et les boutons ne changent pas.
 - Les anciens liens (notifications, favoris `#/confirmation`) ouvrent Commandes › Appeler. Les règles d'appel ne changent pas.
+- **v1.16.1 — depuis la Liste** : toucher une commande à confirmer (À confirmer, Pas de réponse, Rappeler, Injoignable) ouvre **la fiche de confirmation sur place** (plein écran sous l'en-tête sur téléphone, panneau à droite sur ordinateur), sans passer à l'onglet Appeler : Confirmer / Pas de réponse / Rappeler / Annuler, « Annuler » pendant 5 s, puis retour à la liste mise à jour. **← Liste** (ou Échap, ou un appui à côté) referme la fiche. Les autres commandes (confirmées, expédiées…) gardent leur fiche habituelle.
 
 ### Comment ça marche
 

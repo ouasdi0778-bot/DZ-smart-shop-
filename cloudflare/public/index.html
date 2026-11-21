@@ -1021,6 +1021,22 @@ font: 600 15px var(--font); text-decoration: none; }
 .mode-bar { max-width: none; }
 .orders-page .page-head { display: none; }
 }
+#ld-root { position: fixed; inset: 0; z-index: 45; }
+.ld-bg { position: absolute; inset: 0; background: rgba(16, 24, 28, .35); }
+.ld-panel { position: absolute; top: 0; right: 0; bottom: 0; width: min(780px, calc(100% - 240px)); overflow: auto; background: var(--bg); padding: 18px 18px 0;
+box-shadow: -12px 0 30px rgba(0,0,0,.18); }
+.ld-panel .detail { flex: none; }
+.ld-back .ic { width: 18px; height: 18px; }
+html.ld-open, html.ld-open body { overflow: hidden; }
+tr.row-pending { opacity: .45; }
+html.ld-open .fab { display: none !important; }
+.ld-panel .queue-toggle.ld-back { display: inline-flex; align-items: center; gap: 6px; }
+@media (max-width: 860px) {
+#ld-root { z-index: 29; }
+.ld-bg { display: none; }
+.ld-panel { left: 0; width: auto; box-shadow: none; padding: calc(64px + 12px) 14px 170px; }
+.ld-panel .outcomes { z-index: 36; }
+}
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }
 </style>
@@ -1310,7 +1326,7 @@ var DZC = (function () {
   var STEP_KEY = 'dz-smart-shop:step';
   /** Pages restées dans l'application Google (étape 3) : ouvertes là-bas. */
   var EXTERNAL = ['benefices', 'stock', 'stats', 'admin'];
-  var VERSION = '1.16.0';
+  var VERSION = '1.16.1';
 
   /** Même empreinte que shortHash_ (Api.gs) : clé de la mémoire sur l'appareil, sans l'adresse. */
   function shortHash(text) {
@@ -1981,6 +1997,7 @@ a.classList.toggle('active', on);
 if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
 });
 closeModal();
+closeListDetail();
 var title = PAGE_TITLES[r] || '';
 $all('[data-page-title]').forEach(function (el) { el.textContent = title; });
 document.documentElement.classList.toggle('has-title', !!title);
@@ -2348,7 +2365,8 @@ return '<th scope="col">' + t + '</th>';
 }).join('') + '</tr></thead><tbody>';
 res.rows.forEach(function (o) {
 var stc = (S.boot.styles[o.status] || {}).fg || '#CFD4DB';
-html += '<tr class="clickable compact' + (selOn ? ' selectable' : '') + '" style="--st:' + stc + '" data-act="open-order" data-id="' + h(o.id) + '">' +
+var rowAct = !o.status || TODO_STATUSES.indexOf(o.status) >= 0 ? 'list-confirm' : 'open-order';
+html += '<tr class="clickable compact' + (selOn ? ' selectable' : '') + '" style="--st:' + stc + '" data-act="' + rowAct + '" data-id="' + h(o.id) + '">' +
 (selOn ? selCell('orders', o.id) : '') +
 '<td class="m-sum" data-label=""><span class="l1"><span>' + (selOn ? '<span data-stop class="m-sel">' + selBox('orders', o.id) + '</span>' : '') + '<span dir="auto">' + h(o.client || '—') + '</span></span><span class="num">' + money(o.total) + '</span></span>' +
 '<span class="l2">' + pill(o.status) + '<span>' + h(wilayaName(o.wilaya)) + '</span><span>· ' + h(o.id) + '</span>' +
@@ -2356,7 +2374,7 @@ html += '<tr class="clickable compact' + (selOn ? ' selectable' : '') + '" style
 (o.alertLevel === 'bad' || o.alertLevel === 'warn' ? alertPill(o.alert, o.alertLevel) : '') +
 (o.status === 'Annulée' && o.cancelReason ? '<span style="color:#A12626">Motif : ' + h(o.cancelReason) + '</span>' : '') + '</span>' +
 '<span class="l3"><span>' + h(o.product || '') + (o.qty > 1 ? ' ×' + o.qty : '') + '</span>' + (o.date ? '<span class="ago">' + h(ago(o.date)) + '</span>' : '') + '</span></td>' +
-'<td data-label="N°" class="multi"><button type="button" class="link-btn" data-act="open-order" data-id="' + h(o.id) + '">' + h(o.id) + '</button>' +
+'<td data-label="N°" class="multi"><button type="button" class="link-btn" data-act="' + rowAct + '" data-id="' + h(o.id) + '">' + h(o.id) + '</button>' +
 (o.locked ? ' <span class="lock-icon" title="Verrouillée" aria-label="Verrouillée">' + icon('lock') + '</span>' : '') + '<div class="small">' + fmtDate(o.date) + '</div></td>' +
 '<td data-label="Client" class="multi"><span dir="auto">' + h(o.client) + '</span><div class="small">' + h(fmtPhone(o.phone)) + '</div></td>' +
 '<td data-label="Wilaya" class="multi">' + h(o.wilaya) + '<div class="small" dir="auto">' + h(o.commune) + '</div></td>' +
@@ -3236,7 +3254,8 @@ $('#detail').innerHTML =
 '<div class="detail-head"><div><h2><span dir="auto">' + h(o.client || 'Client sans nom') + '</span><span class="d-id">' + h(o.id) + '</span></h2>' +
 '<div class="d-pills">' + kindPill + pills.map(function (t) { return '<span>' + h(t) + '</span>'; }).join('') +
 (o.alertLevel === 'new' && o.alert ? '<span class="d-new">' + h(o.alert) + '</span>' : '') + '</div></div>' +
-'<div class="quick d-actions"><button type="button" class="btn queue-toggle" data-act="toggle-queue" title="File d’appels">File · ' + dueCount + '</button>' + callBtn + waBtn + '</div>' +
+'<div class="quick d-actions">' + (S.listDetail ? '<button type="button" class="btn queue-toggle ld-back" data-act="ld-close" title="Retour à la liste">' + icon('back') + 'Liste</button>'
+: '<button type="button" class="btn queue-toggle" data-act="toggle-queue" title="File d’appels">File · ' + dueCount + '</button>') + callBtn + waBtn + '</div>' +
 '</div>' +
 (d.intlPhone ? '<span class="qh-tip d-wa-tip" id="d-wa-tip" hidden><span id="d-msg"></span>' +
 '<a class="btn wa-btn" id="d-wa2" href="#" target="_blank" rel="noopener">' + icon('whatsapp') + 'Envoyer sur WhatsApp</a></span>' : '') +
@@ -3291,6 +3310,7 @@ if (due[i].id === id) return due[i + 1] || (i > 0 ? due[0] : null);
 return due[0] && due[0].id !== id ? due[0] : null;
 }
 function prefetchNext() {
+if (S.listDetail) return;
 var next = S.currentId ? nextDueAfter(S.currentId) : null;
 if (!next || (S.prefetch && S.prefetch.id === next.id)) return;
 var id = next.id;
@@ -3474,6 +3494,7 @@ var UNDO_MS = 5000;
 function submit(outcome, extra) {
 if (S.busy || !S.currentId || !S.current || Date.now() < S.cooldown) return;
 flushPending();
+if (S.listDetail) { submitFromList(outcome, extra); return; }
 var id = S.currentId;
 var payload = { fields: confirmFields() };
 Object.keys(extra || {}).forEach(function (k) { payload[k] = extra[k]; });
@@ -3506,6 +3527,53 @@ job.timer = setTimeout(function () { sendCall(job); }, UNDO_MS);
 S.lastCall = job;
 showUndo(job);
 }
+function submitFromList(outcome, extra) {
+var id = S.currentId;
+var payload = { fields: confirmFields() };
+Object.keys(extra || {}).forEach(function (k) { payload[k] = extra[k]; });
+var blacklist = outcome === 'cancel' && $('#cancel-black') && $('#cancel-black').checked;
+var job = { id: id, outcome: outcome, payload: payload, phone: S.current.order.phone, blacklist: blacklist, detail: S.current, where: null, sent: false,
+fromList: true, confirmed: outcome === 'confirm', leaves: outcome === 'confirm' || outcome === 'cancel' };
+S.pending[id] = true;
+S.cooldown = Date.now() + 800;
+closeListDetail();
+$all('#orders-list [data-id]').forEach(function (el) { if (el.getAttribute('data-id') === id && el.tagName === 'TR') el.classList.add('row-pending'); });
+job.timer = setTimeout(function () { sendCall(job); }, UNDO_MS);
+S.lastCall = job;
+showUndo(job);
+}
+function openListDetail(id, data) {
+if (!id) return;
+flushPending();
+closeListDetail();
+var root = document.createElement('div');
+root.id = 'ld-root';
+root.innerHTML = '<div class="ld-bg" data-act="ld-close"></div><div class="ld-panel" role="dialog" aria-modal="true" aria-label="Fiche de la commande">' +
+'<section class="detail" id="detail"><div class="card"><p class="loading">Chargement…</p></div></section></div>';
+document.body.appendChild(root);
+document.documentElement.classList.add('ld-open');
+S.listDetail = { id: id };
+S.currentId = id;
+S.current = null;
+var t = ++S.detailToken;
+var show = function (d) {
+if (t !== S.detailToken || !S.listDetail || S.listDetail.id !== id) return;
+S.current = d;
+renderDetail();
+var panel = $('#ld-root .ld-panel');
+if (panel) panel.scrollTop = 0;
+};
+if (data) show(data);
+else call('api_getOrder', id).then(show).catch(function (e) {
+if (t === S.detailToken && $('#detail')) $('#detail').innerHTML = '<div class="card">' + errorBox(e) + '</div>';
+});
+}
+function closeListDetail() {
+var root = $('#ld-root');
+if (root) root.remove();
+document.documentElement.classList.remove('ld-open');
+if (S.listDetail) { S.listDetail = null; S.current = null; S.currentId = null; ++S.detailToken; }
+}
 function sendCall(job) {
 if (job.sent) return;
 job.sent = true;
@@ -3526,11 +3594,13 @@ cancel: 'Commande ' + o.id + ' annulée'
 toast(msgs[outcome]);
 if (job.blacklist) call('api_setBlacklist', job.phone, true).catch(function (e) { toast(errText(e), true); });
 applyCounts(o.counts);
+if (job.fromList) { S.queue = null; if (S.route === 'commandes' && S.list) afterOrderSaved(o, null, o.counts); return; }
 if (S.route !== 'confirmation') return;
 if (o.queue) { setQueue(o.queue); setQueueCount(S.queue.due.length); renderQueue(); }
 }).catch(function (e) {
 delete S.pending[id];
 toast('Commande ' + id + ' non enregistrée : ' + errText(e), true);
+if (job.fromList) { if (S.route === 'commandes') loadOrders(); return; }
 if (S.route !== 'confirmation') return;
 loadQueue(!S.currentId);
 });
@@ -3546,6 +3616,12 @@ clearTimeout(job.timer);
 S.lastCall = null;
 hideUndo();
 delete S.pending[job.id];
+if (job.fromList) {
+toast('Annulé : la commande ' + job.id + ' n’a pas été modifiée.');
+$all('#orders-list tr.row-pending').forEach(function (el) { if (el.getAttribute('data-id') === job.id) el.classList.remove('row-pending'); });
+if (S.route === 'commandes') openListDetail(job.id, job.detail);
+return;
+}
 if (S.queue) {
 if (job.where && !S.queue[job.where.block].some(function (x) { return x.id === job.id; })) {
 S.queue[job.where.block].splice(Math.min(job.where.index, S.queue[job.where.block].length), 0, job.where.item);
@@ -4524,6 +4600,8 @@ refreshCount();
 'trash-restore-sel': restoreTrashSel,
 'new-order': openNewOrder,
 'cmd-search': cmdSearch,
+'list-confirm': function (el) { openListDetail(el.getAttribute('data-id')); },
+'ld-close': closeListDetail,
 'cs-close': closeCmdSearch,
 'qh': function (el) {
 var tip = el.getAttribute('data-tip') ? document.getElementById(el.getAttribute('data-tip')) : el.nextElementSibling;
@@ -4808,7 +4886,8 @@ document.addEventListener('keydown', function (e) {
 if (e.key === 'Escape' && $('#cm-root')) { closeCommuneSheet(); return; }
 if (e.key === 'Enter' && e.target.id === 'cm-q') { var first = $('#cm-list .cm-row'); if (first) first.click(); e.preventDefault(); return; }
 if (e.key === 'Escape' && modalOpen()) { closeModal(); return; }
-if (S.route !== 'confirmation' || !S.current || modalOpen() || e.ctrlKey || e.metaKey || e.altKey) return;
+if (e.key === 'Escape' && $('#ld-root')) { closeListDetail(); return; }
+if ((S.route !== 'confirmation' && !S.listDetail) || !S.current || modalOpen() || e.ctrlKey || e.metaKey || e.altKey) return;
 var t = e.target;
 if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
 var act = { c: 'confirm', p: 'no_answer', r: 'show-callback', a: 'show-cancel' }[String(e.key).toLowerCase()];
