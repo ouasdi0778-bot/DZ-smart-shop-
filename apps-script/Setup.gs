@@ -229,7 +229,7 @@ function applyOrdersRules_(sh) {
   });
   [
     ['Liste noire', '#FBE7E7', '#A12626'], ['Numéro invalide', '#FBE7E7', '#A12626'],
-    ['Doublon', '#FCEBDD', '#9A4200'], ['Risque', '#FCEBDD', '#9A4200'], ['Attention', '#FFF3DC', '#8A5200'],
+    ['Doublon', '#CFFAFE', '#0E7490'], ['Risque', '#FCEBDD', '#9A4200'], ['Attention', '#FFF3DC', '#8A5200'],
     ['Fiable', '#DDF0E4', '#146C2E'], ['Nouveau', '#E6EEFB', '#1E4FA8']
   ].forEach(function (a) {
     rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextStartsWith(a[0])

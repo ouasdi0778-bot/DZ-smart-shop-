@@ -1329,6 +1329,20 @@ table.data tbody tr.grp-row .qh { text-transform: none; letter-spacing: 0; }
   table.cards tr.grp-row > td::before { display: none; }
 }
 
+/* v1.22 : doublon en turquoise ; étape du colis dans la liste (confirmatrice sans Expédier / Suivi). */
+.dup-box { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 10px 0 4px; padding: 12px 14px; border-radius: 12px;
+  background: #ECFEFF; border: 1px solid #A5F3FC; color: #164E63; font-size: 14px; }
+.dup-box > div:first-child { flex: 1 1 260px; }
+.dup-box .strong { color: #0E7490; display: inline-flex; align-items: center; gap: 5px; }
+.dup-box .strong .ic { width: 16px; height: 16px; margin: 0; }
+.dup-box .small { margin-top: 3px; color: #155E75; }
+.dup-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.dup-acts .btn { min-height: 40px; }
+.dup-acts .dup-cancel { border-color: #67E8F9; color: #0E7490; }
+.l-step { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+.chip-who { display: inline-flex; align-items: center; gap: 5px; background: #EEF0F3; border-color: #CFD4DB; font-weight: 600; }
+.chip-who .ic { width: 14px; height: 14px; }
+
 /* Application Google après le basculement : les pages des commandes sont dans la version Cloudflare. */
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }

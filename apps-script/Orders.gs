@@ -210,6 +210,7 @@ function serializeOrder_(o) {
     tracking: String(o.tracking),
     carrierStatus: String(o.carrierStatus),
     carrierLabel: ecotrackLabel_(o.carrierStatus),
+    step: orderStep_(o),
     carrierMoved: iso_(o.carrierMoved),
     paymentId: String(o.paymentId),
     followUp: iso_(o.followUp),
@@ -415,11 +416,16 @@ function computeAlert_(order, env) {
   var windowMs = env.settings.DOUBLON_HEURES * 3600 * 1000;
   var t = toDate_(order.date) || env.now;
   if (windowMs > 0) {
-    var duplicate = h.list.some(function (o) {
+    // v1.22 : « Doublon · #2006 » : l'autre commande du même numéro (la plus proche dans le temps).
+    var twin = null;
+    var gap = Infinity;
+    h.list.forEach(function (o) {
       var d = toDate_(o.date);
-      return o.status !== STATUS.CANCELLED && d && Math.abs(d.getTime() - t.getTime()) <= windowMs;
+      if (o.status === STATUS.CANCELLED || !d) return;
+      var g = Math.abs(d.getTime() - t.getTime());
+      if (g <= windowMs && g < gap) { gap = g; twin = o; }
     });
-    if (duplicate) return 'Doublon';
+    if (twin) return 'Doublon · ' + String(twin.id);
   }
   if (env.flags && env.flags[p.phone]) return 'Signalé · a refusé un colis';
   var finished = h.delivered + h.returned;
@@ -429,11 +435,12 @@ function computeAlert_(order, env) {
   return 'Nouveau client';
 }
 
-/** Niveau de l'alerte, pour la couleur : bad, warn, ok ou new. */
+/** Niveau de l'alerte, pour la couleur : bad, dup (doublon, turquoise), warn, ok ou new. */
 function alertLevel_(alert) {
   var a = String(alert || '');
   if (a.indexOf('Liste noire') === 0 || a.indexOf('Numéro invalide') === 0) return 'bad';
-  if (a.indexOf('Doublon') === 0 || a.indexOf('Risque') === 0 || a.indexOf('Attention') === 0 || a.indexOf('Signalé') === 0) return 'warn';
+  if (a.indexOf('Doublon') === 0) return 'dup';
+  if (a.indexOf('Risque') === 0 || a.indexOf('Attention') === 0 || a.indexOf('Signalé') === 0) return 'warn';
   if (a.indexOf('Fiable') === 0) return 'ok';
   return 'new';
 }
@@ -614,11 +621,40 @@ function processNewRowsNow_() {
       writeFields_(ctx, o, f);
       log_(user, o.id, 'Nouvelle commande', 'Ajoutée à la file de confirmation · ' + f.alert);
     });
+    // v1.22 : doublon : l'autre commande du même numéro est marquée elle aussi.
+    pending.forEach(function (item) { markTwin_(ctx, env, item.order); });
     // v1.20 : chaque nouvelle commande va à une confirmatrice présente, à tour de rôle.
     shareOrders_(ctx, { ids: pending.map(function (item) { return item.order.id; }) });
     cloudOutboxAdd_(pending.map(function (item) { return String(item.order.id); }));
     return pending.length;
   });
+}
+
+/**
+ * v1.22 : commande en doublon : l'autre commande du même numéro (pas encore expédiée ni annulée) est
+ * marquée « Doublon · #… » elle aussi, pour que la confirmatrice le voie quelle que soit celle qu'elle ouvre.
+ */
+function markTwin_(ctx, env, o) {
+  var m = /^Doublon · (.+)$/.exec(String(o.alert || ''));
+  if (!m) return;
+  var twin = findOrder_(ctx, m[1]);
+  if (!twin || /^Doublon/.test(String(twin.alert || ''))) return;
+  if (QUEUE_STATUSES.indexOf(twin.status) < 0 && twin.status !== STATUS.UNREACHABLE && twin.status !== STATUS.CONFIRMED) return;
+  var a = computeAlert_(twin, env);
+  if (a !== String(twin.alert)) writeFields_(ctx, twin, { alert: a });
+}
+
+/**
+ * v1.22 : étape du colis d'une commande confirmée (barre d'étapes) : 0 confirmée ou colis créé,
+ * 1 ramassage, 2 en route, 3 chez le livreur, 4 livrée, -1 retour ; null avant la confirmation.
+ */
+function orderStep_(o) {
+  if (CONFIRMED_STATUSES.indexOf(o.status) < 0) return null;
+  if (o.status === STATUS.RETURNED) return -1;
+  if (o.status === STATUS.DELIVERED) return 4;
+  var info = ecotrackStatusInfo_(o.carrierStatus);
+  if (info) return trackStep_(o.carrierStatus, info.group);
+  return o.status === STATUS.IN_DELIVERY ? 3 : o.status === STATUS.SHIPPED ? 2 : 0;
 }
 
 /** Recalcule la colonne « Alerte client » des commandes en attente de confirmation. */

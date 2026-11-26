@@ -1923,6 +1923,7 @@ async function listOrders(env, R, filter) {
   const rowBinds = binds.slice();
   if (status === 'queue') { rowWhere += ' AND status IN (' + placeholders(QUEUE.length) + ')'; rowBinds.push(...QUEUE); }
   else if (status === 'todo') { rowWhere += " AND stage = 'todo'"; }
+  else if (status === 'enroute') { rowWhere += ' AND status IN (?, ?)'; rowBinds.push(K.STATUS.SHIPPED, K.STATUS.IN_DELIVERY); }
   else if (status !== 'all') { rowWhere += ' AND status = ?'; rowBinds.push(status); }
   // « À appeler » : toutes lues (peu nombreuses), puis triées comme la file d'appels.
   const todo = status === 'todo' && !qOn;
@@ -1946,7 +1947,8 @@ async function listOrders(env, R, filter) {
     if (QUEUE.indexOf(r.status) >= 0) counts.queue += r.n;
     if (r.stage === 'todo') counts.todo += r.n;
   });
-  const total = status === 'all' ? counts.all : status === 'queue' ? counts.queue : status === 'todo' ? counts.todo : (counts[status] || 0);
+  const total = status === 'all' ? counts.all : status === 'queue' ? counts.queue : status === 'todo' ? counts.todo
+    : status === 'enroute' ? (counts[K.STATUS.SHIPPED] || 0) + (counts[K.STATUS.IN_DELIVERY] || 0) : (counts[status] || 0);
   let list = (rows.results || []).map(toOrder);
   if (todo) list = run(R, () => F.sortTodo_(list, new Date(), F.getSettings_())).slice(0, limit);
   const out = run(R, () => list.map((o) => F.serializeOrder_(o)));

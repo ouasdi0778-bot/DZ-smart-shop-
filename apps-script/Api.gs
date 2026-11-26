@@ -393,6 +393,7 @@ function listData_(ctx, filter) {
     if (status === 'all') return true;
     if (status === 'queue') return QUEUE_STATUSES.indexOf(o.status) >= 0;
     if (status === 'todo') return !o.status || TODO_STATUSES_.indexOf(o.status) >= 0; // page Commandes : pas encore confirmées
+    if (status === 'enroute') return o.status === STATUS.SHIPPED || o.status === STATUS.IN_DELIVERY; // v1.22 : colis en route
     return o.status === status;
   });
   if (status === 'todo') sortTodo_(rows, now, getSettings_());
@@ -597,7 +598,7 @@ function orderDetail_(ctx, env, o, user) {
     var db = toDate_(b.date);
     return (db ? db.getTime() : 0) - (da ? da.getTime() : 0);
   }).slice(0, 5).map(function (x) {
-    return { id: String(x.id), date: iso_(x.date), status: x.status, total: toNumber_(x.total), product: String(x.product) };
+    return { id: String(x.id), date: iso_(x.date), status: x.status, total: toNumber_(x.total), product: String(x.product), agent: String(x.agent == null ? '' : x.agent).trim() };
   });
   var phone = normalizePhone(o.phone);
   var rules = orderRules_(o, user, env.settings);
@@ -824,6 +825,8 @@ function api_createOrder(input) {
     o.alert = computeAlert_(o, env);
     if (queueScope_(user, env.settings)) o.agent = user.name;
     appendOrder_(ctx, o);
+    env.index = phoneIndex_(ctx.orders);
+    markTwin_(ctx, env, o); // v1.22 : l'autre commande du même numéro est marquée « Doublon » elle aussi
     log_(user, o.id, 'Nouvelle commande', 'Saisie à la main · ' + o.alert);
     if (!o.agent) shareOrders_(ctx, { ids: [o.id] });
     var res = serializeOrder_(o);

@@ -203,8 +203,9 @@ test('alertes : doublon, liste noire, numéro invalide, historique', function ()
   addRaw({ 'N°': '#3002', 'Client': 'C', 'Téléphone': '+213661000001', 'Wilaya': 'Alger', 'Prix': 1000 });
   addRaw({ 'N°': '#3003', 'Client': 'D', 'Téléphone': '123', 'Wilaya': 'Alger', 'Prix': 1000 });
   processNewRows();
-  assert.strictEqual(order('#3001').alert, 'Doublon');
-  assert.strictEqual(order('#3002').alert, 'Doublon');
+  assert.strictEqual(order('#3001').alert, 'Doublon · #3002', 'avec le n° de l’autre commande (v1.22)');
+  assert.strictEqual(order('#3002').alert, 'Doublon · #3001');
+  assert.strictEqual(order('#3001').alertLevel, 'dup', 'couleur à part (turquoise)');
   assert.strictEqual(order('#3003').alert, 'Numéro invalide');
   assert.strictEqual(order('#3003').alertLevel, 'bad');
 
@@ -2284,7 +2285,7 @@ test('Shopify : importation des commandes, préparation et pas de doublon', func
   assert.strictEqual(a.attempts, 0);
   assert.strictEqual(a.shopifyId, '7584000000001');
   assert.strictEqual(sheet('Commandes').getRange(2, headerOf('Commandes').indexOf('Campagne') + 1).getValue(), '99887766');
-  assert.strictEqual(order('#1031').alert, 'Doublon', 'même client, mêmes minutes');
+  assert.ok(/^Doublon · #/.test(order('#1031').alert), 'même client, mêmes minutes : ' + order('#1031').alert);
   assert.strictEqual(order('#1032').phone, '0672063914');
   assert.strictEqual(order('#1032').wilaya, '16 - Alger');
   assert.strictEqual(order('#1032').mode, 'Domicile');
@@ -4930,6 +4931,32 @@ test('Commandes (v1.21) : « À appeler » dans l’ordre de la file, barre du p
   assert.ok(api_listOrders({ status: 'all', period: 'all' }).rows.every(function (o) { return o.agent === 'Amina'; }));
   var found = api_listOrders({ status: 'all', period: 'all', q: '0770112233', scope: 'all' }).rows;
   assert.deepStrictEqual(found.map(function (o) { return [o.id, o.agent]; }), [['#L5', 'Sara']], 'la recherche trouve la commande de Sara');
+});
+
+test('v1.22 : doublon marqué sur les deux commandes ; colis en route ; étape du colis', function () {
+  baseSetup();
+  newShared('#D1', '0661223300');
+  processNewRows();
+  assert.strictEqual(order('#D1').alert, 'Nouveau client');
+  newShared('#D2', '0661223300');
+  processNewRows();
+  assert.strictEqual(order('#D2').alert, 'Doublon · #D1');
+  assert.strictEqual(order('#D1').alert, 'Doublon · #D2', 'la première commande est marquée elle aussi');
+  var detail = api_getOrder('#D2');
+  assert.deepStrictEqual(detail.history.recent.map(function (x) { return x.id; }), ['#D1']);
+  assert.ok('agent' in detail.history.recent[0]);
+  // Commande saisie à la main : même règle.
+  var m = api_createOrder({ client: 'Client M', phone: '0550998877', wilaya: '16 - Alger', product: 'Sac à main', price: 3000 });
+  var m2 = api_createOrder({ client: 'Client M', phone: '0550998877', wilaya: '16 - Alger', product: 'Sac à main', price: 3000 });
+  assert.strictEqual(order(m2.id).alert, 'Doublon · ' + m.id);
+  assert.strictEqual(order(m.id).alert, 'Doublon · ' + m2.id);
+  // Étape du colis (barre d'étapes) et pastille « En route ».
+  api_updateOrder('#D1', { status: 'Confirmée' });
+  assert.strictEqual(order('#D1').step, 0);
+  assert.strictEqual(order('#D2').step, null, 'pas encore confirmée');
+  api_updateOrder('#D1', { status: 'Expédiée', carrier: 'Yalidine', tracking: 'YAL-1' });
+  assert.strictEqual(order('#D1').step, 2);
+  assert.deepStrictEqual(api_listOrders({ status: 'enroute', period: 'all' }).rows.map(function (o) { return o.id; }), ['#D1']);
 });
 
 test('Partage : réglage PARTAGE = NON, une seule file pour toute l’équipe (comme avant)', function () {

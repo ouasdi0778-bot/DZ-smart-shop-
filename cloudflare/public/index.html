@@ -1281,6 +1281,18 @@ table.cards tr.grp-row:first-child { padding-top: 4px; }
 table.cards tr.grp-row > td { display: block; padding: 0; text-align: left; }
 table.cards tr.grp-row > td::before { display: none; }
 }
+.dup-box { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 10px 0 4px; padding: 12px 14px; border-radius: 12px;
+background: #ECFEFF; border: 1px solid #A5F3FC; color: #164E63; font-size: 14px; }
+.dup-box > div:first-child { flex: 1 1 260px; }
+.dup-box .strong { color: #0E7490; display: inline-flex; align-items: center; gap: 5px; }
+.dup-box .strong .ic { width: 16px; height: 16px; margin: 0; }
+.dup-box .small { margin-top: 3px; color: #155E75; }
+.dup-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.dup-acts .btn { min-height: 40px; }
+.dup-acts .dup-cancel { border-color: #67E8F9; color: #0E7490; }
+.l-step { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+.chip-who { display: inline-flex; align-items: center; gap: 5px; background: #EEF0F3; border-color: #CFD4DB; font-weight: 600; }
+.chip-who .ic { width: 14px; height: 14px; }
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }
 </style>
@@ -1570,7 +1582,7 @@ var DZC = (function () {
   var STEP_KEY = 'dz-smart-shop:step';
   /** Pages restées dans l'application Google (étape 3) : ouvertes là-bas. */
   var EXTERNAL = ['benefices', 'stock', 'stats', 'admin'];
-  var VERSION = '1.21.0';
+  var VERSION = '1.22.0';
 
   /** Même empreinte que shortHash_ (Api.gs) : clé de la mémoire sur l'appareil, sans l'adresse. */
   function shortHash(text) {
@@ -2014,6 +2026,7 @@ return true;
 }
 var ALERT = {
 bad: { bg: '#FBE7E7', fg: '#A12626' },
+dup: { bg: '#CFFAFE', fg: '#0E7490' }, // v1.22 : doublon, en turquoise
 warn: { bg: '#FCEBDD', fg: '#9A4200' },
 ok: { bg: '#DDF0E4', fg: '#146C2E' },
 'new': { bg: '#E6EEFB', fg: '#1E4FA8' }
@@ -2611,13 +2624,35 @@ var chip = function (c, n) {
 return '<button type="button" class="chip" data-act="chip" data-status="' + h(c[0]) + '" aria-pressed="' + (S.filter.status === c[0]) + '">' +
 h(c[1]) + (n === null ? '' : ' · ' + (n || 0)) + '</button>';
 };
-$('#chips').innerHTML = list.filter(function (c) {
+var who = S.boot.user.admin && S.filter.agent
+? '<button type="button" class="chip chip-who" data-act="list-agent" data-agent="" title="Enlever le filtre">' + icon('users') +
+h(S.filter.agent === '__pool' ? 'À partager' : S.filter.agent) + ' ✕</button>' : '';
+$('#chips').innerHTML = who + list.filter(function (c) {
 return c[0] === 'todo' || c[0] === S.filter.status || counts[c[0]];
 }).map(function (c) { return chip(c, counts[c[0]]); }).join('') +
 '<span class="chip-sep" aria-hidden="true"></span>' +
-chip(['all', S.boot.user.confirm && S.boot.user.share ? 'Mes commandes' : 'Toutes'], counts.all) +
+stepChips(counts, chip) +
 chip(['Annulée', 'Annulées'], counts['Annulée']) +
 (S.boot.user.admin ? chip(['trash', 'Corbeille'], null) : '');
+}
+function stepChips(counts, chip) {
+var u = S.boot.user;
+if (!u.confirm) return '';
+var out = '';
+if (u.ship === false) out += chip(['Confirmée', 'Confirmées'], counts['Confirmée'] || 0);
+if (u.track === false) {
+out += chip(['enroute', 'En route'], (counts['Expédiée'] || 0) + (counts['En livraison'] || 0)) +
+chip(['Livrée', 'Livrées'], counts['Livrée'] || 0) + chip(['Retour', 'Retours'], counts['Retour'] || 0);
+}
+return out ? out + '<span class="chip-sep" aria-hidden="true"></span>' : '';
+}
+function stepLine(o) {
+if (o.step === null || o.step === undefined) return '';
+var u = S.boot.user;
+var page = o.page === 'expedier' ? u.ship : u.track;
+if (!u.confirm || page !== false) return '';
+var label = o.step < 0 ? (o.carrierLabel || 'Retour') : o.carrierLabel || ['Confirmée', 'Ramassage', 'En route', 'Chez le livreur', 'Livrée'][o.step] || o.status;
+return '<span class="l-step">' + stepBar(o.step, false) + '<span>' + h(label) + '</span></span>';
 }
 function renderOrderList(res) {
 var box = $('#orders-list');
@@ -2662,10 +2697,10 @@ html += '<tr class="clickable compact' + (qk ? ' q-' + kind : '') + (selOn ? ' s
 '<td class="m-sum" data-label=""><span class="l1"><span>' + (selOn ? '<span data-stop class="m-sel">' + selBox('orders', o.id) + '</span>' : '') + '<span dir="auto">' + h(o.client || '—') + '</span></span><span class="num">' + money(o.total) + '</span></span>' +
 '<span class="l2">' + stPill + '<span>' + h(wilayaName(o.wilaya)) + '</span><span>· ' + h(o.id) + '</span>' +
 (o.locked ? '<span class="lock-icon">' + icon('lock') + '</span>' : '') +
-(o.alertLevel === 'bad' || o.alertLevel === 'warn' ? alertPill(o.alert, o.alertLevel) : '') +
+(o.alertLevel === 'bad' || o.alertLevel === 'warn' || o.alertLevel === 'dup' ? alertPill(o.alert, o.alertLevel) : '') +
 (o.status === 'Annulée' && o.cancelReason ? '<span style="color:#A12626">Motif : ' + h(o.cancelReason) + '</span>' : '') +
 (other ? '<span class="ag-pill">' + icon('users') + 'Suivie par ' + h(o.agent) + '</span>' : o.agent || TODO_STATUSES.indexOf(o.status) >= 0 ? agentPill(o.agent) : '') + '</span>' +
-(qk ? '<span class="l-dots">' + dots + cbWhen + '</span>' : '') +
+(qk ? '<span class="l-dots">' + dots + cbWhen + '</span>' : '') + stepLine(o) +
 '<span class="l3"><span>' + h(o.product || '') + (o.qty > 1 ? ' ×' + o.qty : '') + '</span>' + (o.date ? '<span class="ago">' + h(ago(o.date)) + '</span>' : '') + '</span></td>' +
 '<td data-label="N°" class="multi"><button type="button" class="link-btn" data-act="' + rowAct + '" data-id="' + h(o.id) + '">' + h(o.id) + '</button>' +
 (o.locked ? ' <span class="lock-icon" title="Verrouillée" aria-label="Verrouillée">' + icon('lock') + '</span>' : '') + '<div class="small">' + fmtDate(o.date) + '</div></td>' +
@@ -2675,7 +2710,7 @@ html += '<tr class="clickable compact' + (qk ? ' q-' + kind : '') + (selOn ? ' s
 '<td data-label="Total" class="num strong">' + money(o.total) + '</td>' +
 '<td data-label="Statut">' + stPill + (qk ? '<div class="l-dots">' + dots + cbWhen + '</div>' : '') +
 (o.status === 'Annulée' && o.cancelReason ? '<div class="small strong" style="color:#A12626">Motif : ' + h(o.cancelReason) + '</div>' : '') +
-(PAGE_LABELS[o.page] && S.filter.status !== 'Annulée' ? '<div class="small">→ ' + PAGE_LABELS[o.page] + '</div>' : '') +
+(stepLine(o) ? '<div>' + stepLine(o) + '</div>' : PAGE_LABELS[o.page] && S.filter.status !== 'Annulée' ? '<div class="small">→ ' + PAGE_LABELS[o.page] + '</div>' : '') +
 (other ? '<div><span class="ag-pill">' + icon('users') + 'Suivie par ' + h(o.agent) + '</span></div>' : o.agent || TODO_STATUSES.indexOf(o.status) >= 0 ? '<div>' + agentPill(o.agent) + '</div>' : '') + '</td>' +
 '<td data-label="Alerte">' + alertPill(o.alert, o.alertLevel) + '</td>' +
 '<td data-label="Livraison" class="multi">' + h(o.mode) + '<div class="small">' + h([o.carrier, o.tracking].filter(Boolean).join(' · ')) + '</div></td>' +
@@ -3645,7 +3680,8 @@ $('#detail').innerHTML =
 '</div>' +
 (d.intlPhone ? '<span class="qh-tip d-wa-tip" id="d-wa-tip" hidden><span id="d-msg"></span>' +
 '<a class="btn wa-btn" id="d-wa2" href="#" target="_blank" rel="noopener">' + icon('whatsapp') + 'Envoyer sur WhatsApp</a></span>' : '') +
-(important ? '<div class="history" style="background:' + a.bg + '"><span class="strong" style="color:' + a.fg + '">' + h(o.alert) + '</span><span>' + h(histText) + '</span></div>' : '') +
+(o.alertLevel === 'dup' ? dupBox(d, histText)
+: important ? '<div class="history" style="background:' + a.bg + '"><span class="strong" style="color:' + a.fg + '">' + h(o.alert) + '</span><span>' + h(histText) + '</span></div>' : '') +
 stockNote(d.stock, true) +
 '<div class="brief" id="d-brief"></div>' +
 callHistory(o) +
@@ -3679,6 +3715,16 @@ field('Notes', '<textarea name="notes" dir="auto">' + h(o.notes) + '</textarea>'
 '</div>';
 updateSummary();
 prefetchNext();
+}
+function dupBox(d, histText) {
+var o = d.order;
+var twinId = String(o.alert || '').replace(/^Doublon\s*·\s*/, '').trim();
+var twin = (d.history.recent || []).filter(function (x) { return x.id === twinId; })[0];
+var about = twin ? ', reçue ' + ago(twin.date) + ', ' + (twin.status || 'à préparer') + (twin.agent ? ', suivie par ' + twin.agent : '') : '';
+return '<div class="dup-box"><div><span class="strong">' + icon('commandes') + 'Doublon</span> : même numéro que <strong>' + h(twinId || 'une autre commande') + '</strong>' + h(about) + '.' +
+'<div class="small">' + h(histText) + '</div></div>' +
+'<div class="dup-acts">' + (twinId ? '<button type="button" class="btn" data-act="open-order" data-id="' + h(twinId) + '">' + icon('eye') + 'Voir ' + h(twinId) + '</button>' : '') +
+'<button type="button" class="btn dup-cancel" data-act="dup-cancel">' + icon('x') + 'Annuler celle-ci (motif Doublon)</button></div></div>';
 }
 function dzDay(d) {
 try { return d.toLocaleDateString('fr-FR', { timeZone: TZ, day: '2-digit', month: '2-digit' }); } catch (e) { return ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2); }
@@ -5293,6 +5339,7 @@ if (!v) { toast('Choisissez une date et une heure.', true); return; }
 submit('callback', { callback: new Date(v).toISOString() });
 },
 'cancel': function () { submit('cancel', { reason: $('#cancel-reason').value }); },
+'dup-cancel': function () { submit('cancel', { reason: 'Doublon' }); },
 'ship-reload': function () { loadShipping(); },
 'ship-all-toggle': function () {
 var d = S.ship.data;
