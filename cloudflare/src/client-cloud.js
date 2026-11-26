@@ -37,7 +37,7 @@
       var data = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
       saveSession({ t: token, e: String(data.e).toLowerCase(), x: data.x, k: shortHash('dz-smart-shop|' + String(data.e).toLowerCase()), v: 1 });
     } catch (e) { /* jeton illisible : écran de connexion */ }
-    history.replaceState(null, '', location.pathname + location.search + '#/confirmation');
+    history.replaceState(null, '', location.pathname + location.search + '#/commandes');
   }
   var session = readSession();
   if (session && !(session.x > Date.now())) session = null;

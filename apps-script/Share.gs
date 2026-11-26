@@ -254,6 +254,22 @@ function shareQueue_() {
 
 /** Résumé du partage pour la file : moi (présence) ; pour l'administrateur, l'équipe et « à partager ». */
 function shareInfo_(ctx, user, settings) {
+  if (!shareOn_(settings) || isConfirmatrice_(user)) return shareSummary_(user, settings, {});
+  var now = new Date();
+  var due = {};
+  ctx.orders.forEach(function (o) {
+    if (!isDueNow_(o, now)) return;
+    var a = String(o.agent == null ? '' : o.agent).trim();
+    due[a] = (due[a] || 0) + 1;
+  });
+  return shareSummary_(user, settings, due);
+}
+
+/**
+ * Résumé du partage à partir des commandes à appeler maintenant, par responsable ({ nom: nombre }) :
+ * confirmatrice → sa présence ; administrateur → l'équipe et « à partager ». (Cloudflare : comptes de D1.)
+ */
+function shareSummary_(user, settings, due) {
   var on = shareOn_(settings);
   var info = { on: on, confirm: isConfirmatrice_(user) };
   if (!on) return info;
@@ -265,17 +281,13 @@ function shareInfo_(ctx, user, settings) {
   }
   var team = teamConfirmatrices_();
   var names = {};
-  team.forEach(function (m) { names[m.name] = m; m.due = 0; });
+  team.forEach(function (m) { names[m.name] = true; });
   var pool = 0;
-  ctx.orders.forEach(function (o) {
-    if (!isDueNow_(o, now)) return;
-    var m = names[String(o.agent == null ? '' : o.agent).trim()];
-    if (m) m.due++; else pool++;
-  });
+  Object.keys(due || {}).forEach(function (a) { if (!names[a]) pool += due[a]; });
   info.pool = pool;
   info.team = team.map(function (m) {
     var s = presenceState_(m.key, now, settings);
-    return { name: m.name, present: s.present, pause: s.pause, due: m.due };
+    return { name: m.name, present: s.present, pause: s.pause, due: (due || {})[m.name] || 0 };
   });
   return info;
 }

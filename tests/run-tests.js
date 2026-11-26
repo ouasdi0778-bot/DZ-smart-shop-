@@ -4899,6 +4899,39 @@ test('Partage : Expédier et Suivi fermés aux confirmatrices, ouverts par l’a
   assert.throws(function () { api_ecotrackSyncFees(); }, /administrateur/);
 });
 
+test('Commandes (v1.21) : « À appeler » dans l’ordre de la file, barre du partage, recherche dans toutes les commandes', function () {
+  baseSetup();
+  shareTeam();
+  presentNow('amina@example.com');
+  ['#L1', '#L2', '#L3', '#L4'].forEach(function (id) { newShared(id); });
+  processNewRows();
+  __mock.setUser('amina@example.com');
+  api_recordCall('#L1', 'callback', { callback: new Date(Date.now() + 3 * 3600000).toISOString() }); // rappel plus tard
+  api_recordCall('#L2', 'no_answer', {});                                                              // pas de réponse
+  setOrderFields('#L3', { callback: new Date(Date.now() - 600000), status: 'Rappeler' });               // rappel arrivé à l'heure
+  var res = api_listOrders({ status: 'todo', period: 'all' });
+  assertSerializable(res, 'api_listOrders');
+  assert.deepStrictEqual(res.rows.map(function (o) { return o.id; }), ['#L3', '#L4', '#L2', '#L1'],
+    'rappel arrivé à l’heure, nouvelle, pas de réponse (rappel dans 2 h, donc plus tard)… puis rappels à venir');
+  assert.deepStrictEqual([res.share.on, res.share.confirm, res.share.me.present, res.mine.confirmedToday], [true, true, true, 0]);
+  api_recordCall('#L4', 'confirm', {});
+  assert.strictEqual(api_listOrders({ status: 'todo', period: 'all' }).mine.confirmedToday, 1, 'mes confirmations du jour');
+  // Une commande de Sara : invisible dans sa liste, trouvée par la recherche.
+  presentNow('sara@example.com');
+  newShared('#L5', '0770112233');
+  processNewRows();
+  var who = order('#L5').agent;
+  assert.ok(who === 'Sara' || who === 'Amina');
+  __mock.setUser('admin@example.com');
+  api_assignOrders(['#L5'], 'Sara');
+  var adminRes = api_listOrders({ status: 'todo', period: 'all' });
+  assert.ok(adminRes.share.team.length === 3 && adminRes.mine.confirmedToday === 0, 'l’administrateur : l’équipe en filtres');
+  __mock.setUser('amina@example.com');
+  assert.ok(api_listOrders({ status: 'all', period: 'all' }).rows.every(function (o) { return o.agent === 'Amina'; }));
+  var found = api_listOrders({ status: 'all', period: 'all', q: '0770112233', scope: 'all' }).rows;
+  assert.deepStrictEqual(found.map(function (o) { return [o.id, o.agent]; }), [['#L5', 'Sara']], 'la recherche trouve la commande de Sara');
+});
+
 test('Partage : réglage PARTAGE = NON, une seule file pour toute l’équipe (comme avant)', function () {
   baseSetup();
   shareTeam();

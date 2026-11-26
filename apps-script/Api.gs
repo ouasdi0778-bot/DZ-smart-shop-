@@ -333,8 +333,17 @@ function api_listOrders() {
 function listOrdersApi_(filter) {
   filter = filter || {};
   var arrived = filter.sync ? releasitQuickSync_() : 0;
+  // v1.21 : la page Commandes remplace la file d'appels : une confirmatrice reçoit ses commandes en l'ouvrant.
+  var user = currentUser_();
+  touchPresence_(user);
+  if (queueScope_(user) && !String(filter.q || '').trim()) shareQueue_();
   var ctx = readOrders_();
   var res = listData_(ctx, filter);
+  if (!String(filter.q || '').trim()) {
+    var settings = getSettings_();
+    res.share = shareInfo_(ctx, user, settings);
+    res.mine = { confirmedToday: mineToday_(ctx, user).confirmed };
+  }
   res.arrived = arrived;
   if (arrived) res.menuCounts = countsData_(ctx, null);
   if (filter.withStatus) res.importStatus = api_importStatus();
@@ -386,13 +395,53 @@ function listData_(ctx, filter) {
     if (status === 'todo') return !o.status || TODO_STATUSES_.indexOf(o.status) >= 0; // page Commandes : pas encore confirmées
     return o.status === status;
   });
-  rows.sort(function (a, b) {
+  if (status === 'todo') sortTodo_(rows, now, getSettings_());
+  else rows.sort(function (a, b) {
     var da = toDate_(a.date);
     var db = toDate_(b.date);
     return (db ? db.getTime() : 0) - (da ? da.getTime() : 0);
   });
   var limit = Math.min(Math.max(Math.round(toNumber_(filter.limit)) || 100, 1), 1000);
   return { rows: rows.slice(0, limit).map(serializeOrder_), total: rows.length, counts: counts };
+}
+
+/**
+ * v1.21 : rang d'une commande dans « À appeler », dans l'ordre de la file d'appels : 0 rappel arrivé à
+ * l'heure, 1 nouvelle, 2 pas de réponse à rappeler maintenant, 3 rappel prévu plus tard, 4 en attente.
+ */
+function todoRank_(o, now) {
+  if (QUEUE_STATUSES.indexOf(o.status) < 0) return 4;
+  var cb = toDate_(o.callback);
+  if (cb && cb > now) return 3;
+  if (cb && (o.status === STATUS.CALLBACK || o.status === STATUS.NO_ANSWER)) return 0;
+  return o.status === STATUS.TO_CONFIRM ? 1 : 2;
+}
+
+/** Trie les commandes « À appeler » comme la file (nouvelles : réglage ORDRE_FILE ; rappels : par heure). */
+function sortTodo_(rows, now, settings) {
+  var recent = settings.ORDRE_FILE !== 'anciennes';
+  var t = function (d) { d = toDate_(d); return d ? d.getTime() : 0; };
+  return rows.sort(function (a, b) {
+    var ra = todoRank_(a, now);
+    var rb = todoRank_(b, now);
+    if (ra !== rb) return ra - rb;
+    if (ra === 1) return recent ? t(b.date) - t(a.date) : t(a.date) - t(b.date);
+    if (ra === 4) return t(b.date) - t(a.date);
+    return (t(a.callback) || t(a.date)) - (t(b.callback) || t(b.date));
+  });
+}
+
+/** Commandes traitées et confirmées aujourd'hui par cette personne. */
+function mineToday_(ctx, user) {
+  var today = startOfDay_(new Date());
+  var mine = { handled: 0, confirmed: 0 };
+  ctx.orders.forEach(function (o) {
+    var u = toDate_(o.updated);
+    if (String(o.agent) !== user.name || !u || u < today) return;
+    if (QUEUE_STATUSES.indexOf(o.status) < 0) mine.handled++;
+    if (CONFIRMED_STATUSES.indexOf(o.status) >= 0) mine.confirmed++;
+  });
+  return mine;
 }
 
 /* ------------------------------------------------------------------ */

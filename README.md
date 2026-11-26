@@ -6,7 +6,7 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 - **L'application** (tableau de bord, commandes, centre de confirmation) est servie par **Google Apps Script**, gratuitement, et s'ouvre avec un simple lien sur PC et sur Android.
 - Tout tourne chez Google : **votre PC peut être éteint**.
 
-## Ce que fait la version 1.20
+## Ce que fait la version 1.21
 
 | Écran | Contenu |
 |---|---|
@@ -19,6 +19,8 @@ Outil de gestion des commandes en paiement à la livraison (COD) pour l'Algérie
 | **Bénéfices** | Bénéfice net sur la **période de votre choix** comparé à la période d'avant, **graphiques** (bénéfice par jour, où part l'argent, seuil de rentabilité, simulateur du taux de livraison), produits classés par bénéfice **après pub** (chaque pub reliée à son produit), publicité (coût par livrée, ROAS), **dépenses et gains** sur un jour ou un intervalle, à corriger ou supprimer (administrateur) |
 | **Statistiques** | Commandes et argent par période, comparés à la période d'avant : **ce qui a changé** en phrases, parcours des commandes avec les pertes et leurs motifs, **carte des wilayas**, heures × jours, **meilleure heure pour appeler**, vitesse de confirmation, bureau ou domicile, produits, **équipe** (appels, réponses, objectif du jour, prime), publicité (**qualité des sources**), **filtre croisé** (une wilaya, un produit, une campagne, une source ou une confirmatrice), où est l'argent et versements d'Ecotrack ; tableaux triables, export pour Excel (administrateur) |
 | **Administration** | État de l'outil, connexions (Ecotrack, SMS, Shopify, Releasit), réglages en formulaires, équipe (**connexion par téléphone et mot de passe**, version Cloudflare), clients, sauvegarde **Tout exporter (Excel)**, entretien (administrateur) |
+
+Une seule page Commandes (v1.21) : plus d'onglets Appeler / Liste ; la pastille **À appeler** est rangée comme la file d'appels, et **+ Nouvelle commande** est toujours là.
 
 Commandes partagées entre les confirmatrices (v1.20) : **à tour de rôle** entre celles qui sont présentes, chacune ne voit que les siennes, l'administrateur voit tout ; **Expédier** et **Suivi** cachés aux confirmatrices sauf si l'administrateur les ouvre (leurs commandes seulement).
 
@@ -780,6 +782,18 @@ Rien à coller dans Apps Script, rien à faire dans la base pour cette version. 
 - **Administration › Équipe › Confirmatrices** : présence (présente, en pause, absente · vue il y a…), commandes à appeler, part, Expédier, Suivi, et ⋯ (**Mettre en pause / Remettre présente**, **Reprendre ses commandes** vers les autres présentes). Nouvelles colonnes **Part**, **Expédier**, **Suivi** dans l'onglet Équipe.
 - **Notifications « nouvelle commande »** : à l'administrateur et à la confirmatrice qui la reçoit. **Statistiques › Équipe** : reçues → confirmées → livrées par confirmatrice.
 - `PARTAGE = NON` : une seule file pour toute l'équipe, comme avant (les droits Expédier / Suivi restent).
+
+### v1.21 : une seule page Commandes
+
+Rien à coller dans Apps Script pour cette version.
+
+- **Plus d'onglets Appeler / Liste** : une seule page **Commandes**. Les anciens liens (`#/confirmation`, notifications) y mènent.
+- **Pastille « À appeler »** (à la place de « À traiter »), choisie d'office, rangée comme la file d'appels : **À appeler maintenant** (rappels arrivés à l'heure, nouvelles — les plus récentes d'abord, réglage `ORDRE_FILE` —, pas de réponse), puis **Rappels à venir** avec leur heure, puis **En attente** (injoignable…). Toucher une commande ouvre la fiche d'appel sur place ; après le résultat, retour à la liste (pas d'enchaînement automatique).
+- **Au-dessus de la liste** : pour une confirmatrice, « ● Présente · 4 confirmées aujourd'hui » et **En pause / Je suis là** ; pour l'administrateur, les filtres **Toute l'équipe · Imane · Sonia · À partager**. En ouvrant la page, une confirmatrice reçoit tout de suite ses commandes (partage).
+- **La recherche trouve toutes les commandes** : une commande d'une collègue affiche « Suivie par Sonia » ; la toucher propose **Prendre et ouvrir**.
+- Pastille **Toutes** (« **Mes commandes** » pour une confirmatrice) : toutes les commandes, quel que soit leur statut.
+- **+ Nouvelle commande** toujours visible : bouton en haut sur ordinateur, bouton rond en bas à droite sur téléphone (l'onglet Appeler n'en avait pas).
+- **Correction** : à l'ouverture de l'application, une confirmatrice qui recevait des commandes voyait le démarrage refusé une première fois (« Cette commande vient d'être modifiée par quelqu'un d'autre ») : le partage était enregistré deux fois. Il est maintenant enregistré à part, une seule fois.
 
 ### Comment ça marche
 

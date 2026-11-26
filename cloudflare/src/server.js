@@ -610,18 +610,12 @@ const PAGES = {
   async api_queue(env, R, args) {
     const opts = args[0] || {};
     await loadQueueSet(env, R);
-    // v1.20 : partage avant la lecture (commandes à partager, collègues absentes) ; en cas de conflit
-    // avec la tâche de chaque minute, la file est relue telle quelle.
-    if (run(R, () => F.queueScope_(F.currentUser_())) !== null) {
-      try {
-        const sh = await exec(env, R, () => F.shareOrders_(F.readOrders_()));
-        if (sh && sh.n) await flush(env, R);
-      } catch (e) {
-        const R2 = newReq(R.base, R.user);
-        R2.userName = R.userName;
-        R = R2;
-        await loadQueueSet(env, R);
-      }
+    // v1.20 : partage avant la lecture (commandes à partager, collègues absentes).
+    if (run(R, () => F.queueScope_(F.currentUser_())) !== null && (await sharePull(env, R.base, R.user))) {
+      const R2 = newReq(R.base, R.user);
+      R2.userName = R.userName;
+      R = R2;
+      await loadQueueSet(env, R);
     }
     let q = run(R, () => F.queueData_(F.readOrders_(), F.currentUser_()));
     if (opts.first && q.due.length) {
@@ -1295,6 +1289,21 @@ async function preloadTabs(env, R, fn) {
 /** Commandes à appeler (partage des commandes, v1.20). */
 async function loadTodo(env, R) { await loadWhere(env, R, "archived = 0 AND stage = 'todo'", []); }
 
+/**
+ * Partage demandé par une confirmatrice qui ouvre sa page : dans sa propre requête (enregistrée à part),
+ * pour que la requête de la page n'ait rien à réenregistrer. Un conflit avec la tâche de chaque minute est
+ * sans gravité (elle partage à son tour). Renvoie le nombre de commandes données.
+ */
+async function sharePull(env, base, user) {
+  const R0 = newReq(base, user);
+  try {
+    await loadTodo(env, R0);
+    const r = await exec(env, R0, () => F.shareOrders_(F.readOrders_()));
+    if (r && r.n) await flush(env, R0);
+    return (r && r.n) || 0;
+  } catch (e) { return 0; }
+}
+
 /** Une fonction de l'outil, telle quelle (onglets lus à la demande), puis enregistrement. */
 function gasPage(fnName, before) {
   return async function (env, R, args) {
@@ -1872,6 +1881,10 @@ async function dashboard(env, R, args) {
 
 async function listOrders(env, R, filter) {
   const db = env.DB;
+  const qOn = !!String(filter.q || '').trim();
+  const scopeName = run(R, () => F.queueScope_(F.currentUser_()));
+  // v1.21 : la page Commandes remplace la file d'appels : une confirmatrice reçoit ses commandes en l'ouvrant.
+  if (scopeName !== null && !qOn) await sharePull(env, R.base, R.user);
   const conds = ['archived = 0'];
   const binds = [];
   const period = String(filter.period || '30');
@@ -1897,7 +1910,7 @@ async function listOrders(env, R, filter) {
     conds.push('(' + parts.join(' OR ') + ')');
   }
   // v1.20 : partage des commandes.
-  const scope = filter.scope === 'all' ? null : run(R, () => F.queueScope_(F.currentUser_()));
+  const scope = filter.scope === 'all' ? null : scopeName;
   if (scope !== null) { conds.push('agent = ?'); binds.push(scope); }
   if (filter.agent) {
     if (String(filter.agent) === '__pool') conds.push("agent = ''");
@@ -1911,10 +1924,20 @@ async function listOrders(env, R, filter) {
   if (status === 'queue') { rowWhere += ' AND status IN (' + placeholders(QUEUE.length) + ')'; rowBinds.push(...QUEUE); }
   else if (status === 'todo') { rowWhere += " AND stage = 'todo'"; }
   else if (status !== 'all') { rowWhere += ' AND status = ?'; rowBinds.push(status); }
-  const [cnt, rows] = await db.batch([
+  // « À appeler » : toutes lues (peu nombreuses), puis triées comme la file d'appels.
+  const todo = status === 'todo' && !qOn;
+  const nowIso = new Date().toISOString();
+  const stmts = [
     db.prepare('SELECT status, stage, COUNT(*) AS n FROM orders WHERE ' + base + ' GROUP BY status, stage').bind(...binds),
-    db.prepare('SELECT id, rev, data FROM orders WHERE ' + rowWhere + ' ORDER BY date DESC, seq DESC LIMIT ?').bind(...rowBinds, limit)
-  ]);
+    db.prepare('SELECT id, rev, data FROM orders WHERE ' + rowWhere + ' ORDER BY date DESC, seq DESC LIMIT ?').bind(...rowBinds, todo ? 2000 : limit)
+  ];
+  if (!qOn) {
+    stmts.push(db.prepare("SELECT agent, COUNT(*) AS n FROM orders WHERE archived = 0 AND stage = 'todo' AND status IN (" + placeholders(QUEUE.length) + ") AND (callback = '' OR callback <= ?) GROUP BY agent")
+      .bind(...QUEUE, nowIso));
+    stmts.push(db.prepare('SELECT COUNT(*) AS n FROM orders WHERE archived = 0 AND agent = ? AND updated >= ? AND status IN (' + placeholders(K.CONFIRMED_STATUSES.length) + ')')
+      .bind(R.userName || '', todayStartIso(), ...K.CONFIRMED_STATUSES));
+  }
+  const [cnt, rows, dueBy, mine] = await db.batch(stmts);
   const counts = { all: 0, queue: 0, todo: 0 };
   (cnt.results || []).forEach((r) => {
     const key = r.status || '—';
@@ -1924,9 +1947,16 @@ async function listOrders(env, R, filter) {
     if (r.stage === 'todo') counts.todo += r.n;
   });
   const total = status === 'all' ? counts.all : status === 'queue' ? counts.queue : status === 'todo' ? counts.todo : (counts[status] || 0);
-  const list = (rows.results || []).map(toOrder);
+  let list = (rows.results || []).map(toOrder);
+  if (todo) list = run(R, () => F.sortTodo_(list, new Date(), F.getSettings_())).slice(0, limit);
   const out = run(R, () => list.map((o) => F.serializeOrder_(o)));
   const res = { rows: out, total: total, counts: counts, arrived: 0 };
+  if (!qOn) {
+    const due = {};
+    (dueBy.results || []).forEach((x) => { due[String(x.agent || '').trim()] = (due[String(x.agent || '').trim()] || 0) + x.n; });
+    res.share = run(R, () => F.shareSummary_(F.currentUser_(), F.getSettings_(), due));
+    res.mine = { confirmedToday: (mine.results && mine.results[0] && mine.results[0].n) || 0 };
+  }
   if (filter.withStatus) res.importStatus = await PAGES.api_importStatus(env, R);
   return res;
 }
@@ -2389,7 +2419,7 @@ async function pushTo(env, base, kind, payload, opts) {
 }
 
 function wilayaShort(w) { return String(w || '').replace(/^\d+\s*-\s*/, ''); }
-function orderLink(id, route) { return '/?o=' + encodeURIComponent(String(id)) + '#/' + (route || 'confirmation'); }
+function orderLink(id, route) { return '/?o=' + encodeURIComponent(String(id)) + '#/' + (route || 'commandes'); }
 
 /** Nouvelles commandes (relais RELEASIT, Shopify) : une notification par commande (au plus 3), sinon une seule. */
 async function notifyNewOrders(env, base, orders) {
@@ -2410,7 +2440,7 @@ async function notifyNewOrders(env, base, orders) {
     return keys.length ? keys : undefined;
   };
   if (list.length > 3) {
-    return pushTo(env, base, 'orders', { title: list.length + ' nouvelles commandes', body: list.slice(0, 6).map((o) => o.id).join(', ') + (list.length > 6 ? '…' : ''), tag: 'new-batch', url: '/#/confirmation' },
+    return pushTo(env, base, 'orders', { title: list.length + ' nouvelles commandes', body: list.slice(0, 6).map((o) => o.id).join(', ') + (list.length > 6 ? '…' : ''), tag: 'new-batch', url: '/#/commandes' },
       { team: team, members: membersFor(list.map((o) => String(o.agent || '').trim())) });
   }
   let sent = 0;
@@ -2967,7 +2997,7 @@ Object.assign(PAGES, {
   async api_pushTest(env, R, args) {
     const row = await env.DB.prepare('SELECT id FROM push_subs WHERE endpoint = ? AND member = ?').bind(String(args[0] || ''), String(R.user.email || '')).first();
     if (!row) throw new HttpError(404, 'Notifications pas activées sur ce téléphone.');
-    const r = await pushTo(env, R.base, 'orders', { title: 'Essai : ça marche ✓', body: 'Les notifications de DZ Smart Shop arrivent sur ce téléphone.', tag: 'essai', url: '/#/confirmation' },
+    const r = await pushTo(env, R.base, 'orders', { title: 'Essai : ça marche ✓', body: 'Les notifications de DZ Smart Shop arrivent sur ce téléphone.', tag: 'essai', url: '/#/commandes' },
       { members: [String(R.user.email || '')], test: true });
     if (!r.sent) throw new HttpError(502, 'La notification n’est pas partie : désactivez puis réactivez les notifications.');
     return { message: 'Notification d’essai envoyée.' };
@@ -3074,7 +3104,7 @@ async function manifest(env) {
   try { const r = await env.DB.prepare("SELECT value FROM kv WHERE key = 'cf:shop'").first(); if (r && r.value) shop = String(r.value); } catch (e) { /* nom par défaut */ }
   const m = {
     name: shop, short_name: shop.length > 14 ? 'DZ Smart Shop' : shop, description: 'Commandes, confirmation, expéditions et suivi (paiement à la livraison)',
-    id: '/', start_url: '/?app=1#/confirmation', scope: '/', display: 'standalone', orientation: 'portrait',
+    id: '/', start_url: '/?app=1#/commandes', scope: '/', display: 'standalone', orientation: 'portrait',
     background_color: '#10241B', theme_color: '#10241B', lang: 'fr', dir: 'ltr',
     icons: [
       { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },

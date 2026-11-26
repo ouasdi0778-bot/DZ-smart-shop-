@@ -1313,6 +1313,22 @@ button.mode-tab.on { background: var(--surface); }
   .sh-ctl .more-menu { margin-left: auto; }
 }
 
+/* v1.21 : page Commandes unique : groupes de « À appeler », barre de présence ou filtres par confirmatrice. */
+#share-bar:empty { display: none; }
+#share-bar .share-me, #share-bar .share-chips { margin: 0 0 12px; }
+.today-line { margin: 0 2px 10px; }
+table.data tbody tr.grp-row > td { padding: 16px 12px 6px; font: 700 12.5px var(--font); text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+  background: transparent !important; border: 0; box-shadow: none !important; cursor: default; }
+table.data tbody tr.grp-row:first-child > td { padding-top: 8px; }
+table.data tbody tr.grp-row:hover > td { background: transparent !important; }
+table.data tbody tr.grp-row .qh { text-transform: none; letter-spacing: 0; }
+@media (max-width: 860px) {
+  table.cards tr.grp-row { padding: 14px 4px 4px; border: 0; background: transparent; }
+  table.cards tr.grp-row:first-child { padding-top: 4px; }
+  table.cards tr.grp-row > td { display: block; padding: 0; text-align: left; }
+  table.cards tr.grp-row > td::before { display: none; }
+}
+
 /* Application Google après le basculement : les pages des commandes sont dans la version Cloudflare. */
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }

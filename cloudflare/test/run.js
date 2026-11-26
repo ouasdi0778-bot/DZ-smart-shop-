@@ -1119,7 +1119,7 @@ test('v1.12 · Application installable ; notifications chiffrées (RFC 8291) et 
   // Application installable : manifeste, service worker, icônes.
   const man = await worker.fetch(new Request(HOST + '/manifest.webmanifest'), env);
   const m = await man.json();
-  assert.deepStrictEqual([m.name, m.display, m.start_url, m.icons.length], ['Boutique test', 'standalone', '/?app=1#/confirmation', 3]);
+  assert.deepStrictEqual([m.name, m.display, m.start_url, m.icons.length], ['Boutique test', 'standalone', '/?app=1#/commandes', 3]);
   const sw = await (await worker.fetch(new Request(HOST + '/sw.js'), env)).text();
   assert.ok(/addEventListener\('push'/.test(sw) && /notificationclick/.test(sw) && /Pas de connexion internet/.test(sw));
   const ic = await worker.fetch(new Request(HOST + '/icons/icon-192.png'), env);
@@ -1187,7 +1187,7 @@ test('v1.12 · Application installable ; notifications chiffrées (RFC 8291) et 
   const msg = await open(c1.body);
   assert.strictEqual(msg.title, 'Nouvelle commande 9601');
   assert.ok(/Client Test/.test(msg.body) && /2 250 DA/.test(msg.body) && !/^\d+ - /.test(msg.body), msg.body);
-  assert.deepStrictEqual([msg.url, msg.tag], ['/?o=9601#/confirmation', 'new-9601']);
+  assert.deepStrictEqual([msg.url, msg.tag], ['/?o=9601#/commandes', 'new-9601']);
 
   // Choix : plus de nouvelles commandes sur ce téléphone.
   await api('api_pushPrefs', sub.endpoint, { orders: false, callbacks: true, quiet: false });
@@ -1203,7 +1203,7 @@ test('v1.12 · Application installable ; notifications chiffrées (RFC 8291) et 
   await cron(env);
   const cbs = [];
   for (const c of mine().slice(n1)) cbs.push(await open(c.body));
-  assert.deepStrictEqual(cbs.filter((x) => /^Rappel/.test(x.title)).map((x) => x.url), ['/?o=' + encodeURIComponent(o) + '#/confirmation']);
+  assert.deepStrictEqual(cbs.filter((x) => /^Rappel/.test(x.title)).map((x) => x.url), ['/?o=' + encodeURIComponent(o) + '#/commandes']);
 
   // Essai ; puis abonnement expiré chez le service : effacé.
   assert.ok(/essai/.test((await api('api_pushTest', sub.endpoint)).message));
@@ -1230,7 +1230,10 @@ test('v1.20 · Partage des commandes : file et compteurs par confirmatrice, tâc
   const dueOf = async (name) => (await env.DB.prepare("SELECT COUNT(*) AS n FROM orders WHERE archived = 0 AND stage = 'todo' AND agent = ? AND status IN ('À confirmer', 'Pas de réponse', 'Rappeler') AND (callback = '' OR callback <= ?)").bind(name, new Date().toISOString()).first()).n;
   const had = await dueOf('Imane'); // ses appels du jeu d'exemple (pas de réponse…) lui restent
   // Imane ouvre sa file : elle est présente, ses commandes arrivent tout de suite (au plus 15 d'avance).
-  const q = await as('imane@example.com', 'api_queue', {});
+  // (Démarrage de l'application avec sa file préchargée : le partage ne doit pas provoquer de « conflit ».)
+  const boot0 = await apiRaw('imane@example.com', 'api_bootstrap', [{ fn: 'api_queue', args: [{ sync: true, first: true }] }]);
+  assert.ok(boot0.body.ok, 'démarrage : ' + boot0.body.error);
+  const q = boot0.body.data.preload.data;
   assert.ok(q.due.length > 0 && q.due.every((x) => x.agent === 'Imane'), 'elle ne voit que ses commandes');
   assert.deepStrictEqual([q.share.on, q.share.confirm, q.share.me.present], [true, true, true]);
   const mine = await dueOf('Imane');
@@ -1247,6 +1250,17 @@ test('v1.20 · Partage des commandes : file et compteurs par confirmatrice, tâc
   assert.ok(out.share && !out.share.error, JSON.stringify(out.share));
   assert.strictEqual(await pool(), 0, 'tout est partagé entre les présentes');
   assert.ok((await dueOf('Sonia')) > 0, 'Sonia a reçu sa part');
+
+  // v1.21 : démarrage de l'application (page Commandes préchargée) sans « conflit », liste triée et partagée.
+  for (const fn of ['api_listOrders', 'api_queue']) {
+    const args = fn === 'api_listOrders' ? [{ status: 'todo', period: '30', limit: 100 }] : [{ sync: true, first: true }];
+    const boot = await apiRaw('sonia@example.com', 'api_bootstrap', [{ fn: fn, args: args }]);
+    assert.ok(boot.body.ok, fn + ' : ' + boot.body.error);
+    assert.ok(boot.body.data.preload && boot.body.data.preload.data, 'page préchargée');
+  }
+  const lt = await as('sonia@example.com', 'api_listOrders', { status: 'todo', period: 'all', limit: 100 });
+  assert.ok(lt.rows.every((o) => o.agent === 'Sonia') && lt.share.confirm && lt.mine);
+  assert.deepStrictEqual(lt.rows.map((o) => o.id), gasTodoOrder(lt.rows), 'même ordre que la file d’appels');
 
   // L'administrateur voit tout, avec l'équipe et « à partager ».
   const qa = await api('api_queue', {});
@@ -1271,6 +1285,11 @@ test('v1.20 · Partage des commandes : file et compteurs par confirmatrice, tâc
   const team = await api('api_teamList');
   assert.deepStrictEqual(team.members.filter((m) => m.name === 'Imane').map((m) => [m.ship, m.track, m.presence.present]), [[true, false, true]]);
 });
+
+/** Ordre de « À appeler » calculé par la version Google (mêmes commandes). */
+function gasTodoOrder(rows) {
+  return sortTodo_(rows.map((o) => Object.assign({}, o)), new Date(), getSettings_()).map((o) => o.id);
+}
 
 async function teamTabCf() {
   const r = await env.DB.prepare("SELECT rows FROM tabs WHERE name = 'Équipe' ORDER BY part").all();

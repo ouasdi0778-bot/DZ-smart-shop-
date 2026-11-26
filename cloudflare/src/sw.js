@@ -33,7 +33,7 @@ self.addEventListener('push', function (e) {
     badge: '/icons/badge-96.png',
     lang: 'fr',
     timestamp: d.at || Date.now(),
-    data: { url: d.url || '/#/confirmation' },
+    data: { url: d.url || '/#/commandes' },
     actions: d.actions || []
   }));
 });

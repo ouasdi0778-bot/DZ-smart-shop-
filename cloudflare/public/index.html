@@ -1267,6 +1267,20 @@ background: var(--surface); color: var(--ink); font: 600 15px var(--font); text-
 .sh-ctl { width: 100%; }
 .sh-ctl .more-menu { margin-left: auto; }
 }
+#share-bar:empty { display: none; }
+#share-bar .share-me, #share-bar .share-chips { margin: 0 0 12px; }
+.today-line { margin: 0 2px 10px; }
+table.data tbody tr.grp-row > td { padding: 16px 12px 6px; font: 700 12.5px var(--font); text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+background: transparent !important; border: 0; box-shadow: none !important; cursor: default; }
+table.data tbody tr.grp-row:first-child > td { padding-top: 8px; }
+table.data tbody tr.grp-row:hover > td { background: transparent !important; }
+table.data tbody tr.grp-row .qh { text-transform: none; letter-spacing: 0; }
+@media (max-width: 860px) {
+table.cards tr.grp-row { padding: 14px 4px 4px; border: 0; background: transparent; }
+table.cards tr.grp-row:first-child { padding-top: 4px; }
+table.cards tr.grp-row > td { display: block; padding: 0; text-align: left; }
+table.cards tr.grp-row > td::before { display: none; }
+}
 .cf-live [data-route="commandes"], .cf-live [data-route="confirmation"], .cf-live [data-route="expeditions"], .cf-live [data-route="suivi"] { display: none !important; }
 .cf-full [data-route="tableau"], .cf-full [data-route="benefices"], .cf-full [data-route="stock"], .cf-full [data-route="stats"] { display: none !important; }
 </style>
@@ -1556,7 +1570,7 @@ var DZC = (function () {
   var STEP_KEY = 'dz-smart-shop:step';
   /** Pages restées dans l'application Google (étape 3) : ouvertes là-bas. */
   var EXTERNAL = ['benefices', 'stock', 'stats', 'admin'];
-  var VERSION = '1.20.0';
+  var VERSION = '1.21.0';
 
   /** Même empreinte que shortHash_ (Api.gs) : clé de la mémoire sur l'appareil, sans l'adresse. */
   function shortHash(text) {
@@ -1584,7 +1598,7 @@ var DZC = (function () {
       var data = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
       saveSession({ t: token, e: String(data.e).toLowerCase(), x: data.x, k: shortHash('dz-smart-shop|' + String(data.e).toLowerCase()), v: 1 });
     } catch (e) { /* jeton illisible : écran de connexion */ }
-    history.replaceState(null, '', location.pathname + location.search + '#/confirmation');
+    history.replaceState(null, '', location.pathname + location.search + '#/commandes');
   }
   var session = readSession();
   if (session && !(session.x > Date.now())) session = null;
@@ -2204,7 +2218,10 @@ return ROUTES.indexOf(r) < 0 ? 'tableau' : r;
 function listArgs(first) {
 var f = {};
 Object.keys(S.filter).forEach(function (k) { f[k] = S.filter[k]; });
-if (String(f.q || '').trim()) f.status = 'all'; // une recherche trouve les commandes de toutes les pages
+if (String(f.q || '').trim()) {
+f.status = 'all'; // une recherche trouve les commandes de toutes les pages
+if (S.boot && S.boot.user.confirm) f.scope = 'all'; // v1.21 : et celles des collègues (« Suivie par … »)
+}
 if (first) { f.sync = true; f.withStatus = true; }
 return f;
 }
@@ -2239,7 +2256,7 @@ else if (r === 'expeditions') { if (S.boot.user.ship === false) { denyRoute(r); 
 else if (r === 'suivi') { if (S.boot.user.track === false) { denyRoute(r); return; } pageTracking(); }
 else if (r === 'benefices' || r === 'stats' || r === 'admin') { if (S.boot.user.admin) openModule(r); else { location.hash = '#/tableau'; return; } }
 else if (r === 'stock') { if (S.boot.user.stock) openModule(r); else { location.hash = '#/tableau'; return; } }
-else pageConfirm();
+else { location.hash = '#/commandes'; return; } // v1.21 : plus d'onglet Appeler, tout est dans Commandes
 view.focus({ preventScroll: true });
 window.scrollTo(0, 0);
 }
@@ -2258,8 +2275,7 @@ return m === 'appeler' || m === 'liste' ? m : (S.boot && S.boot.user && S.boot.u
 }
 function setCmdMode(m) {
 if (m) { try { window.localStorage.setItem(CMD_KEY, m); } catch (e) { /* sans importance */ } }
-var href = cmdMode() === 'appeler' ? '#/confirmation' : '#/commandes';
-$all('[data-cmd-link]').forEach(function (a) { a.setAttribute('href', href); });
+$all('[data-cmd-link]').forEach(function (a) { a.setAttribute('href', '#/commandes'); });
 }
 function modeBar(mode) {
 var n = S.queueNow || 0;
@@ -2421,8 +2437,10 @@ function pageOrders() {
 var f = S.filter;
 var periods = [['today', 'Aujourd’hui'], ['7', '7 derniers jours'], ['30', '30 derniers jours'], ['all', 'Tout']];
 view.innerHTML =
-modeBar('liste') + '<div class="orders-page"><div class="page-head"><div><h1>Commandes' + help('Commandes pas encore confirmées. Une commande confirmée passe dans <strong>Expédier</strong>, puis <strong>Suivi</strong>. La recherche trouve toutes les commandes.') + '</h1></div>' +
+'<div class="orders-page"><div class="page-head"><div><h1>Commandes' + help('<strong>À appeler</strong> : les commandes à appeler, dans l’ordre (rappels arrivés à l’heure, nouvelles, pas de réponse ; en bas, les rappels prévus plus tard et celles en attente). Touchez une commande pour l’appeler. ' +
+'Une commande confirmée passe dans <strong>Expédier</strong>, puis <strong>Suivi</strong>. La recherche trouve toutes les commandes.') + '</h1></div>' +
 '<button type="button" class="btn primary" data-act="new-order">' + icon('plus') + 'Nouvelle commande</button></div>' +
+'<div id="share-bar"></div>' +
 '<div class="ord-search">' + icon('search') + '<input type="search" id="f-q" value="' + h(f.q) + '" placeholder="Nom, téléphone, n° de commande ou de suivi" aria-label="Rechercher"></div>' +
 '<div class="chips-line"><button type="button" class="chip filters-chip" data-act="filters-sheet">' + icon('filter') + 'Filtres' + filterBadge() + '</button>' +
 '<div class="chips" id="chips" role="group" aria-label="Filtrer par statut"></div></div>' +
@@ -2437,6 +2455,7 @@ agentSelect('f-agent', f.agent) +
 '<div id="orders-list"><p class="loading">Chargement…</p></div></div>' +
 '<button type="button" class="fab" data-act="new-order" aria-label="Nouvelle commande">' + icon('plus') + '</button>';
 if (S.list && S.listKey === listKey()) {
+renderShareBar(S.list);
 renderChips(S.list.counts);
 renderOrderList(S.list);
 if (S.list.importStatus) renderShopStatus(S.list.importStatus);
@@ -2539,9 +2558,11 @@ syncStart();
 call('api_listOrders', listArgs(first)).then(function (res) {
 syncEnd();
 if (t !== S.token || S.route !== 'commandes') return;
+if (!res.share && S.list && S.list.share) { res.share = S.list.share; res.mine = S.list.mine; } // recherche : on garde la barre
 S.list = res;
 S.listKey = key;
 perfDone('commandes');
+renderShareBar(res);
 renderChips(res.counts);
 renderOrderList(res);
 if (res.importStatus) renderShopStatus(res.importStatus);
@@ -2585,7 +2606,7 @@ if (String(S.filter.q || '').trim()) {
 $('#chips').innerHTML = '<span class="small">Recherche dans toutes les commandes (toutes les pages) · ' + plural(counts.all || 0, 'résultat', 'résultats') + '</span>';
 return;
 }
-var list = [['todo', 'À traiter']].concat(TODO_STATUSES.map(function (s) { return [s, s]; }));
+var list = [['todo', 'À appeler']].concat(TODO_STATUSES.map(function (s) { return [s, s]; }));
 var chip = function (c, n) {
 return '<button type="button" class="chip" data-act="chip" data-status="' + h(c[0]) + '" aria-pressed="' + (S.filter.status === c[0]) + '">' +
 h(c[1]) + (n === null ? '' : ' · ' + (n || 0)) + '</button>';
@@ -2594,6 +2615,7 @@ $('#chips').innerHTML = list.filter(function (c) {
 return c[0] === 'todo' || c[0] === S.filter.status || counts[c[0]];
 }).map(function (c) { return chip(c, counts[c[0]]); }).join('') +
 '<span class="chip-sep" aria-hidden="true"></span>' +
+chip(['all', S.boot.user.confirm && S.boot.user.share ? 'Mes commandes' : 'Toutes'], counts.all) +
 chip(['Annulée', 'Annulées'], counts['Annulée']) +
 (S.boot.user.admin ? chip(['trash', 'Corbeille'], null) : '');
 }
@@ -2611,9 +2633,24 @@ var html = S.boot.user.admin ? '<div class="list-tools' + (selOn ? ' sel-on' : '
 html += '<div class="table-wrap"><table class="data cards"><thead><tr>' + (selOn ? '<th scope="col" class="sel">' + selAllBox('orders', ids) + '</th>' : '') + head.map(function (t) {
 return '<th scope="col">' + t + '</th>';
 }).join('') + '</tr></thead><tbody>';
+var grouped = S.filter.status === 'todo' && !String(S.filter.q || '').trim();
+var lastGroup = -1;
+var groupN = {};
+if (grouped) res.rows.forEach(function (o) { var g = todoGroup(o); groupN[g] = (groupN[g] || 0) + 1; });
+var cols = head.length + (selOn ? 1 : 0);
+var me = S.boot.user;
 res.rows.forEach(function (o) {
+if (grouped) {
+var g = todoGroup(o);
+if (g !== lastGroup) {
+lastGroup = g;
+html += '<tr class="grp-row"><td colspan="' + cols + '">' + h(TODO_GROUPS[g]) + ' · ' + groupN[g] +
+(g === 2 ? help('Ni confirmées ni annulées, hors des appels (injoignable…) : elles restent ici jusqu’à une décision.') : '') + '</td></tr>';
+}
+}
 var stc = (S.boot.styles[o.status] || {}).fg || '#CFD4DB';
-var rowAct = !o.status || TODO_STATUSES.indexOf(o.status) >= 0 ? 'list-confirm' : 'open-order';
+var other = me.confirm && me.share && o.agent && o.agent !== me.name;
+var rowAct = !o.status || TODO_STATUSES.indexOf(o.status) >= 0 ? (other ? 'list-take' : 'list-confirm') : 'open-order';
 var kind = queueKind(o);
 var qk = kind === 'na' || kind === 'cb';
 var stPill = kind === 'cb' ? '<span class="q-st">' + icon('calendar') + 'Rappel demandé</span>'
@@ -2627,7 +2664,7 @@ html += '<tr class="clickable compact' + (qk ? ' q-' + kind : '') + (selOn ? ' s
 (o.locked ? '<span class="lock-icon">' + icon('lock') + '</span>' : '') +
 (o.alertLevel === 'bad' || o.alertLevel === 'warn' ? alertPill(o.alert, o.alertLevel) : '') +
 (o.status === 'Annulée' && o.cancelReason ? '<span style="color:#A12626">Motif : ' + h(o.cancelReason) + '</span>' : '') +
-(o.agent || TODO_STATUSES.indexOf(o.status) >= 0 ? agentPill(o.agent) : '') + '</span>' +
+(other ? '<span class="ag-pill">' + icon('users') + 'Suivie par ' + h(o.agent) + '</span>' : o.agent || TODO_STATUSES.indexOf(o.status) >= 0 ? agentPill(o.agent) : '') + '</span>' +
 (qk ? '<span class="l-dots">' + dots + cbWhen + '</span>' : '') +
 '<span class="l3"><span>' + h(o.product || '') + (o.qty > 1 ? ' ×' + o.qty : '') + '</span>' + (o.date ? '<span class="ago">' + h(ago(o.date)) + '</span>' : '') + '</span></td>' +
 '<td data-label="N°" class="multi"><button type="button" class="link-btn" data-act="' + rowAct + '" data-id="' + h(o.id) + '">' + h(o.id) + '</button>' +
@@ -2639,7 +2676,7 @@ html += '<tr class="clickable compact' + (qk ? ' q-' + kind : '') + (selOn ? ' s
 '<td data-label="Statut">' + stPill + (qk ? '<div class="l-dots">' + dots + cbWhen + '</div>' : '') +
 (o.status === 'Annulée' && o.cancelReason ? '<div class="small strong" style="color:#A12626">Motif : ' + h(o.cancelReason) + '</div>' : '') +
 (PAGE_LABELS[o.page] && S.filter.status !== 'Annulée' ? '<div class="small">→ ' + PAGE_LABELS[o.page] + '</div>' : '') +
-(o.agent || TODO_STATUSES.indexOf(o.status) >= 0 ? '<div>' + agentPill(o.agent) + '</div>' : '') + '</td>' +
+(other ? '<div><span class="ag-pill">' + icon('users') + 'Suivie par ' + h(o.agent) + '</span></div>' : o.agent || TODO_STATUSES.indexOf(o.status) >= 0 ? '<div>' + agentPill(o.agent) + '</div>' : '') + '</td>' +
 '<td data-label="Alerte">' + alertPill(o.alert, o.alertLevel) + '</td>' +
 '<td data-label="Livraison" class="multi">' + h(o.mode) + '<div class="small">' + h([o.carrier, o.tracking].filter(Boolean).join(' · ')) + '</div></td>' +
 '</tr>';
@@ -3329,7 +3366,7 @@ $('#cstats').innerHTML =
 '<button type="button" class="st-cb" data-act="queue-jump" data-b="later"><strong>' + q.stats.later + '</strong> ' + (q.stats.later > 1 ? 'rappels' : 'rappel') + '</button>' +
 '<button type="button" class="st-na" data-act="queue-jump" data-b="waiting"><strong>' + q.waiting.length + '</strong> en attente</button>' +
 '<span class="st-mine">Mes confirmations aujourd’hui : <strong>' + q.stats.confirmedToday + '</strong></span>';
-var html = shareBar(q) + '<div class="q-legend" aria-hidden="true"><span><i class="q-new"></i>Nouvelle</span><span><i class="q-na"></i>Pas de réponse · Injoignable</span><span><i class="q-cb"></i>Rappel demandé</span></div>' +
+var html = shareBar(q.share, false) + '<div class="q-legend" aria-hidden="true"><span><i class="q-new"></i>Nouvelle</span><span><i class="q-na"></i>Pas de réponse · Injoignable</span><span><i class="q-cb"></i>Rappel demandé</span></div>' +
 '<div class="q-top"><span class="queue-title" id="qb-due">À appeler maintenant · ' + q.due.length + '</span>' +
 '<button type="button" class="btn" style="min-height:36px;padding:0 10px" data-act="refresh-queue">' + icon('refresh') + 'Actualiser</button></div>';
 var due = q.due.filter(qAgentShown);
@@ -3344,26 +3381,44 @@ waiting.map(function (x) { return queueCard(x, 'waiting'); }).join('');
 }
 $('#queue').innerHTML = html;
 }
-function shareBar(q) {
-var sh = q.share;
+function shareBar(sh, list, mine) {
+var today = mine ? ' · <b>' + mine.confirmedToday + '</b> confirmée' + (mine.confirmedToday > 1 ? 's' : '') + ' aujourd’hui' : '';
 if (!sh || !sh.on) return '';
 if (sh.confirm) {
 var me = sh.me || {};
 return me.pause
-? '<div class="share-me pause"><span class="sm-dot"></span><span><b>En pause</b> · vous ne recevez plus de nouvelles commandes</span>' +
+? '<div class="share-me pause"><span class="sm-dot"></span><span><b>En pause</b> · vous ne recevez plus de nouvelles commandes' + today + '</span>' +
 '<button type="button" class="btn primary" data-act="presence" data-pause="0">Je suis là</button></div>'
-: '<div class="share-me"><span class="sm-dot"></span><span><b>Présente</b> · vos commandes arrivent à tour de rôle' +
-help('Les nouvelles commandes sont partagées entre les confirmatrices présentes. Vous ne voyez que les vôtres ; vos rappels restent à vous. En pause (ou sans activité depuis un moment), vos commandes à appeler repartent chez les autres.') + '</span>' +
+: '<div class="share-me"><span class="sm-dot"></span><span><b>Présente</b>' + (list ? '' : ' · vos commandes arrivent à tour de rôle') + today +
+help('Les nouvelles commandes sont partagées à tour de rôle entre les confirmatrices présentes. Vous ne voyez que les vôtres ; vos rappels restent à vous. En pause (ou sans activité depuis un moment), vos commandes à appeler repartent chez les autres.') + '</span>' +
 '<button type="button" class="btn" data-act="presence" data-pause="1">En pause</button></div>';
 }
+var current = list ? S.filter.agent || '' : S.qAgent;
 var chip = function (key, label, n, dot) {
-return '<button type="button" class="chip" data-act="q-agent" data-agent="' + h(key) + '" aria-pressed="' + (S.qAgent === key) + '">' +
+return '<button type="button" class="chip" data-act="' + (list ? 'list-agent' : 'q-agent') + '" data-agent="' + h(key) + '" aria-pressed="' + (current === key) + '">' +
 (dot ? '<span class="sm-dot ' + dot + '"></span>' : '') + h(label) + (n !== null ? ' · ' + n : '') + '</button>';
 };
 var total = (sh.team || []).reduce(function (t, m) { return t + m.due; }, 0) + (sh.pool || 0);
-return '<div class="chips share-chips" role="group" aria-label="File de chaque confirmatrice">' + chip('', 'Toutes', total, '') +
+return '<div class="chips share-chips" role="group" aria-label="File de chaque confirmatrice">' + chip('', 'Toute l’équipe', total, '') +
 (sh.team || []).map(function (m) { return chip(m.name, m.name, m.due, m.present ? 'on' : m.pause ? 'pause' : 'off'); }).join('') +
 chip('__pool', 'À partager', sh.pool || 0, '') + '</div>';
+}
+function renderShareBar(res) {
+var box = $('#share-bar');
+if (!box) return;
+var html = res ? shareBar(res.share, true, S.boot.user.confirm ? res.mine : null) : '';
+if (!html && res && res.mine && S.boot.user.confirm) html = '<p class="small today-line">Mes confirmations aujourd’hui : <b>' + res.mine.confirmedToday + '</b></p>';
+box.innerHTML = html;
+}
+var TODO_GROUPS = ['À appeler maintenant', 'Rappels à venir', 'En attente'];
+function todoGroup(o) {
+if (S.boot.queueStatuses.indexOf(o.status) < 0) return 2;
+return o.callback && new Date(o.callback).getTime() > Date.now() ? 1 : 0;
+}
+function askListTake(el) {
+var o = listRow(el.getAttribute('data-id')) || {};
+S.takeId = el.getAttribute('data-id');
+confirmModal('Prendre la commande ' + S.takeId + ' ?', 'Elle est suivie par ' + (o.agent || 'une collègue') + '. Elle devient la vôtre et s’ouvre pour l’appel.', 'list-take-go', 'Prendre et ouvrir');
 }
 function qAgentShown(x) {
 if (!S.qAgent) return true;
@@ -3379,7 +3434,7 @@ var pause = el.getAttribute('data-pause') === '1';
 el.disabled = true;
 call('api_presence', pause).then(function (r) {
 toast(r.message);
-loadQueue(false, false);
+if (S.route === 'commandes') loadOrders(); else if (S.queue) loadQueue(false, false);
 }).catch(function (e) { el.disabled = false; toast(errText(e), true); });
 }
 function takeOrder(el) {
@@ -5094,6 +5149,24 @@ refreshCount();
 'presence': setPresence,
 'cs-take': takeOrder,
 'q-agent': function (el) { S.qAgent = el.getAttribute('data-agent') || ''; renderQueue(); },
+'list-agent': function (el) {
+S.filter.agent = el.getAttribute('data-agent') || '';
+S.filter.limit = 100;
+var fa = $('#f-agent'); if (fa) fa.value = S.filter.agent;
+if (S.list) renderShareBar(S.list);
+loadOrders();
+},
+'list-take': askListTake,
+'list-take-go': function (el) {
+var id = S.takeId;
+el.disabled = true;
+call('api_takeOrder', id).then(function (r) {
+closeModal();
+toast(r.message);
+loadOrders();
+openListDetail(id);
+}).catch(function (e) { el.disabled = false; toast(errText(e), true); });
+},
 'orders-trash': trashOrdersSel,
 'trash-purge-ask': askPurgeTrash,
 'trash-purge': purgeTrash,
@@ -5421,9 +5494,8 @@ function preloadPages() {
 var specs = [];
 if (!S.dash[periodKey(S.dashP)]) specs.push({ fn: 'api_dashboard', args: periodArgs(S.dashP), key: periodKey(S.dashP) });
 if (!S.list) specs.push({ fn: 'api_listOrders', args: [listArgs(false)] });
-if (!S.queue && S.route !== 'confirmation') specs.push({ fn: 'api_queue', args: [] });
-if (!S.ship.data) specs.push({ fn: 'api_shippingList', args: [] });
-if (!S.track.data) specs.push({ fn: 'api_trackingOverview', args: [S.track.days] });
+if (!S.ship.data && S.boot.user.ship !== false) specs.push({ fn: 'api_shippingList', args: [] });
+if (!S.track.data && S.boot.user.track !== false) specs.push({ fn: 'api_trackingOverview', args: [S.track.days] });
 var then = function () {
 var u = S.boot.user;
 var names = [].concat(u.admin ? ['stats', 'admin', 'benefices'] : []).concat(u.stock ? ['stock'] : []);
@@ -5594,7 +5666,8 @@ var o = u.searchParams.get('o');
 if (u.hash && u.hash !== location.hash) location.hash = u.hash;
 if (o) {
 if (u.search && location.search) history.replaceState(null, '', location.pathname + location.hash);
-setTimeout(function () { openOrder(o); }, 400);
+var inList = /^#\/(commandes|confirmation)/.test(u.hash || location.hash);
+setTimeout(function () { if (inList) openListDetail(o); else openOrder(o); }, 400);
 }
 }
 document.addEventListener('dz-open', function (e) { openFromLink(e.detail); });
